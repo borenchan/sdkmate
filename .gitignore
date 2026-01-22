@@ -1,0 +1,7 @@
+/target
+.idea
+.vscode
+.claude
+.zed
+/openspec
+AGENTS.md

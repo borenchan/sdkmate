@@ -1,0 +1,21 @@
+# rust-toolchain.toml
+[toolchain]
+# 推荐使用稳定版的具体版本号（而非仅 "stable"），避免自动升级引入兼容性问题
+channel = "1.92.0"
+
+# 强制安装必备组件（格式化、代码检查），避免手动安装
+components = [
+  "rustfmt",    # 代码格式化工具
+  "clippy",     # 代码质量检查工具
+  "rust-docs"   # 文档生成工具（可选，建议保留）
+]
+
+# 预安装常用编译目标（按需增减，比如跨平台编译时添加）
+targets = [
+  "x86_64-unknown-linux-gnu",  # Linux x64
+  "x86_64-pc-windows-msvc",    # Windows x64（可选）
+  "aarch64-unknown-linux-gnu"  # ARM64 Linux（可选）
+]
+
+# 禁用自动更新工具链（保证版本绝对固定）
+profile = "minimal"

@@ -1,0 +1,38 @@
+# clippy.toml
+# 精简核心配置 - 仅包含最常用和必要的选项
+
+# ===================== 基础规则配置 =====================
+
+# 允许单字符变量名（如 i/j 用于循环）
+single-char-binding-names-threshold = 1
+
+# ===================== 测试代码配置 =====================
+
+# 允许在测试代码中使用 unwrap/expect
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# 允许在测试代码中使用 panic
+allow-panic-in-tests = true
+
+# 允许在测试代码中使用 print 语句
+allow-print-in-tests = true
+
+# 允许在测试代码中使用 dbg! 宏
+allow-dbg-in-tests = true
+
+# ===================== 其他配置 =====================
+
+# 最小标识符字符数阈值
+min-ident-chars-threshold = 1
+
+# 结构体字段名称最小长度
+struct-field-name-threshold = 1
+
+# 枚举变体名称最小长度
+enum-variant-name-threshold = 2
+
+# ===================== 注意事项 =====================
+# 1. Lint 级别（deny/warn/allow）需要在代码中通过属性配置
+#    例如：#[deny(unused_variables)] 或通过命令行参数
+# 2. 运行 cargo clippy -- -W help 查看所有可用 lint

@@ -1,0 +1,33 @@
+# rustfmt.toml
+# 精简核心配置 - 仅包含最常用和必要的选项
+
+# 行宽配置
+max_width = 120                    # 每行最大字符数（默认100，设为120减少不必要的换行）
+
+# 缩进配置
+tab_spaces = 4                     # 每个缩进使用4个空格
+hard_tabs = false                  # 不使用制表符，使用空格缩进
+
+# 函数参数布局
+fn_params_layout = "Tall"          # 函数参数根据宽度自动决定是否换行（默认行为）
+
+# 导入语句排序
+reorder_imports = true             # 按字母顺序重新排序导入语句
+reorder_modules = true             # 按字母顺序重新排序模块语句
+
+# 函数调用宽度控制
+fn_call_width = 80                 # 函数调用参数的最大宽度，超过则垂直排列
+
+# 数组宽度控制
+array_width = 80                   # 数组字面量的最大宽度，超过则垂直排列
+
+# 链式调用宽度控制
+chain_width = 80                   # 链式调用的最大宽度，超过则换行
+
+# Rust 版本配置
+edition = "2024"                   # 使用 Rust 2024 版本
+style_edition = "2024"             # 样式指南使用 2024 版本
+
+# 其他实用配置
+remove_nested_parens = true        # 移除多余的嵌套括号
+merge_derives = true               # 合并多个 #[derive(...)] 属性

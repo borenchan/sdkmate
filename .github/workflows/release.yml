@@ -1,0 +1,160 @@
+name: Release sdkvm-cli
+
+# 触发条件：当推送以v开头的标签时触发（如v0.1.0、v1.2.3）
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  # 跨平台构建任务
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: sdkvm
+            asset_name: sdkvm-linux-x86_64
+            archive_format: tar.gz
+            system_deps: libasound2-dev
+            asset_name_without_exe: ""
+          # macOS x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: sdkvm
+            asset_name: sdkvm-macos-x86_64
+            archive_format: tar.gz
+            system_deps: ""
+            asset_name_without_exe: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: sdkvm
+            asset_name: sdkvm-macos-aarch64
+            archive_format: tar.gz
+            system_deps: ""
+            asset_name_without_exe: ""
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: sdkvm.exe
+            asset_name: sdkvm-windows-x86_64.exe
+            asset_name_without_exe: sdkvm-windows-x86_64
+            archive_format: zip
+            system_deps: ""
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      # 安装系统依赖
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.system_deps != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.system_deps }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --locked
+
+      - name: Strip binary (非Windows平台)
+        if: matrix.os != 'windows-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          # 创建 artifacts 目录并验证
+          mkdir -p release-artifacts
+          
+          # 复制二进制文件
+          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "release-artifacts/${{ matrix.asset_name }}"
+          
+          # 生成压缩包
+          if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
+            tar -czf "release-artifacts/${{ matrix.asset_name }}.tar.gz" -C release-artifacts "${{ matrix.asset_name }}"
+          else
+            # 去掉 asset_name 中的 .exe 后缀用于压缩
+            7z a -tzip "release-artifacts/${{ matrix.asset_name_without_exe }}.zip" ./release-artifacts/*
+          fi
+          
+          # 验证文件是否生成（用于调试）
+          echo "生成的文件列表："
+          ls -la release-artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            release-artifacts/${{ matrix.asset_name }}  
+            release-artifacts/${{ matrix.asset_name_without_exe != '' && matrix.asset_name_without_exe || matrix.asset_name }}.${{ matrix.archive_format }}
+          if-no-files-found: error  # 无文件时明确报错
+
+  # 发布任务
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 需要发布权限
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史用于生成发布说明
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # 获取上一个标签和当前标签
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
+          CURRENT_TAG=$(git describe --tags --abbrev=0 HEAD)
+          
+          # 生成发布说明
+          echo "## What's new in $CURRENT_TAG" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Changes since $PREV_TAG:" >> RELEASE_NOTES.md
+          git log --pretty=format:"- %s" $PREV_TAG..$CURRENT_TAG >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Installation" >> RELEASE_NOTES.md
+          echo "Download the appropriate package for your platform and add to your PATH." >> RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            *.tar.gz
+            *.zip
+            release-artifacts/*
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Successfully created release ${{ github.ref_name }}"
