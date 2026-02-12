@@ -1,4 +1,4 @@
-name: Release sdkvm-cli
+name: Release sdkmate
 
 # 触发条件：当推送以v开头的标签时触发（如v0.1.0、v1.2.3）
 on:
@@ -18,32 +18,32 @@ jobs:
           # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: sdkvm
-            asset_name: sdkvm-linux-x86_64
+            artifact_name: sdkm
+            asset_name: sdkmate-linux-x86_64
             archive_format: tar.gz
             system_deps: libasound2-dev
             asset_name_without_exe: ""
           # macOS x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: sdkvm
-            asset_name: sdkvm-macos-x86_64
+            artifact_name: sdkm
+            asset_name: sdkmate-macos-x86_64
             archive_format: tar.gz
             system_deps: ""
             asset_name_without_exe: ""
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: sdkvm
-            asset_name: sdkvm-macos-aarch64
+            artifact_name: sdkm
+            asset_name: sdkmate-macos-aarch64
             archive_format: tar.gz
             system_deps: ""
             asset_name_without_exe: ""
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: sdkvm.exe
-            asset_name: sdkvm-windows-x86_64.exe
-            asset_name_without_exe: sdkvm-windows-x86_64
+            artifact_name: sdkm.exe
+            asset_name: sdkmate-windows-x86_64.exe
+            asset_name_without_exe: sdkmate-windows-x86_64
             archive_format: zip
             system_deps: ""
 
@@ -83,11 +83,11 @@ jobs:
           mkdir -p release-artifacts
           
           # 复制二进制文件
-          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "release-artifacts/${{ matrix.asset_name }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "release-artifacts/${{ matrix.artifact_name }}"
           
           # 生成压缩包
           if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
-            tar -czf "release-artifacts/${{ matrix.asset_name }}.tar.gz" -C release-artifacts "${{ matrix.asset_name }}"
+            tar -czf "release-artifacts/${{ matrix.asset_name }}.tar.gz" -C release-artifacts "${{ matrix.artifact_name }}"
           else
             # 去掉 asset_name 中的 .exe 后缀用于压缩
             7z a -tzip "release-artifacts/${{ matrix.asset_name_without_exe }}.zip" ./release-artifacts/*
@@ -102,7 +102,6 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: |
-            release-artifacts/${{ matrix.asset_name }}  
             release-artifacts/${{ matrix.asset_name_without_exe != '' && matrix.asset_name_without_exe || matrix.asset_name }}.${{ matrix.archive_format }}
           if-no-files-found: error  # 无文件时明确报错
 
@@ -152,7 +151,6 @@ jobs:
           files: |
             *.tar.gz
             *.zip
-            release-artifacts/*
 
       - name: Notify on success
         if: success()

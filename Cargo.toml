@@ -1,16 +1,56 @@
-[package]
-name = "sdkvm-cli"
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "An SDK version manager for full-stack engineers"
-repository = "https://github.com/borenchan/sdkvm-cli"
-authors = ["boren1007@qq.com"]
 license = "Apache-2.0"
-[dependencies]
+authors = ["boren1007@qq.com"]
+description = "An SDK version manager for full-stack engineers"
+repository = "https://github.com/borenchan/sdkmate"
+
+[workspace]
+members = [
+    ".",           # 根 crate（包含 main.rs）
+    "crates/core",
+    "crates/cli",
+    "crates/util",
+]
+
+# 公共依赖版本管理（统一版本，避免冲突）
+[workspace.dependencies]
+#cli parser
 clap = { version = "4.5.17", features = ["derive"] }
 #  网络请求
-reqwest = { version = "0.12.7" ,features = ["blocking",  "json", "gzip","multipart"]}
+reqwest = { version = "0.12.7", features = [
+    "blocking",
+    "json",
+    "gzip",
+    "multipart",
+] }
 
+# 终端控制与调色
+crossterm = { version = "0.28.1" }
+# 配置文件解析
+toml = "0.8"
+
+# 工作区包引用
+cli = { path = "crates/cli" }
+core = { path = "crates/core" }
+util = { path = "crates/util" }
+
+#根目录 包配置
+[package]
+name = "sdkmate"
+version.workspace= true
+edition.workspace= true
+description.workspace= true
+repository.workspace= true
+authors.workspace= true
+license.workspace= true
+
+# 二进制目标配置
 [[bin]]
-name = "sdkvm"
-path = "src/main.rs"
+name = "sdkm"
+path = "main.rs"
+
+[dependencies]
+cli = {workspace = true}
+
