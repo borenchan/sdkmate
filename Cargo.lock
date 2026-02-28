@@ -59,6 +59,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.102"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+
+[[package]]
 name = "async-compression"
 version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -160,9 +166,11 @@ checksum = "c3e64b0cc0439b12df2fa678eae89a1c56a529fd067a9115f7827f1fffd22b32"
 name = "cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
- "core",
  "crossterm",
+ "sdkcore",
+ "util",
 ]
 
 [[package]]
@@ -187,14 +195,6 @@ name = "compression-core"
 version = "0.4.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
-
-[[package]]
-name = "core"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "util",
-]
 
 [[package]]
 name = "core-foundation"
@@ -1096,9 +1096,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "sdkcore"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "util",
+]
+
+[[package]]
 name = "sdkmate"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "cli",
 ]
 
@@ -1556,6 +1566,8 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "util"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "crossterm",
  "toml",
 ]
 

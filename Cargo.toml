@@ -9,7 +9,7 @@ repository = "https://github.com/borenchan/sdkmate"
 [workspace]
 members = [
     ".",           # 根 crate（包含 main.rs）
-    "crates/core",
+    "crates/sdkcore",
     "crates/cli",
     "crates/util",
 ]
@@ -30,10 +30,12 @@ reqwest = { version = "0.12.7", features = [
 crossterm = { version = "0.28.1" }
 # 配置文件解析
 toml = "0.8"
+# 错误处理
+anyhow = { version = "1" }
 
 # 工作区包引用
 cli = { path = "crates/cli" }
-core = { path = "crates/core" }
+sdkcore = { path = "crates/sdkcore" }
 util = { path = "crates/util" }
 
 #根目录 包配置
@@ -53,4 +55,5 @@ path = "main.rs"
 
 [dependencies]
 cli = {workspace = true}
+clap = {workspace = true}
 

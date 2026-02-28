@@ -7,4 +7,6 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
-toml.workspace =  true
+toml = { workspace = true }
+crossterm = { workspace = true }
+anyhow = { workspace = true}

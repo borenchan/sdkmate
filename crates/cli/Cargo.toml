@@ -7,8 +7,8 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
-core = {path = "../core"}
-
-clap.workspace = true
-crossterm.workspace = true
-
+sdkcore = { workspace = true }
+util = { workspace = true }
+clap = { workspace = true }
+crossterm = { workspace = true }
+anyhow = { workspace = true}
