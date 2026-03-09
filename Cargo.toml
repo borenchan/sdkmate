@@ -32,6 +32,13 @@ crossterm = { version = "0.28.1" }
 toml = "0.8"
 # 错误处理
 anyhow = { version = "1" }
+# win api
+winreg  = {version = "0.52"}
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging"
+]}
+
 
 # 工作区包引用
 cli = { path = "crates/cli" }
