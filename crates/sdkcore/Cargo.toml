@@ -10,6 +10,9 @@ description.workspace = true
 util = {workspace = true}
 reqwest = {workspace = true}
 anyhow = { workspace = true}
+crossterm = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 winreg = { workspace = true}

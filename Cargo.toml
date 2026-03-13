@@ -6,6 +6,7 @@ authors = ["boren1007@qq.com"]
 description = "An SDK version manager for full-stack engineers"
 repository = "https://github.com/borenchan/sdkmate"
 
+# 工作区成员
 [workspace]
 members = [
     ".",           # 根 crate（包含 main.rs）
@@ -18,6 +19,7 @@ members = [
 [workspace.dependencies]
 #cli parser
 clap = { version = "4.5.17", features = ["derive"] }
+clap_complete =  { version = "4.5"}
 #  网络请求
 reqwest = { version = "0.12.7", features = [
     "blocking",
@@ -25,7 +27,7 @@ reqwest = { version = "0.12.7", features = [
     "gzip",
     "multipart",
 ] }
-
+serde = { version = "1",features = ["derive"]}
 # 终端控制与调色
 crossterm = { version = "0.28.1" }
 # 配置文件解析

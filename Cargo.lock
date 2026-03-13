@@ -1100,7 +1100,10 @@ name = "sdkcore"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crossterm",
  "reqwest",
+ "serde",
+ "toml",
  "util",
  "windows-sys 0.61.2",
  "winreg",
