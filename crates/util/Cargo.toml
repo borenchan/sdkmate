@@ -10,3 +10,4 @@ description.workspace = true
 toml = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true}
+clap = { workspace = true}

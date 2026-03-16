@@ -3,6 +3,8 @@ use util::consts::BANNER;
 use anyhow::Result;
 use crossterm::style::Stylize;
 use crate::impls::init::InitHandler;
+use crate::impls::list::ListHandler;
+
 mod impls;
 
 #[derive(Debug, Parser)]
@@ -21,7 +23,7 @@ pub enum Commands {
     Install,
 
     #[command(name = "list",aliases= ["ls","l"], version, about = "list local sdk versions")]
-    List,
+    List(ListHandler),
 
     #[command(name = "switch", alias = "s", version, about = "switch sdk version")]
     Switch,
@@ -51,10 +53,12 @@ impl Commands {
     pub fn run(self) {
         let res = match self {
             Commands::Init(handler) => handler.run(),
-            _ => Err(anyhow::anyhow!("Not implemented yet"))
+            Commands::List(handler) => handler.run(),
+            _ => Err(anyhow::anyhow!("Not implemented yet")),
         };
         if let Err (cli_err) = res{
             eprintln!("{}: {}", "error".red().bold(), cli_err.to_string().italic());
         }
     }
+
 }

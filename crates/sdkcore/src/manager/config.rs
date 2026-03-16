@@ -6,8 +6,8 @@ use anyhow::{Context, Result};
 pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 #[derive(Debug,Serialize,Deserialize)]
 pub struct SdkmConfig {
-    sdk_root_dir: Option<String>,
-    java: Option<Java>,
+    pub sdkm_symlink_dir: Option<String>,
+    pub java: Option<Java>,
 }
 
 #[derive(Debug,Serialize,Deserialize)]
