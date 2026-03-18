@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use std::{fs, path::Path};
-use util::terminal;
+use util::{info, terminal};
 
 /// Create a symbolic link from `original` to `link`.
 pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> Result<()> {
@@ -8,7 +8,7 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> R
     let link_path = link.as_ref();
     let link_dir = link_path.display().to_string();
     if !original_path.exists() {
-        return Err(anyhow!("Original path `{}` does not exist", original_path.display()));
+        return Err(anyhow!("original path `{}` does not exist", original_path.display()));
     }
     //when exists link, remove it
     if link_path.exists() {
@@ -30,6 +30,6 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> R
             std::os::windows::fs::symlink_file(original, link)?;
         }
     }
-    terminal::info(format!("Symlink created successfully, link path: {}", link_dir).as_str());
+    info!("symlink created successfully, link path: {}", link_dir);
     Ok(())
 }

@@ -1,15 +1,10 @@
 use anyhow::Result;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{env, fs, path::{Path, PathBuf}};
+use crate::consts::SDKM_ROOT_DIR;
 
-/// Get the root directory for the SDK Manager.
-pub fn get_sdkm_root_dir(language: &str) -> Result<PathBuf> {
-    #[cfg(windows)]
-    let root = Path::new("C:\\Program Files\\sdkm").join(language);
-    #[cfg(not(windows))]
-    let root = Path::new("/usr/local/sdkm").join(language);
-    fs::create_dir_all(&root)?;
-    Ok(root)
+/// Get the dir for the SDK Manager's SDKs installed.
+pub fn get_installed_sdks_dir() -> Result<PathBuf> {
+    let root_dir = env::current_dir()?;
+    let sdks_dir = root_dir.join(SDKM_ROOT_DIR);
+    Ok(sdks_dir)
 }

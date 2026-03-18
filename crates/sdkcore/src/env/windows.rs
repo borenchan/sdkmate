@@ -1,15 +1,11 @@
 use std::{env, process::Command};
 
 use crate::env::EnvOperation;
-use anyhow::{Ok, Result, anyhow};
+use anyhow::{anyhow, Ok, Result};
+use util::{consts::{ENV_JAVA_HOME, ENV_PATH}, info, sdk::Sdk, success, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
-use util::{
-    consts::{ENV_JAVA_HOME, ENV_PATH},
-    sdk::Sdk,
-};
-use util::terminal::success;
 
 pub struct WindowsEnvOperation;
 
@@ -37,7 +33,7 @@ impl EnvOperation for WindowsEnvOperation {
         // 检查是否已存在
         let paths: Vec<&str> = current.split(';').collect();
         if paths.iter().any(|p| p.eq_ignore_ascii_case(sdk_path)) {
-            println!("path exists. sdk_path: {}", sdk_path);
+            warning!("path exists. sdk_path: {}", sdk_path);
             return Ok(());
         }
 
@@ -50,7 +46,7 @@ impl EnvOperation for WindowsEnvOperation {
         // 必须用 REG_EXPAND_SZ 类型保存，以支持 %VAR% 语法
         key.set_value(ENV_PATH, &new_value)?;
         broadcast_env_change();
-        success("success add sdk to path!");
+        success!("success add sdk to path!");
         Ok(())
     }
 
@@ -93,7 +89,7 @@ pub fn remove_from_path(target: &str) -> std::result::Result<(), Box<dyn std::er
 /// 广播环境变量变更，让 Explorer 和其他程序感知
 fn broadcast_env_change() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SendMessageTimeoutW, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG,
+        SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
     };
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;

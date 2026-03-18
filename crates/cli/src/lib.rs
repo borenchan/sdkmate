@@ -2,36 +2,40 @@ use clap::{command, Parser, Subcommand};
 use util::consts::BANNER;
 use anyhow::Result;
 use crossterm::style::Stylize;
+use util::error;
 use crate::impls::init::InitHandler;
 use crate::impls::list::ListHandler;
+use crate::impls::switch::SwitchHandler;
 
 mod impls;
 
 #[derive(Debug, Parser)]
-#[command(name = "sdkm", author, version, about, long_about = BANNER )]
+#[command(name = "sdkm", author,  version, about, long_about = BANNER)]
+#[command(propagate_version = true)]
 pub struct SdkMateCli {
+
     #[command(subcommand)]
-    pub command: Commands,
+    command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    #[command(name = "init", version, about = "init sdkmate on you first use")]
+    #[command(name = "init", about = "init sdkmate on you first use")]
     Init(InitHandler),
 
-    #[command(name = "install", alias = "i", version, about = "install a new sdk version")]
+    #[command(name = "install", alias = "i", about = "install a new sdk version from remote")]
     Install,
 
-    #[command(name = "list",aliases= ["ls","l"], version, about = "list local sdk versions")]
+    #[command(name = "list",aliases= ["ls","l"], about = "query available sdk and it's versions list")]
     List(ListHandler),
 
-    #[command(name = "switch", alias = "s", version, about = "switch sdk version")]
-    Switch,
+    #[command(name = "switch", alias = "s", about = "switch sdk to another version")]
+    Switch(SwitchHandler),
 
-    #[command(name = "current", alias = "c", version, about = "show current active sdk version")]
+    #[command(name = "current", alias = "c", about = "show current active sdk version")]
     Current,
 
-    #[command(name = "config", version, about = "config sdkmate")]
+    #[command(name = "config", about = "config sdkmate")]
     Config,
 }
 
@@ -54,10 +58,11 @@ impl Commands {
         let res = match self {
             Commands::Init(handler) => handler.run(),
             Commands::List(handler) => handler.run(),
+            Commands::Switch(handler) => handler.run(),
             _ => Err(anyhow::anyhow!("Not implemented yet")),
         };
         if let Err (cli_err) = res{
-            eprintln!("{}: {}", "error".red().bold(), cli_err.to_string().italic());
+            error!("{}", cli_err);
         }
     }
 
