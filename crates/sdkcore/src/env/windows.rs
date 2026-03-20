@@ -46,7 +46,7 @@ impl EnvOperation for WindowsEnvOperation {
         // 必须用 REG_EXPAND_SZ 类型保存，以支持 %VAR% 语法
         key.set_value(ENV_PATH, &new_value)?;
         broadcast_env_change();
-        success!("success add sdk to path!");
+        info!("success add `{sdk_path}` to path!");
         Ok(())
     }
 

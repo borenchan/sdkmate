@@ -1,3 +1,4 @@
+use crate::env::{EnvOperation, OsEnvOperation};
 use crate::manager::config::SdkmConfig;
 
 pub mod config;
@@ -7,16 +8,18 @@ pub mod list;
 pub mod switch;
 
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct SdkManager {
-    pub config: SdkmConfig
+    pub config: SdkmConfig,
+    pub env_operation: Box<dyn EnvOperation>,
 }
 
 impl SdkManager {
     pub fn new() -> anyhow::Result<SdkManager> {
         let config = SdkmConfig::read_from_disk()?;
         Ok(SdkManager {
-            config
+            config,
+            env_operation: Box::new(OsEnvOperation{}),
         })
     }
 }

@@ -2,6 +2,7 @@ use std::fs;
 use serde::{Deserialize, Serialize};
 use toml::toml;
 use anyhow::{Context, Result};
+use util::consts::SDKM_SYMLINK_DIR;
 
 pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 #[derive(Debug,Clone,Serialize,Deserialize)]
@@ -12,6 +13,7 @@ pub struct SdkmConfig {
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct Java {
+    pub current_active_version: Option<String>,
     pub sdk_download_url: String,
 }
 
@@ -19,7 +21,7 @@ impl SdkmConfig {
 
     pub fn default() -> SdkmConfig {
         SdkmConfig {
-            sdkm_symlink_dir: None,
+            sdkm_symlink_dir: Some(SDKM_SYMLINK_DIR.to_string()),
             java: None,
         }
     }

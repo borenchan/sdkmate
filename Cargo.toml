@@ -32,7 +32,7 @@ crossterm = { version = "0.28.1" }
 # 配置文件解析
 toml = "0.8"
 # 错误处理
-anyhow = { version = "1" }
+anyhow = { version = "1",features = ["backtrace"] }
 # win api
 winreg  = {version = "0.52"}
 windows-sys = { version = "0.61", features = [

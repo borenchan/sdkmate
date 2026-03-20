@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use util::consts::{SDKM_SYMLINK_DIR, SDKM_ROOT_DIR};
 use util::{info, success};
 use util::path::get_installed_sdks_dir;
-use crate::env::{EnvOperation, OsOperation};
+use crate::env::{EnvOperation, OsEnvOperation};
 use crate::link::symlink::create_symlink;
 use crate::manager::config::{SdkmConfig, CONFIG_FILE_NAME};
 use crate::manager::SdkManager;
@@ -16,7 +16,7 @@ impl SdkManager {
         info!("initializing sdkm...");
         let root_dir = env::current_dir()?;
         //0. add sdkm cli to path
-        let os = OsOperation{};
+        let os = OsEnvOperation{};
         os.add_sdk_path(root_dir.display().to_string().as_str())?;
         //1. create sdk store root dir
         let sdks_dir = get_installed_sdks_dir()?;
@@ -28,8 +28,8 @@ impl SdkManager {
         info!("sdkm root dir: {},sdks dir:{}", root_dir.display(),sdks_dir.display());
         let config = SdkmConfig::read_from_disk()?;
         let sdkm_symlink_dir = config.sdkm_symlink_dir.unwrap_or(SDKM_SYMLINK_DIR.to_string());
-        //3. create sdkm symlink dir
-        create_symlink(sdks_dir, sdkm_symlink_dir)?;
+        //3. create sdkm symlink root dir
+        fs::create_dir_all(sdkm_symlink_dir)?;
         success!("sdkm initialization is successful");
         Ok(())
     }

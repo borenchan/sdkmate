@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::path::PathBuf;
 use clap::ValueEnum;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -29,3 +30,13 @@ impl Display for Sdk {
         }
     }
  }
+impl Sdk{
+    /// get sdk bin directory
+    pub fn get_sdk_bin_dir(&self, sdk_dir: PathBuf) -> PathBuf {
+        match self {
+            Sdk::Node => sdk_dir,
+            _ => sdk_dir.join("bin"),
+        }
+
+    }
+}

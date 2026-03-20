@@ -28,9 +28,9 @@ impl CommandHandler for ListHandler {
     fn run(&self) -> Result<()> {
         let manager = SdkManager::new()?;
         if let Some(sdk) = self.sdk {
-            manager.query_local_sdk_version_list(sdk)?;
+            manager.show_local_sdk_version_list(sdk)?;
         }else {
-            manager.query_local_sdk_list()?;
+            manager.show_local_sdk_list()?;
         }
         Ok(())
     }

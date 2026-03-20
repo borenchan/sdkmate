@@ -15,7 +15,7 @@ pub struct SwitchHandler {
 
 impl CommandHandler for SwitchHandler {
     fn run(&self) -> anyhow::Result<()> {
-        let manager = SdkManager::new()?;
+        let mut manager = SdkManager::new()?;
         manager.switch_sdk_to_version(self.sdk, &self.sdk_version)?;
         Ok(())
     }

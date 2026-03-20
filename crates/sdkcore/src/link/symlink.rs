@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use util::{info, terminal};
 
 /// Create a symbolic link from `original` to `link`.
-pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) -> Result<()> {
+pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) -> Result<()> {
     let original_path = original.as_ref();
     let link_path = link.as_ref();
     let link_dir = link_path.display().to_string();
