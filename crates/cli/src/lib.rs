@@ -63,8 +63,8 @@ impl Commands {
         };
         if let Err (cli_err) = res{
             error!("{}", cli_err);
+            #[cfg(debug_assertions)]
             error!("detail:\n {}", cli_err.backtrace());
-
         }
     }
 

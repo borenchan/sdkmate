@@ -13,7 +13,7 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) ->
     //when exists link, remove it
     if link_path.exists() {
         if link_path.is_dir() {
-            fs::remove_dir(link_path)?
+            fs::remove_dir_all(link_path)?
         } else {
             fs::remove_file(link_path)?
         };
@@ -30,6 +30,6 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) ->
             std::os::windows::fs::symlink_file(original, link)?;
         }
     }
-    info!("symlink created successfully, link path: {}", link_dir);
+    info!("success create symlink  , link path: {}", link_dir);
     Ok(())
 }

@@ -32,11 +32,10 @@ impl Display for Sdk {
  }
 impl Sdk{
     /// get sdk bin directory
-    pub fn get_sdk_bin_dir(&self, sdk_dir: PathBuf) -> PathBuf {
+    pub fn get_sdk_bin_dir(&self, sdk_dir: &PathBuf) -> PathBuf {
         match self {
-            Sdk::Node => sdk_dir,
-            _ => sdk_dir.join("bin"),
+            Sdk::Node => sdk_dir.clone(),
+            _ => sdk_dir.join("bin")
         }
-
     }
 }

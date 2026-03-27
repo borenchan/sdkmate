@@ -3,7 +3,7 @@ use util::sdk::Sdk;
 
 
 pub trait EnvOperation {
-    /// set env variable
+    /// set sdk must require some env variables, it's a optional action
     fn set_sdk_env(&self, sdk: Sdk, sdk_path: &str) -> Result<()>;
 
     /// add sdk path to PATH

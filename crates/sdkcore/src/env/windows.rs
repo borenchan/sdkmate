@@ -14,15 +14,15 @@ impl EnvOperation for WindowsEnvOperation {
         // Implementation for setting SDK environment variables on Windows
         let env_var_key = match sdk {
             Sdk::Java => ENV_JAVA_HOME,
-            _ => return Err(anyhow!("Unsupported Sdk")),
+            _ => return Ok(())
         };
-        Command::new("setx")
-            .arg(env_var_key)
-            .arg(sdk_path)
-            .arg("/M") // set system environment variable
-            .output()?;
+        let key = open_user_env(true)?;
+        // 简化的写法，自动处理类型转换
+        key.set_value(env_var_key, &sdk_path)?;
+        broadcast_env_change();
         //set current process env
-        unsafe { env::set_var(env_var_key, sdk_path) };
+        // unsafe { env::set_var(env_var_key, sdk_path) };
+        info!("success set env key:`{env_var_key}` value:`{sdk_path}` !");
         Ok(())
     }
 
@@ -37,12 +37,7 @@ impl EnvOperation for WindowsEnvOperation {
             return Ok(());
         }
 
-        let new_value = if current.is_empty() || current.ends_with(';') {
-            format!("{}{}", current, sdk_path)
-        } else {
-            format!("{};{}", current, sdk_path)
-        };
-
+        let new_value =  format!("{};{}", sdk_path, current );
         // 必须用 REG_EXPAND_SZ 类型保存，以支持 %VAR% 语法
         key.set_value(ENV_PATH, &new_value)?;
         broadcast_env_change();
