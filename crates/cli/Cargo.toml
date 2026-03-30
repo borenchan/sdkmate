@@ -11,4 +11,4 @@ sdkcore = { workspace = true }
 util = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
-anyhow = { workspace = true,features = ["backtrace"]}
+anyhow = { workspace = true}

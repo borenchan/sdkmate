@@ -7,6 +7,7 @@ use util::consts::SDKM_SYMLINK_DIR;
 pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct SdkmConfig {
+    pub sdkm_install_dir: Option<String>,
     pub sdkm_symlink_dir: Option<String>,
     pub java: Option<Java>,
 }
@@ -21,6 +22,7 @@ impl SdkmConfig {
 
     pub fn default() -> SdkmConfig {
         SdkmConfig {
+            sdkm_install_dir: None,
             sdkm_symlink_dir: Some(SDKM_SYMLINK_DIR.to_string()),
             java: None,
         }

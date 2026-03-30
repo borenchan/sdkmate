@@ -18,7 +18,7 @@ members = [
 # 公共依赖版本管理（统一版本，避免冲突）
 [workspace.dependencies]
 #cli parser
-clap = { version = "4.5.17", features = ["derive"] }
+clap = { version = "4.5.17", features = ["derive","color"] }
 #  网络请求
 reqwest = { version = "0.12.7", features = [
     "blocking",

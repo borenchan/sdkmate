@@ -25,7 +25,7 @@ impl SdkManager {
         }
         //2. create sdkm config file
         Self::init_sdkm_config_file(&root_dir, force)?;
-        info!("sdkm root dir: {},sdks dir:{}", root_dir.display(),sdks_dir.display());
+        info!("sdkm root dir: {}  , sdks store dir:{}", root_dir.display(),sdks_dir.display());
         let config = SdkmConfig::read_from_disk()?;
         let sdkm_symlink_dir = config.sdkm_symlink_dir.unwrap_or(SDKM_SYMLINK_DIR.to_string());
         //3. create sdkm symlink root dir
