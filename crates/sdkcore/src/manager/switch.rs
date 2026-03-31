@@ -14,7 +14,7 @@ impl SdkManager {
         let is_active = versions.iter().any(|v| v.is_active && v.sdk_version==sdk_version);
         if !is_active {
             let current_version_sdk = versions.into_iter().find(|v| v.sdk_version == sdk_version).context(format!("not found `{sdk}` version `{sdk_version}`, please check sdk's dir!"))?;
-            let symlink_root_dir = self.config.sdkm_symlink_dir.clone().unwrap_or(SDKM_SYMLINK_DIR.to_string());
+            let symlink_root_dir = self.config.symlink_dir.clone().unwrap_or(SDKM_SYMLINK_DIR.to_string());
             let symlink_sdk_dir = PathBuf::from(symlink_root_dir).join(sdk.to_string());
             create_symlink(&current_version_sdk.sdk_dir,&symlink_sdk_dir)?;
             let sdk_bin_symlink_dir = sdk.get_sdk_bin_dir(&symlink_sdk_dir);

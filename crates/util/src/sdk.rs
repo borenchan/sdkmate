@@ -1,8 +1,9 @@
 use std::fmt::Display;
 use std::path::PathBuf;
 use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum,Serialize,Deserialize)]
 pub enum Sdk {
     ///java programming language development environment
     Java,
@@ -20,14 +21,15 @@ pub enum Sdk {
 
 impl Display for Sdk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Sdk::Java => write!(f, "java"),
-            Sdk::Maven => write!(f, "maven"),
-            Sdk::Node => write!(f, "node"),
-            Sdk::Python => write!(f, "python"),
-            Sdk::Rust => write!(f, "rust"),
-            Sdk::Go => write!(f, "go"),
-        }
+        write!(f, "{:?}", self)
+        // match self {
+        //     Sdk::Java => write!(f, "java"),
+        //     Sdk::Maven => write!(f, "maven"),
+        //     Sdk::Node => write!(f, "node"),
+        //     Sdk::Python => write!(f, "python"),
+        //     Sdk::Rust => write!(f, "rust"),
+        //     Sdk::Go => write!(f, "go"),
+        // }
     }
  }
 impl Sdk{

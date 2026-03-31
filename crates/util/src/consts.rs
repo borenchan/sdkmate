@@ -19,7 +19,7 @@ pub const SIZE_GB: u64 = SIZE_MB * 1024;
 pub const ENV_PATH: &'static str = "PATH";
 pub const ENV_JAVA_HOME: &'static str = "JAVA_HOME";
 
-pub const SDKM_ROOT_DIR: &'static str = "store";
+pub const SDKM_STORE_DIR: &'static str = "store";
 
 
 // default symlink dir

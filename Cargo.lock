@@ -1574,7 +1574,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
- "toml",
+ "serde",
 ]
 
 [[package]]
