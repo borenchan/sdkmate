@@ -20,6 +20,7 @@ pub const ENV_PATH: &'static str = "PATH";
 pub const ENV_JAVA_HOME: &'static str = "JAVA_HOME";
 
 pub const SDKM_STORE_DIR: &'static str = "store";
+pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 
 
 // default symlink dir

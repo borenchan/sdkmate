@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::manager::SdkManager;
 use anyhow::Result;
 use util::info;
+use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
 
 
@@ -27,7 +28,7 @@ impl SdkVersionItem {
 }
 impl SdkManager {
     pub fn show_local_sdk_list(&self) -> Result<()> {
-        let sdk_dir = self.config.get_installed_sdks_dir()?;
+        let sdk_dir = get_installed_sdks_dir()?;
         let mut i = 1;
         for entry in sdk_dir.read_dir()? {
             if let Ok(entry) = entry {
@@ -42,7 +43,7 @@ impl SdkManager {
     }
     /// list specified sdk versions from local sdkm root dir
     pub fn list_local_sdk_versions(&self, sdk: Sdk) -> Result<Vec<SdkVersionItem>> {
-        let sdks_root_dir = self.config.get_installed_sdks_dir()?;
+        let sdks_root_dir = get_installed_sdks_dir()?;
         let sdk_dir = sdks_root_dir
             .read_dir()?
             .filter_map(|entry| entry.ok())
@@ -58,11 +59,11 @@ impl SdkManager {
                 .collect();
             Ok(result)
         } else {
-            Err(anyhow::anyhow!(
+            anyhow::bail!(
                 "sdk:`{}` not found in sdkm's dir `{}`",
                 sdk,
                 sdks_root_dir.display()
-            ))
+            )
         }
     }
     pub fn show_local_sdk_version_list(&self, sdk: Sdk) -> Result<()> {

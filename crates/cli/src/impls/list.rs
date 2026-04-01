@@ -12,7 +12,7 @@ pub struct ListHandler {
     #[arg(
         long,value_enum,
         default_value_t = SdkSource::Local,
-        help = "select the sdk-list of available supplier source"
+        help = "select sdk-list from local disk or remote"
     )]
     source:  SdkSource,
 }

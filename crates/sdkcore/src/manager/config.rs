@@ -1,20 +1,18 @@
-use std::{env, fs};
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use toml::toml;
 use anyhow::{Context, Result};
-use util::consts::{SDKM_STORE_DIR, SDKM_SYMLINK_DIR};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use util::consts::{CONFIG_FILE_NAME, SDKM_SYMLINK_DIR};
+use util::path::get_sdkm_config_path;
 
-pub const CONFIG_FILE_NAME: &'static str = "config.toml";
 #[derive(Debug,Clone,Serialize,Deserialize)]
 #[serde(deny_unknown_fields,default)]  //ignore unknown fields
 pub struct SdkmConfig {
-    //sdkm self install dir
+    //sdkm self home dir readonly
     #[serde(default)]
-    pub install_dir: Option<String>,
+    pub home_dir: Option<String>,
     //sdkm symlink dir
     #[serde(default)]
-    pub symlink_dir: Option<String>,
+    pub symlink_dir: String,
     //network
     #[serde(default)]
     pub network: NetworkConfig,
@@ -56,8 +54,8 @@ pub struct SdkConfig {
 impl Default for SdkmConfig {
     fn default() -> SdkmConfig {
         SdkmConfig {
-            install_dir: None,
-            symlink_dir: Some(SDKM_SYMLINK_DIR.to_string()),
+            home_dir: None,
+            symlink_dir: SDKM_SYMLINK_DIR.to_string(),
             network: NetworkConfig::default(),
             sdks: vec![],
         }
@@ -67,13 +65,11 @@ impl Default for SdkmConfig {
 impl SdkmConfig {
 
     pub fn read_from_disk() -> Result<SdkmConfig> {
-        if let Ok(config_file)  = fs::read_to_string(CONFIG_FILE_NAME) {
+        if let Ok(config_file)  = fs::read_to_string(get_sdkm_config_path()?) {
             let config = toml::from_str(config_file.as_str()).context("Failed to parse toml file,please check config.toml syntax!")?;
-            Ok(config)
-        }else {
-            Ok(SdkmConfig::default())
+            return Ok(config)
         }
-
+        anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` ")
     }
 
     pub fn write_to_disk(&self) -> Result<()> {
@@ -82,13 +78,9 @@ impl SdkmConfig {
         Ok(())
     }
 
-    /// Get the dir for the SDK Manager's SDKs installed.
-    pub fn get_installed_sdks_dir(&self) -> Result<PathBuf> {
-        let install_opt = &self.install_dir;
-        match install_opt {
-            None => Err(anyhow::anyhow!("Not found config key `install_dir` in sdkm's config.toml")),
-            Some(dir) => Ok(PathBuf::from( dir).join(SDKM_STORE_DIR))
-        }
+    pub fn find_sdk_config(&self, sdk_name: &str) -> Option<&SdkConfig> {
+        self.sdks.iter().find(|sdk| sdk.name == sdk_name)
     }
+
 }
 
