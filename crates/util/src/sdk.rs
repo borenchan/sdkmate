@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::clone;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -10,7 +12,6 @@ pub enum Sdk {
     Custom(String)
 }
 /// builtin sdk
-
 #[derive(Debug, Clone, Copy,PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BuiltinSdk {
     ///java programming language development environment
@@ -67,12 +68,13 @@ impl Display for BuiltinSdk {
         }
     }
 }
-impl Sdk{
+impl BuiltinSdk {
     /// get sdk bin directory
-    pub fn get_sdk_bin_dir(&self, sdk_dir: &PathBuf) -> PathBuf {
+    pub fn get_sdk_bin_dir(&self) -> &str {
         match self {
-            Sdk::Built(BuiltinSdk::Node) => sdk_dir.clone(),
-            _ => sdk_dir.join("bin")
+            BuiltinSdk::Node => "",
+            _ => "bin"
         }
     }
+
 }

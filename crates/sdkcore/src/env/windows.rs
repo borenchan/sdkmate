@@ -1,28 +1,24 @@
 use std::{env, process::Command};
-
+use std::collections::HashMap;
 use crate::env::EnvOperation;
 use anyhow::{anyhow, Ok, Result};
 use util::{consts::{ENV_JAVA_HOME, ENV_PATH}, info, sdk::Sdk, success, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
+use util::sdk::BuiltinSdk;
 
 pub struct WindowsEnvOperation;
 
 impl EnvOperation for WindowsEnvOperation {
-    fn set_sdk_env(&self, sdk: Sdk, sdk_path: &str) -> Result<()> {
-        // Implementation for setting SDK environment variables on Windows
-        let env_var_key = match sdk {
-            Sdk::Java => ENV_JAVA_HOME,
-            _ => return Ok(())
-        };
+    fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<()> {
         let key = open_user_env(true)?;
-        // 简化的写法，自动处理类型转换
-        key.set_value(env_var_key, &sdk_path)?;
+        for (env_key, env_val) in envs {
+            // 简化的写法，自动处理类型转换
+            key.set_value(env_key, env_val)?;
+            info!("success set env key:`{env_key}` value:`{env_val}` !");
+        }
         broadcast_env_change();
-        //set current process env
-        // unsafe { env::set_var(env_var_key, sdk_path) };
-        info!("success set env key:`{env_var_key}` value:`{sdk_path}` !");
         Ok(())
     }
 

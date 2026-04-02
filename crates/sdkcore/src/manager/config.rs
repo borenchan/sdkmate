@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use util::consts::{CONFIG_FILE_NAME, SDKM_SYMLINK_DIR};
+use util::consts::{CONFIG_FILE_NAME, ENV_JAVA_HOME, SDKM_SYMLINK_DIR};
 use util::path::get_sdkm_config_path;
+use util::sdk::{BuiltinSdk, Sdk};
+use util::sdk_resources::BUILTIN_SDK_CONFIG;
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
 #[serde(deny_unknown_fields,default)]  //ignore unknown fields
@@ -46,23 +49,59 @@ impl Default for NetworkConfig {
 }
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct SdkConfig {
+    //sdk unique name
     pub name : String,
-    pub sdk_download_url: String,
+    //sdk versions release url
+    pub version_url: Option<String>,
+    //sdk real download url
+    pub download_url: String,
+    //current active version
     pub current_version: Option<String>,
+    //binary dir
+    pub bin_dir: String,
+    //extra env vars
+    pub extra_vars: HashMap<String, String>,
 }
-
+impl SdkConfig {
+    pub fn new(name: String, version_url: String,download_url: String, bin_dir: String) -> SdkConfig {
+        SdkConfig {
+            name,
+            version_url: Some(version_url),
+            download_url,
+            bin_dir,
+            current_version: None,
+            extra_vars: HashMap::with_capacity(0),
+        }
+    }
+}
 impl Default for SdkmConfig {
     fn default() -> SdkmConfig {
         SdkmConfig {
             home_dir: None,
             symlink_dir: SDKM_SYMLINK_DIR.to_string(),
             network: NetworkConfig::default(),
-            sdks: vec![],
+            sdks: Self::get_default_builtin_sdks(),
         }
+
     }
 }
 
+
 impl SdkmConfig {
+    pub fn get_default_builtin_sdks() -> Vec<SdkConfig> {
+        BUILTIN_SDK_CONFIG.iter()
+            .map(|s| {
+                let mut config = SdkConfig::new(s.sdk.to_string(), s.version_list_url.to_string(), s.download_url.to_string(), s.sdk.get_sdk_bin_dir().to_string());
+                match s.sdk {
+                    BuiltinSdk::Java => {
+                        config.extra_vars.insert(ENV_JAVA_HOME.to_string(), "{sdk_dir}".to_string());
+                    }
+                    _ => {}
+                }
+                config
+            })
+            .collect()
+    }
 
     pub fn read_from_disk() -> Result<SdkmConfig> {
         if let Ok(config_file)  = fs::read_to_string(get_sdkm_config_path()?) {
@@ -78,9 +117,11 @@ impl SdkmConfig {
         Ok(())
     }
 
-    pub fn find_sdk_config(&self, sdk_name: &str) -> Option<&SdkConfig> {
-        self.sdks.iter().find(|sdk| sdk.name == sdk_name)
+    pub fn find_sdk(&self, sdk: Sdk) -> Option<&SdkConfig> {
+        self.sdks.iter().find(|s| s.name == sdk.to_string())
     }
-
+    pub fn find_sdk_mut(&mut self, sdk: Sdk) -> Option<&mut SdkConfig> {
+        self.sdks.iter_mut().find(|s| s.name == sdk.to_string())
+    }
 }
 

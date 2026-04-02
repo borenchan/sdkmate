@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use anyhow::Result;
 use util::sdk::Sdk;
 
 
 pub trait EnvOperation {
     /// set sdk must require some env variables, it's a optional action
-    fn set_sdk_env(&self, sdk: Sdk, sdk_path: &str) -> Result<()>;
+    fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<()>;
 
     /// add sdk path to PATH
     fn add_sdk_path(&self, sdk_path: &str) -> Result<()>;

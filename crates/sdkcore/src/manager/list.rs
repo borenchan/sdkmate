@@ -43,28 +43,26 @@ impl SdkManager {
     }
     /// list specified sdk versions from local sdkm root dir
     pub fn list_local_sdk_versions(&self, sdk: Sdk) -> Result<Vec<SdkVersionItem>> {
-        let sdks_root_dir = get_installed_sdks_dir()?;
-        let sdk_dir = sdks_root_dir
-            .read_dir()?
-            .filter_map(|entry| entry.ok())
-            .find(|entry| entry.file_name().to_string_lossy() == sdk.to_string());
-        if let Some(sdk_dir) = sdk_dir {
-            let result = sdk_dir.path().read_dir()?
+        if let Some(sdk_conf ) = self.config.find_sdk(sdk) {
+            let sdks_root_dir = get_installed_sdks_dir()?;
+            let sdk_dir = sdks_root_dir
+                .read_dir()?
                 .filter_map(|entry| entry.ok())
-                .map(|sdk_version| {
-                    let sdk_version_dir = sdk_version.path();
-                    // &self.config.java.unwrap().current_active_version
-                    SdkVersionItem::new(sdk, sdk_version_dir, false)
-                })
-                .collect();
-            Ok(result)
-        } else {
-            anyhow::bail!(
-                "sdk:`{}` not found in sdkm's dir `{}`",
-                sdk,
-                sdks_root_dir.display()
-            )
+                .find(|entry| entry.file_name().to_string_lossy() == sdk.to_string());
+            if let Some(sdk_dir) = sdk_dir {
+                let result = sdk_dir.path().read_dir()?
+                    .filter_map(|entry| entry.ok())
+                    .map(|sdk_version| {
+                        let sdk_version_dir = sdk_version.path();
+                        let is_active =  sdk_conf.current_version.clone().is_some_and(|current| current == sdk_version.file_name().to_string_lossy().as_ref());
+                        SdkVersionItem::new(sdk, sdk_version_dir, is_active)
+                    })
+                    .collect();
+                return Ok(result)
+            }
+            anyhow::bail!("sdk:`{}` not found in sdkm's dir `{}`",sdk,sdks_root_dir.display())
         }
+        anyhow::bail!("unknow sdk:`{}` please check config!",sdk)
     }
     pub fn show_local_sdk_version_list(&self, sdk: Sdk) -> Result<()> {
         let versions = self.list_local_sdk_versions(sdk)?;

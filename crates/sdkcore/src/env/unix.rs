@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use util::sdk::Sdk;
 use crate::env::EnvOperation;
 
 pub struct UnixEnvOperation{}
 
 impl EnvOperation for UnixEnvOperation {
-    fn set_sdk_env(&self, sdk: Sdk, sdk_path: &str) -> anyhow::Result<()> {
+    fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> anyhow::Result<()> {
         todo!()
     }
 

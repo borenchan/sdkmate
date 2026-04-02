@@ -24,7 +24,7 @@ impl SdkManager {
             let path = self.env_operation.get_path()?;
             // add sdk path only when does not exist in the os path
             if !path.contains(sdk_bin_symlink_cow.as_ref()) {
-                self.env_operation.set_sdk_env(sdk,symlink_sdk_dir.to_string_lossy().as_ref())?;
+                self.env_operation.set_sdk_envs(sdk, symlink_sdk_dir.to_string_lossy().as_ref())?;
                 self.env_operation.add_sdk_path(sdk_bin_symlink_cow.as_ref())?;
             }
             //todo error restore link and path
