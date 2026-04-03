@@ -1,22 +1,24 @@
+use crate::CommandHandler;
+use anyhow::{Result, anyhow};
 use clap::{Parser, ValueEnum};
-use anyhow::Result;
 use sdkcore::manager::SdkManager;
 use util::sdk::Sdk;
-use crate::CommandHandler;
 
-#[derive(Debug,Parser)]
+#[derive(Debug, Parser)]
 pub struct ListHandler {
-    #[arg(value_enum, help = "query the list of available versions of a specific SDK")]
-    sdk: Option<Sdk>,
+    /// The following available SDKs are supported:  java| node | python | rust | maven
+    /// Custom SDKs defined in config are also accepted.
+    #[arg(value_name = "SDK", help = "query the list of available versions of a specific SDK")]
+    sdk: Option<String>,
 
     #[arg(
         long,value_enum,
         default_value_t = SdkSource::Local,
         help = "select sdk-list from local disk or remote"
     )]
-    source:  SdkSource,
+    source: SdkSource,
 }
-#[derive(Debug,Clone,ValueEnum)]
+#[derive(Debug, Clone, ValueEnum)]
 enum SdkSource {
     /// query from local disk
     Local,
@@ -27,12 +29,12 @@ enum SdkSource {
 impl CommandHandler for ListHandler {
     fn run(&self) -> Result<()> {
         let manager = SdkManager::new()?;
-        if let Some(sdk) = self.sdk {
-            manager.show_local_sdk_version_list(sdk)?;
-        }else {
+        if let Some(sdk_name) = &self.sdk {
+            let sdk = manager.match_valid_sdk(sdk_name)?;
+            manager.show_local_sdk_version_list(&sdk)?;
+        } else {
             manager.show_local_sdk_list()?;
         }
         Ok(())
     }
 }
-

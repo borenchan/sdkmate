@@ -1,3 +1,5 @@
+use std::str::FromStr;
+use util::sdk::Sdk;
 use crate::env::{EnvOperation, OsEnvOperation};
 use crate::manager::config::SdkmConfig;
 
@@ -21,5 +23,14 @@ impl SdkManager {
             config,
             env_operation: Box::new(OsEnvOperation{}),
         })
+    }
+    /// match a valid sdk in sdkm config file
+    /// config sdks must be match
+    pub fn match_valid_sdk(&self,sdk_name: &str) -> anyhow::Result<Sdk> {
+        let sdk = Sdk::from_str(sdk_name)?;
+        if !self.config.exist_sdk(&sdk) {
+            anyhow::bail!("unknow sdk:`{}` please check config!", sdk)
+        }
+        Ok(sdk)
     }
 }

@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::env::var;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use util::config_helper::{TemplateRenderer, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, PLACEHOLDER_SDK_DIR};
 use util::consts::{CONFIG_FILE_NAME, ENV_JAVA_HOME, SDKM_SYMLINK_DIR};
-use util::path::get_sdkm_config_path;
+use util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::BUILTIN_SDK_CONFIG;
 
@@ -73,6 +75,19 @@ impl SdkConfig {
             extra_vars: HashMap::with_capacity(0),
         }
     }
+
+    pub fn get_actual_extra_vars(&self, dynamic_val: &HashMap<&str, &str>) -> Result<HashMap<String, String>> {
+        let mut renderer = TemplateRenderer::new();
+        renderer = renderer.vars(dynamic_val)
+            .var(PLACEHOLDER_SDKM_HOME_DIR,get_sdkm_home()?.to_string_lossy())
+            .var(PLACEHOLDER_SDKS_INSTALL_DIR,get_installed_sdks_dir()?.to_string_lossy());
+        let mut actual_extra_vars = HashMap::with_capacity(self.extra_vars.len());
+        for (k,v) in &self.extra_vars {
+            let val = renderer.render(v)?;
+            actual_extra_vars.insert(k.to_string(), val);
+        }
+        Ok(actual_extra_vars)
+    }
 }
 impl Default for SdkmConfig {
     fn default() -> SdkmConfig {
@@ -94,7 +109,7 @@ impl SdkmConfig {
                 let mut config = SdkConfig::new(s.sdk.to_string(), s.version_list_url.to_string(), s.download_url.to_string(), s.sdk.get_sdk_bin_dir().to_string());
                 match s.sdk {
                     BuiltinSdk::Java => {
-                        config.extra_vars.insert(ENV_JAVA_HOME.to_string(), "{sdk_dir}".to_string());
+                        config.extra_vars.insert(ENV_JAVA_HOME.to_string(), PLACEHOLDER_SDK_DIR.to_string());
                     }
                     _ => {}
                 }
@@ -108,7 +123,7 @@ impl SdkmConfig {
             let config = toml::from_str(config_file.as_str()).context("Failed to parse toml file,please check config.toml syntax!")?;
             return Ok(config)
         }
-        anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` ")
+        anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir")
     }
 
     pub fn write_to_disk(&self) -> Result<()> {
@@ -117,11 +132,20 @@ impl SdkmConfig {
         Ok(())
     }
 
-    pub fn find_sdk(&self, sdk: Sdk) -> Option<&SdkConfig> {
+    pub fn find_sdk(&self, sdk: &Sdk) -> Option<&SdkConfig> {
         self.sdks.iter().find(|s| s.name == sdk.to_string())
     }
-    pub fn find_sdk_mut(&mut self, sdk: Sdk) -> Option<&mut SdkConfig> {
+    pub fn find_sdk_mut(&mut self, sdk: &Sdk) -> Option<&mut SdkConfig> {
         self.sdks.iter_mut().find(|s| s.name == sdk.to_string())
+    }
+    pub fn find_sdk_ok(&self, sdk: &Sdk) -> Result<&SdkConfig> {
+        self.find_sdk(sdk).ok_or_else(|| anyhow::anyhow!("unknow sdk:`{}` please check config!", sdk))
+    }
+    pub fn find_sdk_mut_ok(&mut self, sdk: &Sdk) -> Result<&mut SdkConfig> {
+        self.find_sdk_mut(sdk).ok_or_else(|| anyhow::anyhow!("unknow sdk:`{}` please check config!", sdk))
+    }
+    pub fn exist_sdk(&self, sdk: &Sdk) -> bool {
+        self.find_sdk(sdk).is_some()
     }
 }
 

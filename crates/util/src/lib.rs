@@ -4,4 +4,4 @@ pub mod sdk;
 pub mod terminal;
 pub mod macros;
 pub mod sdk_resources;
-mod config_helper;
+pub mod config_helper;

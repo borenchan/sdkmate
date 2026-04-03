@@ -30,6 +30,6 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) ->
             std::os::windows::fs::symlink_file(original, link)?;
         }
     }
-    info!("success create symlink  , link path: {}", link_dir);
+    info!("success create symlink, link path: {}", link_dir);
     Ok(())
 }

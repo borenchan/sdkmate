@@ -1,14 +1,13 @@
-use std::ffi::OsStr;
-use std::path::PathBuf;
 use crate::manager::SdkManager;
 use anyhow::Result;
+use std::ffi::OsStr;
+use std::path::PathBuf;
 use util::info;
 use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
 
-
 #[derive(Debug)]
-pub struct SdkVersionItem{
+pub struct SdkVersionItem {
     pub sdk: Sdk,
     pub sdk_version: String,
     pub sdk_dir: PathBuf,
@@ -24,7 +23,6 @@ impl SdkVersionItem {
             is_active,
         }
     }
-
 }
 impl SdkManager {
     pub fn show_local_sdk_list(&self) -> Result<()> {
@@ -42,33 +40,40 @@ impl SdkManager {
         Ok(())
     }
     /// list specified sdk versions from local sdkm root dir
-    pub fn list_local_sdk_versions(&self, sdk: Sdk) -> Result<Vec<SdkVersionItem>> {
-        if let Some(sdk_conf ) = self.config.find_sdk(sdk) {
-            let sdks_root_dir = get_installed_sdks_dir()?;
-            let sdk_dir = sdks_root_dir
+    pub fn list_local_sdk_versions(&self, sdk: &Sdk) -> Result<Vec<SdkVersionItem>> {
+        let sdk_conf = self.config.find_sdk_ok(&sdk)?;
+        let sdks_root_dir = get_installed_sdks_dir()?;
+        let sdk_dir = sdks_root_dir
+            .read_dir()?
+            .filter_map(|entry| entry.ok())
+            .find(|entry| entry.file_name().to_string_lossy() == sdk.to_string());
+        if let Some(sdk_dir) = sdk_dir {
+            let result = sdk_dir
+                .path()
                 .read_dir()?
                 .filter_map(|entry| entry.ok())
-                .find(|entry| entry.file_name().to_string_lossy() == sdk.to_string());
-            if let Some(sdk_dir) = sdk_dir {
-                let result = sdk_dir.path().read_dir()?
-                    .filter_map(|entry| entry.ok())
-                    .map(|sdk_version| {
-                        let sdk_version_dir = sdk_version.path();
-                        let is_active =  sdk_conf.current_version.clone().is_some_and(|current| current == sdk_version.file_name().to_string_lossy().as_ref());
-                        SdkVersionItem::new(sdk, sdk_version_dir, is_active)
-                    })
-                    .collect();
-                return Ok(result)
-            }
-            anyhow::bail!("sdk:`{}` not found in sdkm's dir `{}`",sdk,sdks_root_dir.display())
+                .map(|sdk_version| {
+                    let sdk_version_dir = sdk_version.path();
+                    let is_active = sdk_conf
+                        .current_version
+                        .clone()
+                        .is_some_and(|current| current == sdk_version.file_name().to_string_lossy().as_ref());
+                    SdkVersionItem::new(sdk.clone(), sdk_version_dir, is_active)
+                })
+                .collect();
+            return Ok(result);
         }
-        anyhow::bail!("unknow sdk:`{}` please check config!",sdk)
+        anyhow::bail!("sdk:`{}` not found in sdkm's dir `{}`", sdk, sdks_root_dir.display())
     }
-    pub fn show_local_sdk_version_list(&self, sdk: Sdk) -> Result<()> {
+    pub fn show_local_sdk_version_list(&self, sdk: &Sdk) -> Result<()> {
         let versions = self.list_local_sdk_versions(sdk)?;
         let mut i = 1;
         versions.iter().for_each(|sdk_version| {
-            info!("{} {i:>2}. {} ", if sdk_version.is_active {"✅"} else {""}, sdk_version.sdk_version);
+            info!(
+                "{} {i:>2}. {} ",
+                if sdk_version.is_active { "✅" } else { "" },
+                sdk_version.sdk_version
+            );
             i += 1;
         });
         Ok(())

@@ -5,8 +5,10 @@ use crate::CommandHandler;
 
 #[derive(Debug,Parser)]
 pub struct SwitchHandler {
-    #[arg(value_enum, help = "query the list of available versions of a specific SDK")]
-    sdk: Sdk,
+    /// The following available SDKs are supported:  java| node | python | rust | maven
+    /// Custom SDKs defined in config are also accepted.
+    #[arg(value_name = "SDK", help = "Switch the specified SDK to a new version")]
+    sdk: String,
 
     #[arg(help = "the version to switch to")]
     sdk_version: String,
@@ -16,7 +18,8 @@ pub struct SwitchHandler {
 impl CommandHandler for SwitchHandler {
     fn run(&self) -> anyhow::Result<()> {
         let mut manager = SdkManager::new()?;
-        manager.switch_sdk_to_version(self.sdk, &self.sdk_version)?;
+        let sdk = manager.match_valid_sdk(&self.sdk)?;
+        manager.switch_sdk_to_version(&sdk, &self.sdk_version)?;
         Ok(())
     }
 }
