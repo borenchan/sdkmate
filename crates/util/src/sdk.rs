@@ -31,7 +31,7 @@ impl FromStr for Sdk {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match BuiltinSdk::from_str(s) {
             Ok(b) => Sdk::Built(b),
-            Err(other) => Sdk::Custom(other.to_string()),
+            Err(_) => Sdk::Custom(s.to_string()),
         })
     }
 }

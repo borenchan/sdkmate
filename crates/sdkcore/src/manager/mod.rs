@@ -29,7 +29,7 @@ impl SdkManager {
     pub fn match_valid_sdk(&self,sdk_name: &str) -> anyhow::Result<Sdk> {
         let sdk = Sdk::from_str(sdk_name)?;
         if !self.config.exist_sdk(&sdk) {
-            anyhow::bail!("unknow sdk:`{}` please check config!", sdk)
+            anyhow::bail!("Unregistered SDK:`{}` , please manually register it to the SDKM configuration!", sdk)
         }
         Ok(sdk)
     }

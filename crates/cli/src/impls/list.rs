@@ -1,8 +1,7 @@
 use crate::CommandHandler;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use sdkcore::manager::SdkManager;
-use util::sdk::Sdk;
 
 #[derive(Debug, Parser)]
 pub struct ListHandler {
@@ -12,9 +11,10 @@ pub struct ListHandler {
     sdk: Option<String>,
 
     #[arg(
+        short,
         long,value_enum,
         default_value_t = SdkSource::Local,
-        help = "select sdk-list from local disk or remote"
+        help = "select query the list of available versions of a specific SDK from local disk or remote"
     )]
     source: SdkSource,
 }
@@ -26,12 +26,16 @@ enum SdkSource {
     Remote,
 }
 
+
 impl CommandHandler for ListHandler {
     fn run(&self) -> Result<()> {
         let manager = SdkManager::new()?;
         if let Some(sdk_name) = &self.sdk {
             let sdk = manager.match_valid_sdk(sdk_name)?;
-            manager.show_local_sdk_version_list(&sdk)?;
+            match &self.source {
+                SdkSource::Local => manager.show_local_sdk_version_list(&sdk)?,
+                SdkSource::Remote => manager.show_remote_sdk_version_list(&sdk)?
+            }
         } else {
             manager.show_local_sdk_list()?;
         }

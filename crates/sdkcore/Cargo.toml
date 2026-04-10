@@ -13,7 +13,7 @@ anyhow = { workspace = true}
 crossterm = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
-
+unicode-width = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 winreg = { workspace = true}
 windows-sys = { workspace = true}

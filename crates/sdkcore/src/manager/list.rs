@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use util::info;
 use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug)]
 pub struct SdkVersionItem {
@@ -63,19 +64,28 @@ impl SdkManager {
                 .collect();
             return Ok(result);
         }
-        anyhow::bail!("sdk:`{}` not found in sdkm's dir `{}`", sdk, sdks_root_dir.display())
+        info!("sdk:`{}` not found in sdkm's dir `{}`. please try again after install a version", sdk, sdks_root_dir.display());
+        Ok(vec![])
     }
     pub fn show_local_sdk_version_list(&self, sdk: &Sdk) -> Result<()> {
         let versions = self.list_local_sdk_versions(sdk)?;
         let mut i = 1;
+        let active_mark = "✅";
+        let prefix = " ".repeat(UnicodeWidthStr::width(active_mark));
         versions.iter().for_each(|sdk_version| {
             info!(
                 "{} {i:>2}. {} ",
-                if sdk_version.is_active { "✅" } else { "" },
+                if sdk_version.is_active { active_mark } else { &prefix },
                 sdk_version.sdk_version
             );
             i += 1;
         });
         Ok(())
     }
+    pub fn show_remote_sdk_version_list(&self, sdk: &Sdk) -> Result<()> {
+        //todo show remote sdk version list
+        info!("show remote sdk version list");
+        Ok(())
+    }
+
 }

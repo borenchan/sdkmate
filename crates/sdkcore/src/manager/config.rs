@@ -128,7 +128,7 @@ impl SdkmConfig {
 
     pub fn write_to_disk(&self) -> Result<()> {
         let config_file = toml::to_string_pretty(self).context("Failed to serialize toml file")?;
-        fs::write(CONFIG_FILE_NAME, config_file).context("Failed to write toml file")?;
+        fs::write(get_sdkm_config_path()?, config_file).context("Failed to write toml file")?;
         Ok(())
     }
 
@@ -139,10 +139,10 @@ impl SdkmConfig {
         self.sdks.iter_mut().find(|s| s.name == sdk.to_string())
     }
     pub fn find_sdk_ok(&self, sdk: &Sdk) -> Result<&SdkConfig> {
-        self.find_sdk(sdk).ok_or_else(|| anyhow::anyhow!("unknow sdk:`{}` please check config!", sdk))
+        self.find_sdk(sdk).ok_or_else(|| anyhow::anyhow!("Unregistered SDK:`{}` please check config!", sdk))
     }
     pub fn find_sdk_mut_ok(&mut self, sdk: &Sdk) -> Result<&mut SdkConfig> {
-        self.find_sdk_mut(sdk).ok_or_else(|| anyhow::anyhow!("unknow sdk:`{}` please check config!", sdk))
+        self.find_sdk_mut(sdk).ok_or_else(|| anyhow::anyhow!("Unregistered SDK:`{}` please check config!", sdk))
     }
     pub fn exist_sdk(&self, sdk: &Sdk) -> bool {
         self.find_sdk(sdk).is_some()

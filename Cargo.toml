@@ -39,7 +39,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging"
 ]}
-
+unicode-width = {version = "0.2"}
 
 # 工作区包引用
 cli = { path = "crates/cli" }
