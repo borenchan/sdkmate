@@ -126,7 +126,7 @@ jobs:
 
       - name: Generate release notes and manage version
         id: release
-        uses: release-please/action@v4
+        uses: googleapis/release-please-action@v4
         with:
           release-type: rust
           target-commitish: master
