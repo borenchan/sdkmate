@@ -21,7 +21,7 @@ jobs:
             artifact_name: sdkm
             asset_name: sdkmate-linux-x86_64
             archive_format: tar.gz
-            system_deps: libasound2-dev
+            system_deps: ""
             asset_name_without_exe: ""
           # macOS x86_64
           - os: macos-latest
