@@ -91,7 +91,7 @@ impl UnixEnvOperation {
         // Check current PATH from file content
         let current_path = Self::get_path_from_content(&content)?;
         let paths: Vec<&str> = current_path.split(':').collect();
-        if paths.iter().any(|p| p == expanded_path) {
+        if paths.iter().any(|p| p.to_string()  == expanded_path) {
             warning!("path exists. sdk_path: {}", new_path);
             return Ok(());
         }
@@ -152,7 +152,7 @@ impl UnixEnvOperation {
         if output.status.success() {
             let new_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !new_path.is_empty() {
-                env::set_var(ENV_PATH, new_path);
+                unsafe { env::set_var(ENV_PATH, new_path); }
             }
         }
 
