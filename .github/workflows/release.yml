@@ -3,6 +3,7 @@ name: Release sdkmate
 # 触发条件：
 # 1. push 代码到 master 分支 -> release-please 自动创建 Release PR
 # 2. Release PR 合并后自动打 tag 并发 Release
+# 3. 使用 conventional commits 规范 (feat:, fix:, docs:, chore: 等)
 on:
   push:
     branches:
