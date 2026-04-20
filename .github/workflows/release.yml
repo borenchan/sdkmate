@@ -1,16 +1,24 @@
 name: Release sdkmate
 
-# 触发条件：当推送以v开头的标签时触发（如v0.1.0、v1.2.3）
+# 触发条件：
+# 1. push 代码到 master 分支 -> release-please 自动创建 Release PR
+# 2. Release PR 合并后自动打 tag 并发 Release
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+    types: [closed]
 
 jobs:
   # 跨平台构建任务
+  # 构建在 tag push 时触发（由 release-please 创建的 tag）
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +58,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      # 安装系统依赖
+        with:
+          fetch-depth: 0
+
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-latest' && matrix.system_deps != ''
         run: |
@@ -62,6 +72,10 @@ jobs:
         with:
           toolchain: stable
           target: ${{ matrix.target }}
+
+      - name: Add Rust target (macOS cross-compile)
+        if: matrix.os == 'macos-latest'
+        run: rustup target add ${{ matrix.target }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -79,21 +93,13 @@ jobs:
       - name: Prepare release assets
         shell: bash
         run: |
-          # 创建 artifacts 目录并验证
           mkdir -p release-artifacts
-          
-          # 复制二进制文件
           cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "release-artifacts/${{ matrix.artifact_name }}"
-          
-          # 生成压缩包
           if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
             tar -czf "release-artifacts/${{ matrix.asset_name }}.tar.gz" -C release-artifacts "${{ matrix.artifact_name }}"
           else
-            # 去掉 asset_name 中的 .exe 后缀用于压缩
             7z a -tzip "release-artifacts/${{ matrix.asset_name_without_exe }}.zip" ./release-artifacts/*
           fi
-          
-          # 验证文件是否生成（用于调试）
           echo "生成的文件列表："
           ls -la release-artifacts/
 
@@ -103,49 +109,59 @@ jobs:
           name: ${{ matrix.asset_name }}
           path: |
             release-artifacts/${{ matrix.asset_name_without_exe != '' && matrix.asset_name_without_exe || matrix.asset_name }}.${{ matrix.archive_format }}
-          if-no-files-found: error  # 无文件时明确报错
+          if-no-files-found: error
 
-  # 发布任务
-  release:
-    needs: build
+  # release-please 自动检测 conventional commits 并管理版本
+  release-please:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 需要发布权限
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      release_name: ${{ steps.release.outputs.release-name }}
+      release_body: ${{ steps.release.outputs.release-body }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史用于生成发布说明
+          fetch-depth: 0
 
+      - name: Generate release notes and manage version
+        id: release
+        uses: release-please/action@v4
+        with:
+          release-type: rust
+          target-commitish: master
+          fork: false
+          changelog-types: |
+            [
+              { "type": "feat", "section": "Features", "hidden": false },
+              { "type": "fix", "section": "Bug Fixes", "hidden": false },
+              { "type": "perf", "section": "Performance Improvements", "hidden": false },
+              { "type": "refactor", "section": "Code Refactoring", "hidden": false },
+              { "type": "docs", "section": "Documentation", "hidden": false },
+              { "type": "build", "section": "Build System", "hidden": false },
+              { "type": "ci", "section": "CI/CD", "hidden": false },
+              { "type": "chore", "section": "Other Changes", "hidden": false }
+            ]
+
+  # 发布任务 - 只在 release-please 创建 release 后执行
+  release:
+    needs: [build, release-please]
+    runs-on: ubuntu-latest
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          # 获取上一个标签和当前标签
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
-          CURRENT_TAG=$(git describe --tags --abbrev=0 HEAD)
-          
-          # 生成发布说明
-          echo "## What's new in $CURRENT_TAG" > RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-          echo "### Changes since $PREV_TAG:" >> RELEASE_NOTES.md
-          git log --pretty=format:"- %s" $PREV_TAG..$CURRENT_TAG >> RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-          echo "### Installation" >> RELEASE_NOTES.md
-          echo "Download the appropriate package for your platform and add to your PATH." >> RELEASE_NOTES.md
-
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref }}
-          name: Release ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
+          name: ${{ needs.release-please.outputs.release_name }}
+          body: ${{ needs.release-please.outputs.release_body }}
           draft: false
           prerelease: false
           files: |
