@@ -22,3 +22,5 @@ pub use windows::WindowsEnvOperation as OsEnvOperation;
 
 #[cfg(unix)]
 mod unix;
+#[cfg(unix)]
+pub use unix::UnixEnvOperation as OsEnvOperation;
