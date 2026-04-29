@@ -115,8 +115,10 @@ jobs:
           if-no-files-found: error
 
   # release-please 自动检测 conventional commits 并管理版本
+  # 只在分支推送时运行，不在 tag 推送时运行
   release-please:
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request'
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       release_name: ${{ steps.release.outputs.release-name }}
