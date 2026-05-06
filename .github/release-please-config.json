@@ -1,0 +1,8 @@
+{
+  "release-type": "rust",
+  "packages": {
+    ".": {
+      "component": "sdkmate"
+    }
+  }
+}
