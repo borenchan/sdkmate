@@ -136,7 +136,9 @@ jobs:
           release-type: rust
           target-commitish: master
           package-name: sdkmate
-          skip-detecting-packages: true
+          # 只追踪根目录 Cargo.toml 的变化，不追踪 workspace 成员
+          paths: |
+            Cargo.toml
           fork: false
           changelog-types: |
             [
