@@ -1,12 +1,10 @@
-use std::{env, process::Command};
-use std::collections::HashMap;
 use crate::env::EnvOperation;
-use anyhow::{anyhow, Ok, Result};
-use util::{consts::{ENV_JAVA_HOME, ENV_PATH}, info, sdk::Sdk, success, warning};
+use anyhow::{Ok, Result};
+use std::collections::HashMap;
+use util::{consts::ENV_PATH, info, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
-use util::sdk::BuiltinSdk;
 
 pub struct WindowsEnvOperation;
 
