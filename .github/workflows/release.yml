@@ -6,17 +6,33 @@ on:
       - master
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - master
-    types: [closed]
 
 jobs:
-  # 跨平台构建任务
+  # ── 1. 版本管理 + 自动开 Release PR ────────────────────────────
+  release-plz:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 2. 跨平台构建：只在 tag push 时运行 ────────────────────────
   build:
-    name: Build for ${{ matrix.os }}
+    name: Build (${{ matrix.asset_name }})
     runs-on: ${{ matrix.os }}
-    # 只在 tag push 时运行
     if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
@@ -27,112 +43,80 @@ jobs:
             artifact_name: sdkm
             asset_name: sdkmate-linux-x86_64
             archive_format: tar.gz
+
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-x86_64
             archive_format: tar.gz
+
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-aarch64
             archive_format: tar.gz
+
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: sdkm.exe
-            asset_name: sdkmate-windows-x86_64.exe
-            asset_name_without_exe: sdkmate-windows-x86_64
+            asset_name: sdkmate-windows-x86_64
             archive_format: zip
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+          targets: ${{ matrix.target }}
 
-      - name: Add Rust target (macOS cross-compile)
-        if: matrix.os == 'macos-latest'
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
 
-      - name: Build release binary
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }} --locked
 
-      - name: Strip binary (非Windows平台)
+      - name: Strip binary (Linux/macOS)
         if: matrix.os != 'windows-latest'
-        run: |
-          strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
-      - name: Prepare release assets
+      - name: Package
         shell: bash
         run: |
-          mkdir -p release-artifacts
-          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "release-artifacts/${{ matrix.artifact_name }}"
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" dist/
           if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
-            tar -czf "release-artifacts/${{ matrix.asset_name }}.tar.gz" -C release-artifacts "${{ matrix.artifact_name }}"
+            tar -czf "dist/${{ matrix.asset_name }}.tar.gz" -C dist "${{ matrix.artifact_name }}"
           else
-            7z a -tzip "release-artifacts/${{ matrix.asset_name_without_exe }}.zip" ./release-artifacts/*
+            7z a -tzip "dist/${{ matrix.asset_name }}.zip" "dist/${{ matrix.artifact_name }}"
           fi
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: build-artifact-${{ matrix.os }}
-          path: release-artifacts/
+          name: ${{ matrix.asset_name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
           if-no-files-found: error
 
-  # 发布任务 - 只在 build 成功后执行
-  release:
+  # ── 3. 上传产物到 Release ───────────────────────────────────────
+  upload-release:
     needs: build
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: release-artifacts
+          path: dist
           merge-multiple: true
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref }}
-          name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          tag_name: ${{ github.ref_name }}
           files: |
-            *.tar.gz
-            *.zip
-
-  # release-please - 管理版本和 Changelog
-  # 只在 master 分支 push 时运行，不在 tag push 时运行
-  release-please:
-    runs-on: ubuntu-latest
-    # 只在分支推送时运行
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Generate release notes and manage version
-        id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: .github/release-please-config.json
-          manifest-file: .github/release-please-manifest.json
-
+            dist/*.tar.gz
+            dist/*.zip

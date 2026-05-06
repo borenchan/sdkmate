@@ -50,6 +50,7 @@ util = { path = "crates/util" }
 [package]
 name = "sdkmate"
 version = "0.1.0"
+publish = false
 edition.workspace = true
 description.workspace = true
 repository.workspace = true
