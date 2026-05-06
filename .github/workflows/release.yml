@@ -136,6 +136,7 @@ jobs:
           release-type: rust
           target-commitish: master
           package-name: sdkmate
+          skip-detecting-packages: true
           fork: false
           changelog-types: |
             [
