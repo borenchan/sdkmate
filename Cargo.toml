@@ -9,7 +9,7 @@ repository = "https://github.com/borenchan/sdkmate"
 # 工作区成员
 [workspace]
 members = [
-    ".",           # 根 crate（包含 main.rs）
+#    ".",           # 根 crate（包含 main.rs）
     "crates/sdkcore",
     "crates/cli",
     "crates/util",
