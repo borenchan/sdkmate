@@ -49,12 +49,12 @@ util = { path = "crates/util" }
 #根目录 包配置
 [package]
 name = "sdkmate"
-version.workspace= true
-edition.workspace= true
-description.workspace= true
-repository.workspace= true
-authors.workspace= true
-license.workspace= true
+version = "0.1.0"
+edition = "2024"
+description = "An SDK version manager for full-stack engineers"
+repository = "https://github.com/borenchan/sdkmate"
+authors = ["boren1007@qq.com"]
+license = "Apache-2.0"
 
 # 二进制目标配置
 [[bin]]
