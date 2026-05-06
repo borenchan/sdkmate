@@ -137,8 +137,7 @@ jobs:
           target-commitish: master
           package-name: sdkmate
           # 只追踪根目录 Cargo.toml 的变化，不追踪 workspace 成员
-          paths: |
-            Cargo.toml
+          path: .                    # 只管理根目录这一个包
           fork: false
           changelog-types: |
             [

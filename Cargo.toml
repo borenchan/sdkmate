@@ -50,11 +50,11 @@ util = { path = "crates/util" }
 [package]
 name = "sdkmate"
 version = "0.1.0"
-edition = "2024"
-description = "An SDK version manager for full-stack engineers"
-repository = "https://github.com/borenchan/sdkmate"
-authors = ["boren1007@qq.com"]
-license = "Apache-2.0"
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
 
 # 二进制目标配置
 [[bin]]
