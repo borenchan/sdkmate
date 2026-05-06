@@ -1,9 +1,5 @@
 name: Release sdkmate
 
-# 触发条件：
-# 1. push 代码到 master 分支 -> release-please 自动创建 Release PR
-# 2. Release PR 合并后自动打 tag 并发 Release
-# 3. 使用 conventional commits 规范 (feat:, fix:, docs:, chore: 等 )
 on:
   push:
     branches:
@@ -17,58 +13,42 @@ on:
 
 jobs:
   # 跨平台构建任务
-  # 构建在 tag push 时触发（由 release-please 创建的 tag）
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # 只在 tag push 时运行
     if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: sdkm
             asset_name: sdkmate-linux-x86_64
             archive_format: tar.gz
-            system_deps: ""
-            asset_name_without_exe: ""
-          # macOS x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-x86_64
             archive_format: tar.gz
-            system_deps: ""
-            asset_name_without_exe: ""
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-aarch64
             archive_format: tar.gz
-            system_deps: ""
-            asset_name_without_exe: ""
-          # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: sdkm.exe
             asset_name: sdkmate-windows-x86_64.exe
             asset_name_without_exe: sdkmate-windows-x86_64
             archive_format: zip
-            system_deps: ""
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest' && matrix.system_deps != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.system_deps }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -103,26 +83,46 @@ jobs:
           else
             7z a -tzip "release-artifacts/${{ matrix.asset_name_without_exe }}.zip" ./release-artifacts/*
           fi
-          echo "生成的文件列表："
-          ls -la release-artifacts/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: |
-            release-artifacts/${{ matrix.asset_name_without_exe != '' && matrix.asset_name_without_exe || matrix.asset_name }}.${{ matrix.archive_format }}
+          path: release-artifacts/*
           if-no-files-found: error
 
-  # release-please 自动检测 conventional commits 并管理版本
-  # 只在分支推送时运行，不在 tag 推送时运行
+  # 发布任务 - 只在 build 成功后执行
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            *.tar.gz
+            *.zip
+
+  # release-please - 管理版本和 Changelog
+  # 只在 master 分支 push 时运行，不在 tag push 时运行
   release-please:
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/') || github.event_name == 'pull_request'
+    # 只在分支推送时运行
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
-      release_name: ${{ steps.release.outputs.release-name }}
-      release_body: ${{ steps.release.outputs.release-body }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -147,33 +147,3 @@ jobs:
               { "type": "ci", "section": "CI/CD", "hidden": false },
               { "type": "chore", "section": "Other Changes", "hidden": false }
             ]
-
-  # 发布任务 - 只在 release-please 创建 release 后执行
-  release:
-    needs: [build, release-please]
-    runs-on: ubuntu-latest
-    if: needs.release-please.outputs.release_created == 'true'
-    permissions:
-      contents: write
-    steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-          merge-multiple: true
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ needs.release-please.outputs.release_name }}
-          body: ${{ needs.release-please.outputs.release_body }}
-          draft: false
-          prerelease: false
-          files: |
-            *.tar.gz
-            *.zip
-
-      - name: Notify on success
-        if: success()
-        run: |
-          echo "Successfully created release ${{ github.ref_name }}"
