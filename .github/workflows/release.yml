@@ -87,8 +87,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: release-artifacts/*
+          name: build-artifact-${{ matrix.os }}
+          path: release-artifacts/
           if-no-files-found: error
 
   # 发布任务 - 只在 build 成功后执行
