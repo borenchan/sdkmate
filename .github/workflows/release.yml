@@ -135,6 +135,7 @@ jobs:
         with:
           release-type: rust
           target-commitish: master
+          package-name: sdkmate
           fork: false
           changelog-types: |
             [
