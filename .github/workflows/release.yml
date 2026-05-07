@@ -67,19 +67,11 @@ jobs:
             artifact_name: sdkm
             asset_name: sdkmate-linux-x86_64
             archive_format: tar.gz
-
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: sdkm
-            asset_name: sdkmate-macos-x86_64
-            archive_format: tar.gz
-
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-aarch64
             archive_format: tar.gz
-
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: sdkm.exe
