@@ -136,3 +136,13 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.zip
+  # ── 4. 发布到 crates.io ─────────────────────────────────────
+  publish-crate:
+    needs: upload-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish to crates.io
+        run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
