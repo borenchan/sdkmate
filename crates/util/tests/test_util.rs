@@ -11,5 +11,5 @@ fn test_get_exe_path() {
 fn test_sdk_fmt() {
     println!("{}", Sdk::Built(BuiltinSdk::Java));
     println!("{}", Sdk::Built(BuiltinSdk::Java).to_string());
-    println!("{}", Sdk::Custom("Maven".to_string()).to_string());
+    println!("{}", Sdk::Custom("Node".to_string()).to_string());
 }
