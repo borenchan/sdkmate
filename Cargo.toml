@@ -5,6 +5,7 @@ license = "Apache-2.0"
 authors = ["boren1007@qq.com"]
 description = "An SDK version manager for full-stack engineers"
 repository = "https://github.com/borenchan/sdkmate"
+homepage = "https://github.com/borenchan/sdkmate"
 
 # 工作区成员
 [workspace]
@@ -49,13 +50,16 @@ util = { path = "crates/util" }
 #根目录 包配置
 [package]
 name = "sdkmate"
-publish = false
 version.workspace = true
 edition.workspace = true
 description.workspace = true
 repository.workspace = true
 authors.workspace = true
 license.workspace = true
+homepage.workspace = true
+
+# 允许发布到crate.io
+publish = true
 # crate.io必要字段
 readme = "README.md"
 keywords = ["sdk", "version-manager", "sdkman","full-stack"]   # 最多 5 个
