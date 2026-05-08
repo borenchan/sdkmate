@@ -78,31 +78,10 @@
 
 ## 📦 安装
 
-### 🔧 使用 Cargo 安装（推荐）
-
-```bash
-cargo install sdkm
-```
-
-### 🔥 一键脚本安装（Linux / macOS）
-
-```bash
-curl -sSL https://raw.githubusercontent.com/borenchan/sdkmate/main/install.sh | bash
-```
-
-### 🪟 Windows 安装
-
-```powershell
-# 使用 winget
-winget install sdkm
-
-# 或使用 Scoop
-scoop install sdkm
-```
 
 ### 📥 下载预编译二进制
 
-前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包，解压后将 `sdkm` 可执行文件加入 PATH 即可。
+前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包，解压后可将 `sdkm` 可执行文件放到任意工作目录中。
 
 ---
 

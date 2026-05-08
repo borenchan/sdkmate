@@ -59,8 +59,7 @@ license.workspace = true
 homepage.workspace = true
 
 ### 发布到crate.io的相关配置
-# 允许发布
-publish = true
+publish = false
 # 必要信息
 readme = "README.md"
 keywords = ["sdk", "version-manager", "sdkman","full-stack"]   # 最多 5 个

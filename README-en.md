@@ -78,31 +78,9 @@
 
 ## 📦 Installation
 
-### 🔧 Install via Cargo (Recommended)
-
-```bash
-cargo install sdkm
-```
-
-### 🔥 One-Line Install Script (Linux / macOS)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/borenchan/sdkmate/main/install.sh | bash
-```
-
-### 🪟 Windows Installation
-
-```powershell
-# Using winget
-winget install sdkm
-
-# Or using Scoop
-scoop install sdkm
-```
-
 ### 📥 Download Pre-built Binaries
 
-Visit the [Releases](https://github.com/borenchan/sdkmate/releases) page to download the compressed package for your platform, extract it, and add the `sdkm` executable to your PATH.
+Visit the [Releases](https://github.com/borenchan/sdkmate/releases) page to download the compressed package for your platform, extract it, and add the `sdkm` executable to your work directory.
 
 ---
 
