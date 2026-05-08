@@ -58,12 +58,20 @@ authors.workspace = true
 license.workspace = true
 homepage.workspace = true
 
-# 允许发布到crate.io
+### 发布到crate.io的相关配置
+# 允许发布
 publish = true
-# crate.io必要字段
+# 必要信息
 readme = "README.md"
 keywords = ["sdk", "version-manager", "sdkman","full-stack"]   # 最多 5 个
 categories = ["command-line-utilities"]
+# 明确排除不需要上传的文件
+exclude = [
+    ".github/**",
+    ".gitignore",
+    "*.sh"
+]
+
 # 二进制目标配置
 [[bin]]
 name = "sdkm"

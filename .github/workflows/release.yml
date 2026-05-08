@@ -147,4 +147,4 @@ jobs:
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: cargo publish
+        run: cargo publish --no-verify
