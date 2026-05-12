@@ -7,6 +7,8 @@ use clap::{command, ColorChoice, Parser, Subcommand};
 use crossterm::style::Stylize;
 use util::consts::{ABOUT, BANNER };
 use util::error;
+use crate::impls::current::CurrentHandler;
+use crate::impls::install::InstallHandler;
 
 mod impls;
 
@@ -26,7 +28,7 @@ pub enum Commands {
     Init(InitHandler),
 
     #[command(name = "install", visible_alias = "i", about = "install a new sdk version from remote")]
-    Install,
+    Install(InstallHandler),
 
     #[command(name = "list",visible_aliases= ["ls","l"], about = "query available sdk and it's versions list")]
     List(ListHandler),
@@ -35,7 +37,7 @@ pub enum Commands {
     Switch(SwitchHandler),
 
     #[command(name = "current", visible_alias = "c", about = "show current active sdk version")]
-    Current,
+    Current(CurrentHandler),
 
     #[command(name = "config", about = "config sdkmate")]
     Config,
@@ -59,8 +61,10 @@ impl Commands {
     pub fn run(self) {
         let res = match self {
             Commands::Init(handler) => handler.run(),
+            Commands::Install(handler) => handler.run(),
             Commands::List(handler) => handler.run(),
             Commands::Switch(handler) => handler.run(),
+            Commands::Current(handler) => handler.run(),
             _ => Err(anyhow::anyhow!("Not implemented yet")),
         };
         if let Err (cli_err) = res{

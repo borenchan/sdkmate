@@ -97,13 +97,15 @@ sdkm init
 > 初始化后，sdkmate 会自动创建配置目录并注册环境变量。
 
 ### 2️⃣ 查看可用版本
-
+您可以把本地的sdk交给sdkmate托管，按照如下示例托管目录。sdkmate会自动发现这些sdk。
+1. 示例 java: `${your_work_dir}/sdkm/store/java/21`
+2. 示例 node: `${your_work_dir}/sdkm/store/node/22`
 ```bash
 # 查看所有 SDK 的本地已安装版本
 sdkm list
 
 # 查看远程可用的 Java 版本
-sdkm list java --source remote
+sdkm ls java --source remote
 
 # 查看远程可用的 Node.js 版本
 sdkm list node --source remote
@@ -113,7 +115,7 @@ sdkm list node --source remote
 
 ```bash
 # 一键切换 Java 版本
-sdkm switch java 21
+sdkm s java 21
 
 # 切换 Node.js 到指定版本
 sdkm switch node 20.11.0

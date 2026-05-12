@@ -2,10 +2,10 @@ use crate::manager::SdkManager;
 use anyhow::Result;
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use util::info;
+use unicode_width::UnicodeWidthStr;
 use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
-use unicode_width::UnicodeWidthStr;
+use util::{info, success};
 
 #[derive(Debug)]
 pub struct SdkVersionItem {
@@ -37,6 +37,24 @@ impl SdkManager {
                     i += 1;
                 }
             }
+        }
+        Ok(())
+    }
+    pub fn show_local_sdks_current(&self,sdk : Option<Sdk> ) -> Result<()> {
+        if let Some (sdk) = sdk{
+            let conf = self.config.find_sdk_ok(&sdk)?;
+            info!("{} {}", sdk, conf.current_version.clone().unwrap_or("N/A".to_string()));
+            return Ok(());
+        }
+        let map = get_installed_sdks_dir()?
+            .read_dir()?
+            .filter_map(|entry| entry.ok());
+        for (i,entry) in map.enumerate() {
+            let sdk = self.match_valid_sdk(&entry.file_name().to_string_lossy())?;
+            let sdk_conf =self.config.find_sdk_ok(&sdk)?;
+            info!("--------------------------");
+            success!("{} current is {}",sdk, &sdk_conf.current_version.clone().unwrap_or("N/A".to_string()));
+            info!("--------------------------");
         }
         Ok(())
     }
