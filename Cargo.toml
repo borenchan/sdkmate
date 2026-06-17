@@ -26,8 +26,20 @@ reqwest = { version = "0.12.7", features = [
     "json",
     "gzip",
     "multipart",
+    "stream"
 ] }
+tokio = {version = "1", features = ["fs", "io-util", "rt-multi-thread"]}
+
+# 进度条
+indicatif = { version = "0.17" }
+# 解压
+zip = { version = "2" }
+flate2 = { version = "1" }
+tar = { version = "0.4" }
+futures-util = { version = "0.3" }
+
 serde = { version = "1",features = ["derive"]}
+serde_json = { version = "1"}
 # 终端控制与调色
 crossterm = { version = "0.28.1" }
 # 配置文件解析

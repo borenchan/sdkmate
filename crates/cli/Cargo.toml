@@ -13,3 +13,4 @@ util = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true}
+tokio = { workspace = true }

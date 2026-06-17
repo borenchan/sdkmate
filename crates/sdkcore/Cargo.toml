@@ -13,8 +13,15 @@ reqwest = {workspace = true}
 anyhow = { workspace = true}
 crossterm = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }
 unicode-width = { workspace = true }
+tokio = { workspace = true }
+indicatif = { workspace = true }
+zip = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+futures-util = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 winreg = { workspace = true}
 windows-sys = { workspace = true}
