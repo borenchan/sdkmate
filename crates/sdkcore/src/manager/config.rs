@@ -25,20 +25,26 @@ pub struct SdkmConfig {
     #[serde(default, rename = "sdk")]
     pub sdks: Vec<SdkConfig>,
 }
-/// [network] 网络相关设置
+/// [network] network settings
 #[derive(Debug, Deserialize, Serialize,Clone)]
 pub struct NetworkConfig {
-    /// 代理地址，如 "http://127.0.0.1:7890"
+    /// Proxy URL, e.g. "http://127.0.0.1:7890"
     #[serde(default)]
     pub proxy: Option<String>,
 
-    /// 是否验证 SSL，默认 true
+    /// Verify SSL, default true
     #[serde(default)]
     pub ssl_verify: bool,
 
-    /// 连接超时秒数，默认 30
+    /// Connect timeout in seconds, default 30
     #[serde(default)]
     pub connect_timeout: u32,
+
+    /// GitHub personal access token (optional).
+    /// Increases GitHub API rate limit from 60/hr to 5000/hr.
+    /// Create at: https://github.com/settings/tokens (no special permissions needed)
+    #[serde(default)]
+    pub github_token: Option<String>,
 }
 impl Default for NetworkConfig {
     fn default() -> Self {
@@ -46,6 +52,7 @@ impl Default for NetworkConfig {
             proxy: None,
             ssl_verify: true,
             connect_timeout: 30,
+            github_token: None,
         }
     }
 }
@@ -53,26 +60,40 @@ impl Default for NetworkConfig {
 pub struct SdkConfig {
     //sdk unique name
     pub name : String,
-    //sdk versions release url
+    //版本发现主源 URL
+    #[serde(default)]
     pub version_url: Option<String>,
-    //sdk real download url
+    //版本发现备源 URL（主源失败时回退）
+    #[serde(default)]
+    pub version_fallback_url: Option<String>,
+    //下载主源 URL 模板
     pub download_url: String,
+    //下载备源 URL 模板（下载主源失败时回退）
+    #[serde(default)]
+    pub download_fallback_url: Option<String>,
     //current active version
+    #[serde(default)]
     pub current_version: Option<String>,
     //binary dir
     pub bin_dir: String,
     //extra env vars
     pub extra_vars: HashMap<String, String>,
+    //extra paths relative to sdk symlink dir
+    #[serde(default)]
+    pub extra_paths: Vec<String>,
 }
 impl SdkConfig {
     pub fn new(name: String, version_url: String,download_url: String, bin_dir: String) -> SdkConfig {
         SdkConfig {
             name,
             version_url: Some(version_url),
+            version_fallback_url: None,
             download_url,
+            download_fallback_url: None,
             bin_dir,
             current_version: None,
             extra_vars: HashMap::with_capacity(0),
+            extra_paths: Vec::new(),
         }
     }
 
@@ -106,10 +127,19 @@ impl SdkmConfig {
     pub fn get_default_builtin_sdks() -> Vec<SdkConfig> {
         BUILTIN_SDK_CONFIG.iter()
             .map(|s| {
-                let mut config = SdkConfig::new(s.sdk.to_string(), s.version_list_url.to_string(), s.download_url.to_string(), s.sdk.get_sdk_bin_dir().to_string());
+                let mut config = SdkConfig::new(s.sdk.to_string(), s.version_url.to_string(), s.download_url.to_string(), s.sdk.get_sdk_bin_dir().to_string());
+                config.version_fallback_url = s.version_fallback_url.map(|u| u.to_string());
+                config.download_fallback_url = s.download_fallback_url.map(|u| u.to_string());
                 match s.sdk {
                     BuiltinSdk::Java => {
                         config.extra_vars.insert(ENV_JAVA_HOME.to_string(), PLACEHOLDER_SDK_DIR.to_string());
+                    }
+                    // Python install_only 版本：二次提升后，pip.exe 在 Scripts 子目录（仅 Windows）
+                    BuiltinSdk::Python => {
+                        if cfg!(target_os = "windows") {
+                            config.extra_paths.push("Scripts".to_string());
+                        }
+                        // Unix 的 pip 在 bin/ 下，已由 bin_dir 覆盖
                     }
                     _ => {}
                 }

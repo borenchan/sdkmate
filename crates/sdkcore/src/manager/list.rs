@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use unicode_width::UnicodeWidthStr;
 use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
-use util::{info, success};
+use util::{info, success, divider};
 
 #[derive(Debug)]
 pub struct SdkVersionItem {
@@ -52,9 +52,9 @@ impl SdkManager {
         for (i,entry) in map.enumerate() {
             let sdk = self.match_valid_sdk(&entry.file_name().to_string_lossy())?;
             let sdk_conf =self.config.find_sdk_ok(&sdk)?;
-            info!("--------------------------");
+            divider!();
             success!("{} current is {}",sdk, &sdk_conf.current_version.clone().unwrap_or("N/A".to_string()));
-            info!("--------------------------");
+            divider!();
         }
         Ok(())
     }
