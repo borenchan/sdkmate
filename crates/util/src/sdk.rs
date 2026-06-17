@@ -22,8 +22,6 @@ pub enum BuiltinSdk {
     Node,
     /// python programming language
     Python,
-    /// rust programming language
-    Rust,
 }
 
 impl FromStr for Sdk {
@@ -52,7 +50,6 @@ impl FromStr for BuiltinSdk {
             "maven" => Ok(BuiltinSdk::Maven),
             "node" => Ok(BuiltinSdk::Node),
             "python" => Ok(BuiltinSdk::Python),
-            "rust" => Ok(BuiltinSdk::Rust),
             _ => Err(anyhow::anyhow!("not builtin sdk"))
         }
     }
@@ -64,16 +61,32 @@ impl Display for BuiltinSdk {
             BuiltinSdk::Maven => write!(f, "maven"),
             BuiltinSdk::Node => write!(f, "node"),
             BuiltinSdk::Python => write!(f, "python"),
-            BuiltinSdk::Rust => write!(f, "rust"),
         }
     }
 }
 impl BuiltinSdk {
     /// get sdk bin directory
+    /// For Python install_only: after double-lift normalization,
+    /// Windows has python.exe at root, Unix has python3 in bin/
     pub fn get_sdk_bin_dir(&self) -> &str {
         match self {
             BuiltinSdk::Node => "",
+            BuiltinSdk::Python => {
+                // install_only 二次提升后：Windows 扁平结构，Unix bin/ 子目录
+                if cfg!(target_os = "windows") { "" } else { "bin" }
+            }
             _ => "bin"
+        }
+    }
+
+    /// PATH 冲突检测：返回该 SDK 的主可执行文件名（不含扩展名）
+    /// Windows 运行时会自动追加 .exe / .cmd；Unix 使用原始名
+    pub fn primary_executables(&self) -> &[&str] {
+        match self {
+            BuiltinSdk::Java => &["java", "javac"],
+            BuiltinSdk::Node => &["node", "npm"],
+            BuiltinSdk::Python => &["python", "python3"],
+            BuiltinSdk::Maven => &["mvn"],
         }
     }
 

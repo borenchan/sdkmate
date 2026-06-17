@@ -20,7 +20,19 @@ pub const ENV_PATH: &'static str = "PATH";
 pub const ENV_JAVA_HOME: &'static str = "JAVA_HOME";
 
 pub const SDKM_STORE_DIR: &'static str = "store";
+pub const SDKM_TMP_DIR: &'static str = ".tmp";
 pub const CONFIG_FILE_NAME: &'static str = "config.toml";
+
+/// Install 过程中的趣味提示，用于进度条下方轮换展示
+pub const INSTALL_TIPS: &[&str] = &[
+    "💡 使用 sdkm list <sdk> --source remote 查看所有可用版本",
+    "⚡ Rust 驱动：下载速度飞快，内存占用 < 5MB",
+    "🧠 输入 '21' 即可模糊匹配最新 LTS 版本",
+    "🎯 sdkm 使用符号链接实现毫秒级版本切换",
+    "🌍 网络代理可在 config.toml [network] 中配置",
+    "🔧 使用 --no-switch 可安装但不自动切换版本",
+    "🚀 一条命令搞定安装+切换：sdkm install java 21",
+];
 
 
 // default symlink dir
