@@ -190,4 +190,38 @@ impl EnvOperation for UnixEnvOperation {
         let path = env::var(ENV_PATH).unwrap_or_default();
         Ok(path)
     }
+
+    fn remove_sdk_path(&self, target: &str) -> Result<()> {
+        let profile_path = Self::get_shell_profile_path()?;
+        let expanded_target = Self::expand_path(target);
+
+        let content = if profile_path.exists() {
+            fs::read_to_string(&profile_path)?
+        } else {
+            return Ok(()); // 文件不存在，无需移除
+        };
+
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        let path_export_pattern = "export PATH=";
+
+        for line in lines.iter_mut() {
+            if line.trim().starts_with(path_export_pattern) {
+                let current_value = line.trim_start_matches(path_export_pattern).trim_matches('"');
+                let paths: Vec<String> = current_value
+                    .split(':')
+                    .filter(|p| p != expanded_target && p != target)
+                    .map(|p| p.to_string())
+                    .collect();
+                *line = format!("export PATH=\"{}\"", paths.join(":"));
+                break;
+            }
+        }
+
+        let new_content = lines.join("\n");
+        fs::write(&profile_path, new_content)?;
+        Self::source_profile(&profile_path)?;
+        info!("removed `{target}` from PATH");
+
+        Ok(())
+    }
 }

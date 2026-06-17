@@ -10,9 +10,8 @@ pub struct WindowsEnvOperation;
 
 impl EnvOperation for WindowsEnvOperation {
     fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<()> {
-        let key = open_user_env(true)?;
+        let key = open_env_key(true)?;
         for (env_key, env_val) in envs {
-            // 简化的写法，自动处理类型转换
             key.set_value(env_key, env_val)?;
             info!("success set env key:`{env_key}` value:`{env_val}` !");
         }
@@ -21,18 +20,17 @@ impl EnvOperation for WindowsEnvOperation {
     }
 
     fn add_sdk_path(&self, sdk_path: &str) -> Result<()> {
-        let key = open_user_env(true)?;
+        let key = open_env_key(true)?;
         let current: String = key.get_value(ENV_PATH).unwrap_or_default();
 
-        // 检查是否已存在
-        let paths: Vec<&str> = current.split(';').collect();
-        if paths.iter().any(|p| p.eq_ignore_ascii_case(sdk_path)) {
+        // 检查是否已存在（大小写不敏感）
+        if current.split(';').any(|p| p.eq_ignore_ascii_case(sdk_path)) {
             warning!("path exists. sdk_path: {}", sdk_path);
             return Ok(());
         }
 
-        let new_value =  format!("{};{}", sdk_path, current );
-        // 必须用 REG_EXPAND_SZ 类型保存，以支持 %VAR% 语法
+        // 前置添加 sdkm 路径，确保优先级最高
+        let new_value = format!("{};{}", sdk_path, current);
         key.set_value(ENV_PATH, &new_value)?;
         broadcast_env_change();
         info!("success add `{sdk_path}` to path!");
@@ -40,39 +38,38 @@ impl EnvOperation for WindowsEnvOperation {
     }
 
     fn get_path(&self) -> Result<String> {
-        let key = open_user_env(false)?;
-        // 读取 REG_EXPAND_SZ 原始值，不展开变量
+        let key = open_env_key(false)?;
         let path: String = key.get_value(ENV_PATH)?;
         Ok(path)
+    }
+
+    fn remove_sdk_path(&self, target: &str) -> Result<()> {
+        let key = open_env_key(true)?;
+        let current: String = key.get_value(ENV_PATH).unwrap_or_default();
+
+        let new_value: String = current
+            .split(';')
+            .filter(|p| !p.eq_ignore_ascii_case(target))
+            .collect::<Vec<&str>>()
+            .join(";");
+
+        key.set_value(ENV_PATH, &new_value)?;
+        broadcast_env_change();
+        info!("removed `{target}` from PATH");
+        Ok(())
     }
 }
 
 const ENV_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
 
-fn open_user_env(write: bool) -> Result<RegKey> {
-    let hkcu = RegKey::predef(HKEY_LOCAL_MACHINE);
+fn open_env_key(write: bool) -> Result<RegKey> {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key = if write {
-        hkcu.open_subkey_with_flags(ENV_KEY, KEY_READ | KEY_WRITE)?
+        hklm.open_subkey_with_flags(ENV_KEY, KEY_READ | KEY_WRITE)?
     } else {
-        hkcu.open_subkey(ENV_KEY)?
+        hklm.open_subkey(ENV_KEY)?
     };
-    std::prelude::rust_2015::Ok(key)
-}
-
-
-pub fn remove_from_path(target: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let key = open_user_env(true)?;
-    let current: String = key.get_value(ENV_PATH).unwrap_or_default();
-
-    let new_value: Vec<&str> = current
-        .split(';')
-        .filter(|p| !p.eq_ignore_ascii_case(target))
-        .collect();
-    let new_value = new_value.join(";");
-
-    key.set_value(ENV_PATH, &new_value)?;
-    broadcast_env_change();
-    std::prelude::rust_2015::Ok(())
+    Ok(key)
 }
 
 /// 广播环境变量变更，让 Explorer 和其他程序感知
