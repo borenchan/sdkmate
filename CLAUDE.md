@@ -83,16 +83,15 @@ sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
 
 ## 当前开发进度（2026-06-17）
 
-以下改动在工作区中，**尚未提交**：
+以下改动已全部提交（6 个 commit）：
 
-### 已完成的改动
-1. **install 模块重构** — `install.rs` 单文件拆为 5 个子模块（mod/resolver/downloader/extractor/progress），12 阶段异步安装流程
-2. **switch 增强** — PATH 冲突检测（`detect_path_conflicts` / `handle_path_conflicts`）、`extra_paths` 多 bin 目录支持、终端重启提示
-3. **env 模块扩展** — `EnvOperation` trait 新增 `remove_sdk_path` 方法；`split_path_entries` / `path_separator` 公共辅助函数
-4. **Maven 内置配置** — `BUILTIN_SDK_CONFIG` 新增 Maven 条目（有下载模板，无 version_url）
-5. **模板渲染增强** — 新增 `{version}`、`{feature_version}`、`{release_tag}`、`{platform}` 占位符；OsStyle 枚举（Default/Short/Adoptium）
-6. **终端输出扩展** — 新增 `detail!`（暗灰辅助信息）、`step!`（阶段标记）、`divider()`、`info_success()`、`prompt_confirm()` 交互确认
-7. **依赖更新** — 新增 reqwest（带 TLS）、tokio、indicatif 等依赖
+### 已完成并提交的改动
+1. **依赖更新** (`2898678`) — 新增 tokio、indicatif、zip、flate2、tar、futures-util、serde_json；reqwest stream feature
+2. **util 层增强** (`428362d`) — 终端输出重构（统一调色板 + detail/step/divider 宏）、模板渲染升级（OsStyle/ArchStyle + 新占位符）、SDK 类型扩展（primary_executables、Maven 配置）
+3. **env 模块扩展** (`75d1474`) — EnvOperation 新增 remove_sdk_path、path_separator/split_path_entries 公共辅助、Windows/Unix 重构
+4. **switch 增强** (`9c61aec`) — PATH 冲突检测 + extra_paths + github_token 配置字段
+5. **install 模块拆分** (`2d72e73`) — 单文件拆为 5 子模块（mod/resolver/downloader/extractor/progress），12 阶段异步安装流程
+6. **CLAUDE.md** (`18c902d`) — 项目架构文档 + 进度追踪
 
 ## 已知问题与注意事项
 
@@ -104,7 +103,6 @@ sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
 - 现有集成测试使用硬编码的 Windows 绝对路径——不可移植，无单元测试（`#[cfg(test)]` 模块）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有此限制，主源 uv metadata 无此问题）
 - Rust 工具链通过 `rust-toolchain.toml` 固定为 1.92.0（edition 2024）
-- 当前大量改动在工作区未提交（+1392/-422 行，19 文件），需要整理提交
 
 ## 提交规范
 
