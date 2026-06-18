@@ -4,17 +4,22 @@ use crate::CommandHandler;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {
-    /// The following available SDKs are supported: java | node | python | rust | maven
-    /// Custom SDKs defined in config are also accepted.
-    #[arg(value_name = "SDK", help = "install the specified SDK to a new version")]
+    /// 要安装的 SDK 名称。内置: java, node, python, maven; 自定义 SDK 见 config.toml
+    #[arg(
+        value_name = "SDK",
+        help = "SDK name. Built-in: java, node, python, maven. Custom SDKs from config.toml also accepted"
+    )]
     sdk: String,
 
-    /// Target version to install. Supports fuzzy matching like '21' for latest 21.x.
-    #[arg(value_name = "VERSION", help = "the target version to install (supports fuzzy matching like '21')")]
+    /// 目标版本号，支持模糊匹配，如 '21' 自动解析为最新 21.x
+    #[arg(
+        value_name = "VERSION",
+        help = "Target version (fuzzy match supported, e.g. '21' → latest 21.x)"
+    )]
     sdk_version: String,
 
-    /// Do not auto-switch to the installed version after installation.
-    #[arg(long, help = "install without auto-switching to the new version")]
+    /// 安装后不自动切换到新版本
+    #[arg(long, help = "Do not auto-switch to the installed version")]
     no_switch: bool,
 }
 

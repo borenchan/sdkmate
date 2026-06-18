@@ -1,18 +1,19 @@
 use clap::Parser;
 use sdkcore::manager::SdkManager;
-use util::sdk::Sdk;
 use crate::CommandHandler;
 
-#[derive(Debug,Parser)]
+#[derive(Debug, Parser)]
 pub struct SwitchHandler {
-    /// The following available SDKs are supported:  java| node | python | rust | maven
-    /// Custom SDKs defined in config are also accepted.
-    #[arg(value_name = "SDK", help = "Switch the specified SDK to a new version")]
+    /// 要切换的 SDK 名称。内置: java, node, python, maven; 自定义 SDK 见 config.toml
+    #[arg(
+        value_name = "SDK",
+        help = "SDK name. Built-in: java, node, python, maven. Custom SDKs from config.toml also accepted"
+    )]
     sdk: String,
 
-    #[arg(help = "the target version to switch")]
+    /// 目标版本号，必须是已安装的版本
+    #[arg(value_name = "VERSION", help = "Target version (must be installed locally)")]
     sdk_version: String,
-
 }
 
 impl CommandHandler for SwitchHandler {

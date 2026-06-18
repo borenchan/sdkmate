@@ -11,6 +11,7 @@ use crate::impls::current::CurrentHandler;
 use crate::impls::install::InstallHandler;
 
 mod impls;
+mod tui;
 
 #[derive(Debug, Parser)]
 #[command(name = "sdkm", author,  version, about = ABOUT.cyan().to_string(), long_about = BANNER.cyan().to_string())]
@@ -24,22 +25,22 @@ pub struct SdkMateCli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    #[command(name = "init", about = "init sdkmate on you first use")]
+    #[command(name = "init", about = "Initialize sdkm for first-time use")]
     Init(InitHandler),
 
-    #[command(name = "install", visible_alias = "i", about = "install a new sdk version from remote")]
+    #[command(name = "install", visible_alias = "i", about = "Install an SDK version from remote")]
     Install(InstallHandler),
 
-    #[command(name = "list",visible_aliases= ["ls","l"], about = "query available sdk and it's versions list")]
+    #[command(name = "list", visible_aliases = ["ls", "l"], about = "List installed or remote SDK versions")]
     List(ListHandler),
 
-    #[command(name = "switch", visible_alias = "s" , about = "switch sdk to another version")]
+    #[command(name = "switch", visible_alias = "s", about = "Switch an SDK to a specific version")]
     Switch(SwitchHandler),
 
-    #[command(name = "current", visible_alias = "c", about = "show current active sdk version")]
+    #[command(name = "current", visible_alias = "c", about = "Show the active version of an SDK")]
     Current(CurrentHandler),
 
-    #[command(name = "config", about = "config sdkmate")]
+    #[command(name = "config", about = "View or edit sdkm configuration")]
     Config,
 }
 
