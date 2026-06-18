@@ -50,9 +50,9 @@ impl VersionSource {
     }
 }
 
-// ─── 通用缓存 ───────────────────────────────────────────────────
+// ─── 通用缓存（缓存优先 + TTL 过期） ─────────────────────────────
 
-/// 缓存路径：<sdkm_home>/.cache/api/<sdk_name>.json
+/// Cache path: <sdkm_home>/.cache/api/<sdk_name>.json
 fn cache_path(sdk_name: &str) -> Result<std::path::PathBuf> {
     let dir = get_sdkm_home()?.join(".cache").join("api");
     fs::create_dir_all(&dir)?;
@@ -64,7 +64,21 @@ fn save_to_cache(sdk_name: &str, body: &str) -> Result<()> {
     Ok(())
 }
 
-fn load_from_cache(sdk_name: &str) -> Option<String> {
+/// Load from cache only if file is fresh (within TTL).
+/// Uses file modification time as implicit timestamp — no metadata parsing needed.
+fn load_from_cache_if_fresh(sdk_name: &str, ttl_secs: u64) -> Option<String> {
+    let path = cache_path(sdk_name).ok().filter(|p| p.exists())?;
+    let mtime = fs::metadata(&path).ok()?.modified().ok()?;
+    let age = mtime.elapsed().ok()?.as_secs();
+    if age <= ttl_secs {
+        fs::read_to_string(&path).ok()
+    } else {
+        None
+    }
+}
+
+/// Load from cache regardless of age (degraded fallback when network fails).
+fn load_from_cache_stale(sdk_name: &str) -> Option<String> {
     cache_path(sdk_name).ok()
         .filter(|p| p.exists())
         .and_then(|p| fs::read_to_string(p).ok())
@@ -75,17 +89,26 @@ fn load_from_cache(sdk_name: &str) -> Option<String> {
 /// 最大重试次数（仅对 5xx / 网络错误重试，429/403 不重试）
 const MAX_RETRIES: u32 = 3;
 
-/// 主备切换 + 重试 + 缓存兜底的通用版本数据获取
+/// Cache-first version data fetch with TTL + API fallback.
 ///
-/// 流程：主源 → 重试3次 → 切备源 → 重试3次 → 缓存兜底 → bail
+/// Flow: check cache → if fresh return immediately → if stale/missing
+///       → primary source (retry 3x) → secondary source (retry 3x)
+///       → save to cache → return.
+///       If both sources fail → return stale cache as degraded fallback → bail.
 pub async fn fetch_version_data(
     client: &Client,
     source: &VersionSource,
     cache_key: &str,
     sdk_label: &str,
     headers: Option<HashMap<String, String>>,
+    cache_ttl_secs: u64,
 ) -> Result<String> {
-    // 尝试主源
+    // Cache-first: if cache is fresh, return immediately (no network call)
+    if let Some(cached) = load_from_cache_if_fresh(cache_key, cache_ttl_secs) {
+        return Ok(cached);
+    }
+
+    // Cache is stale or missing → fetch from API
     let primary_result = try_url_with_retry(
         client, &source.primary_url, headers.clone(), sdk_label, "primary",
     ).await;
@@ -95,7 +118,7 @@ pub async fn fetch_version_data(
         return Ok(body);
     }
 
-    // 主源失败，尝试备源
+    // Primary failed → try secondary
     if let Some(secondary_url) = &source.secondary_url {
         if !secondary_url.is_empty() {
             let secondary_result = try_url_with_retry(
@@ -109,9 +132,9 @@ pub async fn fetch_version_data(
         }
     }
 
-    // 主备都失败，尝试缓存兜底
-    if let Some(cached) = load_from_cache(cache_key) {
-        warning!("[{}] both primary and secondary sources failed, falling back to local cache (may be outdated)", sdk_label);
+    // Both sources failed → return stale cache as degraded fallback
+    if let Some(cached) = load_from_cache_stale(cache_key) {
+        warning!("[{}] both primary and secondary sources failed, using stale local cache (may be outdated)", sdk_label);
         return Ok(cached);
     }
 
@@ -268,8 +291,9 @@ pub async fn resolve_sdk_version(
     sdk_label: &str,
     version_input: &str,
     headers: Option<HashMap<String, String>>,
+    cache_ttl_secs: u64,
 ) -> Result<ResolvedVersion> {
-    let body = fetch_version_data(client, source, cache_key, sdk_label, headers).await?;
+    let body = fetch_version_data(client, source, cache_key, sdk_label, headers, cache_ttl_secs).await?;
     let entries = strategy.parse_version_data(&body)?;
     fuzzy_match_version(&entries, version_input)
 }
@@ -370,10 +394,10 @@ pub async fn resolve_java_version(client: &Client, version_input: &str) -> Resul
 }
 
 #[derive(Debug, Deserialize)]
-struct AdoptiumReleases {
-    available_releases: Vec<i32>,
+pub struct AdoptiumReleases {
+    pub available_releases: Vec<i32>,
     #[allow(dead_code)]
-    most_recent_lts_version: Option<i32>,
+    pub most_recent_lts_version: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]

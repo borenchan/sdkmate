@@ -31,7 +31,7 @@ impl SdkManager {
             // ── PATH 冲突检测：检测非 sdkm 来源的同名 SDK 路径 ──
             let conflicts = self.detect_path_conflicts(sdk, &path)?;
             if !conflicts.is_empty() {
-                self.handle_path_conflicts(&conflicts)?;
+                self.handle_path_conflicts(sdk, &conflicts)?;
             }
 
             // add sdk path only when does not exist in the os path
@@ -114,9 +114,9 @@ impl SdkManager {
 
     /// 处理 PATH 冲突：仅警告，不移除任何 PATH 条目
     /// sdkm 路径前置添加（最高优先级），冲突路径自然被覆盖
-    fn handle_path_conflicts(&self, conflicts: &[String]) -> Result<()> {
+    fn handle_path_conflicts(&self, sdk: &Sdk, conflicts: &[String]) -> Result<()> {
         for conflict in conflicts {
-            warning!("Found existing SDK path at '{}' in PATH.", conflict);
+            warning!("Found existing SDK[{}] path at '{}' in PATH.", sdk, conflict);
         }
         info!("sdkm's path has highest priority, these conflicts won't affect your usage.");
         Ok(())

@@ -14,3 +14,4 @@ clap = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true}
 tokio = { workspace = true }
+unicode-width = { workspace = true }

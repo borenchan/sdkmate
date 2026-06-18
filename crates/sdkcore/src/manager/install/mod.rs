@@ -91,7 +91,7 @@ impl SdkManager {
                 } else {
                     None
                 };
-                resolve_sdk_version(&client, strategy.as_ref(), &source, &cache_key, &sdk_name, version_input, headers).await?
+                resolve_sdk_version(&client, strategy.as_ref(), &source, &cache_key, &sdk_name, version_input, headers, self.config.network.cache_ttl_secs as u64).await?
             }
         };
 

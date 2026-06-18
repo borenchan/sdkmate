@@ -40,18 +40,28 @@ pub struct NetworkConfig {
     #[serde(default)]
     pub connect_timeout: u32,
 
+    /// Cache TTL in seconds for version API responses, default 3600 (1 hour)
+    /// Smaller values = fresher data but more network calls;
+    /// Larger values = faster response but potentially stale data.
+    #[serde(default = "default_cache_ttl_secs")]
+    pub cache_ttl_secs: u32,
+
     /// GitHub personal access token (optional).
     /// Increases GitHub API rate limit from 60/hr to 5000/hr.
     /// Create at: https://github.com/settings/tokens (no special permissions needed)
     #[serde(default)]
     pub github_token: Option<String>,
 }
+
+fn default_cache_ttl_secs() -> u32 { 3600 }
+
 impl Default for NetworkConfig {
     fn default() -> Self {
         NetworkConfig {
             proxy: None,
             ssl_verify: true,
             connect_timeout: 30,
+            cache_ttl_secs: default_cache_ttl_secs(),
             github_token: None,
         }
     }
