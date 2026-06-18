@@ -52,3 +52,21 @@ macro_rules! divider {
         $crate::terminal::divider()
     };
 }
+
+/// 目录树宏：展示目录结构，比 detail 亮（grey 色）
+#[macro_export]
+macro_rules! tree {
+    ($($arg:tt)*) => {
+        let msg = format!($($arg)*);
+        $crate::terminal::tree(&msg)
+    };
+}
+
+/// banner 宏：无缩进输出，用于 ASCII art
+#[macro_export]
+macro_rules! banner {
+    ($($arg:tt)*) => {
+        let msg = format!($($arg)*);
+        $crate::terminal::banner(&msg)
+    };
+}
