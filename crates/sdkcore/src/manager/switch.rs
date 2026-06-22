@@ -1,67 +1,167 @@
 use crate::env::split_path_entries;
-use crate::link::symlink::create_symlink;
+use crate::link::symlink::{create_symlink, read_symlink_target, remove_symlink};
 use crate::manager::SdkManager;
 use crate::manager::config::SdkConfig;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use util::config_helper::PLACEHOLDER_SDK_DIR;
+use util::consts::BugReportError;
 use util::sdk::Sdk;
 use util::success;
-use util::{info, warning};
+use util::{detail, info, warning};
+
+/// switch 操作前的系统状态快照，用于失败时回滚
+struct SwitchSnapshot {
+    /// 符号链接路径（如 C:\sdkm\symlink\java）
+    symlink_path: PathBuf,
+    /// 旧链接指向的目标路径，None 表示旧链接不存在
+    old_symlink_target: Option<PathBuf>,
+    /// 环境变量旧值，None 表示变量之前不存在
+    old_env_values: HashMap<String, Option<String>>,
+    /// 本次 switch 添加到 PATH 的所有条目（回滚时按反序 remove）
+    added_path_entries: Vec<String>,
+    /// 内存级 config 快照（SdkmConfig 已 derive Clone）
+    old_config: crate::manager::config::SdkmConfig,
+}
+
+/// 回滚不可恢复的项目：记录对用户的影响描述和修复建议
+struct RollbackFailure {
+    /// 对用户的影响描述
+    description: String,
+    /// 建议用户采取的下一步行动
+    suggestion: &'static str,
+}
+
+// ── try_step! 宏：执行操作，失败时自动回滚并提前返回 ──
+//
+// 消除 Phase 3 中 5 处重复的 `if let Err(e) + rollback + return Err(e)` 模式。
+// 失败时自动嵌入 BugReportError 标记，CLI 层可检测此标记提示 bug report。
+macro_rules! try_step {
+    ($expr:expr, $snapshot:expr, $manager:expr, $msg:expr $(, $fmt_arg:expr)* $(,)?) => {
+        match $expr {
+            Err(e) => {
+                warning!($msg $(, $fmt_arg)*);
+                rollback($snapshot, $manager)?;
+                // 中间步骤失败 + 已回滚 = 用户无法自行修复，标记为 bug report
+                return Err(BugReportError::wrap(e));
+            }
+            Ok(val) => val,
+        }
+    };
+}
 
 impl SdkManager {
     pub fn switch_sdk_to_version(&mut self, sdk: &Sdk, sdk_version: &str) -> Result<()> {
+        // ── Phase 0: 前置检查（只读操作，无副作用） ──
         let versions = self.list_local_sdk_versions(sdk)?;
-        let sdk_conf = self.config.find_sdk_ok(&sdk)?;
+        let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let is_active = versions.iter().any(|v| v.is_active && v.sdk_version == sdk_version);
-        if !is_active {
-            let current_version_sdk = versions
-                .into_iter()
-                .find(|v| v.sdk_version == sdk_version)
-                .context(format!("not found `{sdk}` version `{sdk_version}`, please check sdk's dir!"))?;
-            let symlink_root_dir = self.config.symlink_dir.clone();
-            let sdk_symlink_dir = PathBuf::from(symlink_root_dir).join(sdk.to_string());
-            create_symlink(&current_version_sdk.sdk_dir, &sdk_symlink_dir)?;
-            let sdk_symlink_bin_dir = sdk_symlink_dir.join(sdk_conf.bin_dir.as_str());
-            // add sdk symlink link to current active version dir
-            let sdk_symlink_bin_cow = sdk_symlink_bin_dir.to_string_lossy();
-            let path = self.env_operation.get_path()?;
-
-            // ── PATH 冲突检测：检测非 sdkm 来源的同名 SDK 路径 ──
-            let conflicts = self.detect_path_conflicts(sdk, &path)?;
-            if !conflicts.is_empty() {
-                self.handle_path_conflicts(sdk, &conflicts)?;
-            }
-
-            // add sdk path only when does not exist in the os path
-            if !path.contains(sdk_symlink_bin_cow.as_ref()) {
-                self.env_operation
-                    .set_sdk_envs(&Self::get_sdk_extra_envs(sdk_conf, &sdk_symlink_dir)?)?;
-                self.env_operation.add_sdk_path(sdk_symlink_bin_cow.as_ref())?;
-            }
-
-            // ── extra_paths：为每个额外路径添加到 PATH ──
-            for extra_path in &sdk_conf.extra_paths {
-                let extra_bin_dir = sdk_symlink_dir.join(extra_path);
-                if extra_bin_dir.exists() {
-                    let extra_bin_cow = extra_bin_dir.to_string_lossy();
-                    if !path.contains(extra_bin_cow.as_ref()) {
-                        self.env_operation.add_sdk_path(extra_bin_cow.as_ref())?;
-                    }
-                } else {
-                    warning!("extra_path `{}` does not exist, skipping", extra_path);
-                }
-            }
-
-            //todo error restore link and path
-            //success switch version, need update config
-            let sdk_conf = self.config.find_sdk_mut_ok(&sdk)?;
-            sdk_conf.current_version = Some(sdk_version.to_string());
-            self.config.write_to_disk()?;
-            // ── 终端重启提示：PATH 修改后当前终端不会立刻生效 ──
-            info!("PATH has been updated. Please restart your terminal for changes to take effect.");
+        if is_active {
+            success!("switch sdk `{}` to version `{}` success!", sdk, sdk_version);
+            return Ok(());
         }
+        let current_version_sdk = versions.into_iter().find(|v| v.sdk_version == sdk_version).context(format!(
+            "local not found `{sdk}` version `{sdk_version}`, please check store dir or install the version!"
+        ))?;
+
+        let symlink_root_dir = self.config.symlink_dir.clone();
+        let sdk_symlink_dir = PathBuf::from(symlink_root_dir).join(sdk.to_string());
+        let sdk_symlink_bin_dir = sdk_symlink_dir.join(sdk_conf.bin_dir.as_str());
+        let sdk_symlink_bin_cow = sdk_symlink_bin_dir.to_string_lossy();
+        let path = self.env_operation.get_path()?;
+
+        // ── Phase 1: PATH 冲突检测（只读操作） ──
+        let conflicts = self.detect_path_conflicts(sdk, &path)?;
+        if !conflicts.is_empty() {
+            self.handle_path_conflicts(sdk, &conflicts)?;
+        }
+
+        // ── Phase 2: 备份旧状态 ──
+        let old_symlink_target = read_symlink_target(&sdk_symlink_dir)?;
+        let extra_envs = Self::get_sdk_extra_envs(sdk_conf, &sdk_symlink_dir)?;
+        let old_env_values: HashMap<String, Option<String>> = extra_envs
+            .keys()
+            .map(|k| (k.clone(), self.env_operation.get_env_value(k).unwrap_or(None)))
+            .collect();
+        let old_config = self.config.clone();
+
+        let mut snapshot = SwitchSnapshot {
+            symlink_path: sdk_symlink_dir.clone(),
+            old_symlink_target,
+            old_env_values,
+            added_path_entries: Vec::new(),
+            old_config,
+        };
+
+        // ── Phase 3: 逐步执行修改，失败时回滚 ──
+
+        // Step 3a: 创建符号链接
+        try_step!(
+            create_symlink(&current_version_sdk.sdk_dir, &sdk_symlink_dir),
+            &snapshot,
+            self,
+            "Failed to create symlink, rolling back..."
+        );
+
+        // 仅当 bin 目录不在 PATH 中时才添加环境变量和路径
+        let need_add_path = !path.contains(sdk_symlink_bin_cow.as_ref());
+
+        // Step 3b: 设置额外环境变量
+        if need_add_path {
+            try_step!(
+                self.env_operation.set_sdk_envs(&extra_envs),
+                &snapshot,
+                self,
+                "Failed to set env vars, rolling back..."
+            );
+        }
+
+        // Step 3c: 添加主 bin 目录到 PATH
+        if need_add_path {
+            try_step!(
+                self.env_operation.add_sdk_path(sdk_symlink_bin_cow.as_ref()),
+                &snapshot,
+                self,
+                "Failed to add main path, rolling back..."
+            );
+            snapshot.added_path_entries.push(sdk_symlink_bin_cow.to_string());
+        }
+
+        // Step 3d: 处理 extra_paths
+        for extra_path in &sdk_conf.extra_paths {
+            let extra_bin_dir = sdk_symlink_dir.join(extra_path);
+            if extra_bin_dir.exists() {
+                let extra_bin_cow = extra_bin_dir.to_string_lossy();
+                if !path.contains(extra_bin_cow.as_ref()) {
+                    try_step!(
+                        self.env_operation.add_sdk_path(extra_bin_cow.as_ref()),
+                        &snapshot,
+                        self,
+                        "Failed to add extra path `{}`, rolling back...",
+                        extra_path
+                    );
+                    snapshot.added_path_entries.push(extra_bin_cow.to_string());
+                }
+            } else {
+                warning!("extra_path `{}` does not exist, skipping", extra_path);
+            }
+        }
+
+        // Step 3e: 更新 config 并写磁盘
+        {
+            let sdk_conf_mut = self.config.find_sdk_mut_ok(sdk)?;
+            sdk_conf_mut.current_version = Some(sdk_version.to_string());
+        }
+        try_step!(
+            self.config.write_to_disk(),
+            &snapshot,
+            self,
+            "Failed to write config, rolling back..."
+        );
+
+        // ── Phase 4: 成功完成 ──
+        info!("PATH has been updated. Please restart your terminal for changes to take effect.");
         success!("switch sdk `{}` to version `{}` success!", sdk, sdk_version);
         Ok(())
     }
@@ -121,4 +221,94 @@ impl SdkManager {
         info!("sdkm's path has highest priority, these conflicts won't affect your usage.");
         Ok(())
     }
+}
+
+// ── 回滚函数 ──
+
+/// 回滚符号链接：删除新链接，恢复旧链接（如果旧链接存在）
+fn rollback_symlink(snapshot: &SwitchSnapshot) -> Result<()> {
+    remove_symlink(&snapshot.symlink_path)?;
+    if let Some(old_target) = &snapshot.old_symlink_target {
+        create_symlink(old_target, &snapshot.symlink_path)?;
+    }
+    Ok(())
+}
+
+/// 回滚环境变量：有旧值写回，无旧值删除
+fn rollback_envs(snapshot: &SwitchSnapshot, manager: &SdkManager) -> Result<()> {
+    let mut restore_envs = HashMap::new();
+    let mut unset_keys = Vec::new();
+    for (key, old_val) in &snapshot.old_env_values {
+        if old_val.is_some() {
+            restore_envs.insert(key.clone(), old_val.clone());
+        } else {
+            unset_keys.push(key.clone());
+        }
+    }
+    if !restore_envs.is_empty() {
+        manager.env_operation.restore_sdk_envs(&restore_envs)?;
+    }
+    for key in unset_keys {
+        manager.env_operation.unset_sdk_env(&key)?;
+    }
+    Ok(())
+}
+
+/// 回滚 PATH：按反序移除所有已添加的路径条目
+fn rollback_paths(snapshot: &SwitchSnapshot, manager: &SdkManager) -> Result<()> {
+    for path_entry in snapshot.added_path_entries.iter().rev() {
+        manager.env_operation.remove_sdk_path(path_entry)?;
+    }
+    Ok(())
+}
+
+/// 回滚 config：恢复内存级 config 快照
+fn rollback_config(snapshot: &SwitchSnapshot, manager: &mut SdkManager) -> Result<()> {
+    manager.config = snapshot.old_config.clone();
+    Ok(())
+}
+
+/// 全量回滚（尽力而为策略：每个步骤失败不中断后续回滚）
+/// 只输出对用户有影响的结果，不暴露内部细节
+fn rollback(snapshot: &SwitchSnapshot, manager: &mut SdkManager) -> Result<()> {
+    let mut failures: Vec<RollbackFailure> = Vec::new();
+
+    // 按反向顺序回滚：config → paths → envs → symlink
+    if rollback_config(snapshot, manager).is_err() {
+        failures.push(RollbackFailure {
+            description: "Config file may be inconsistent with actual state.".into(),
+            suggestion: "Run `sdkm switch <sdk> <version>` again to auto-fix.",
+        });
+    }
+    if rollback_paths(snapshot, manager).is_err() {
+        failures.push(RollbackFailure {
+            description: format!("PATH has stale entries for {}.", snapshot.symlink_path.display()),
+            suggestion: "Restart your terminal or run `sdkm switch` again.",
+        });
+    }
+    if rollback_envs(snapshot, manager).is_err() {
+        failures.push(RollbackFailure {
+            description: "Environment variables (e.g. JAVA_HOME) may point to wrong path.".into(),
+            suggestion: "Check your system environment variables settings.",
+        });
+    }
+    if rollback_symlink(snapshot).is_err() {
+        failures.push(RollbackFailure {
+            description: format!(
+                "Symlink at {} could not be restored — SDK may be unavailable.",
+                snapshot.symlink_path.display()
+            ),
+            suggestion: "Try `sdkm switch <sdk> <version>` again or check the symlink manually.",
+        });
+    }
+
+    if !failures.is_empty() {
+        warning!("Switch failed and rollback was incomplete:");
+        for f in &failures {
+            detail!("• {}", f.description);
+            detail!("  → {}", f.suggestion);
+        }
+    }
+
+    Ok(())
 }

@@ -224,4 +224,58 @@ impl EnvOperation for UnixEnvOperation {
 
         Ok(())
     }
+
+    fn get_env_value(&self, key: &str) -> Result<Option<String>> {
+        let profile_path = Self::get_shell_profile_path()?;
+        // 从 shell profile 文件中读取当前设置的值
+        let content = if profile_path.exists() {
+            fs::read_to_string(&profile_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let export_pattern = format!("export {}=", key);
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with(&export_pattern) {
+                let value = line.trim_start_matches(&export_pattern).trim_matches('"');
+                return Ok(Some(value.to_string()));
+            }
+        }
+        // profile 文件中没有，检查进程环境变量作为后备
+        Ok(env::var(key).ok())
+    }
+
+    fn unset_sdk_env(&self, key: &str) -> Result<()> {
+        let profile_path = Self::get_shell_profile_path()?;
+        let content = if profile_path.exists() {
+            fs::read_to_string(&profile_path)?
+        } else {
+            return Ok(()); // 文件不存在，无需移除
+        };
+        let export_pattern = format!("export {}=", key);
+        let lines: Vec<String> = content.lines()
+            .filter(|l| !l.trim().starts_with(&export_pattern))
+            .map(|l| l.to_string())
+            .collect();
+        fs::write(&profile_path, lines.join("\n"))?;
+        Self::source_profile(&profile_path)?;
+        info!("removed env `{key}` from shell profile");
+        Ok(())
+    }
+
+    fn restore_sdk_envs(&self, old_envs: &HashMap<String, Option<String>>) -> Result<()> {
+        let profile_path = Self::get_shell_profile_path()?;
+        for (env_key, old_val) in old_envs {
+            if let Some(val) = old_val {
+                // 有旧值，写回 shell profile
+                Self::append_or_replaceexport(&profile_path, env_key, val)?;
+                info!("restored env `{env_key}` to `{val}`");
+            } else {
+                // 之前不存在，删除当前值
+                self.unset_sdk_env(env_key)?;
+            }
+        }
+        Self::source_profile(&profile_path)?;
+        Ok(())
+    }
 }

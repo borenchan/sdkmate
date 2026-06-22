@@ -1,5 +1,5 @@
 use crate::env::EnvOperation;
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use util::{consts::ENV_PATH, info, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
@@ -56,6 +56,44 @@ impl EnvOperation for WindowsEnvOperation {
         key.set_value(ENV_PATH, &new_value)?;
         broadcast_env_change();
         info!("removed `{target}` from PATH");
+        Ok(())
+    }
+
+    fn get_env_value(&self, key: &str) -> Result<Option<String>> {
+        let hklm_key = open_env_key(false)?;
+        let val: std::result::Result<String, _> = hklm_key.get_value(key);
+        match val {
+            std::result::Result::Ok(v) => Ok(Some(v)),
+            std::result::Result::Err(_) => Ok(None), // 注册表中不存在该值
+        }
+    }
+
+    fn unset_sdk_env(&self, key: &str) -> Result<()> {
+        let reg_key = open_env_key(true)?;
+        // 值不存在时忽略错误（可能已被手动删除）
+        let result: std::result::Result<(), _> = reg_key.delete_value(key);
+        if result.is_ok() {
+            info!("removed env `{key}`");
+        } else {
+            warning!("env `{key}` does not exist, skip unset");
+        }
+        broadcast_env_change();
+        Ok(())
+    }
+
+    fn restore_sdk_envs(&self, old_envs: &HashMap<String, Option<String>>) -> Result<()> {
+        let reg_key = open_env_key(true)?;
+        for (env_key, old_val) in old_envs {
+            if let Some(val) = old_val {
+                // 有旧值，写回注册表
+                reg_key.set_value(env_key, val)?;
+                info!("restored env `{env_key}` to `{val}`");
+            } else {
+                // 之前不存在，删除当前值
+                self.unset_sdk_env(env_key)?;
+            }
+        }
+        broadcast_env_change();
         Ok(())
     }
 }

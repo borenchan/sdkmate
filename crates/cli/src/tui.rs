@@ -11,6 +11,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE, STATUS_INSTALLED, TUI_TIPS};
+use util::try_bug;
 
 /// Action returned by the selector when user triggers a command
 pub enum SelectorAction {
@@ -101,15 +102,15 @@ fn run_selector_inner(
     let visible = MAX_VISIBLE.min(total);
 
     // Enter TUI mode: raw mode + alternate screen + hide cursor
-    crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode")?;
+    try_bug!(crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode"));
     let mut stdout = io::stdout();
-    execute!(
+    try_bug!(execute!(
         stdout,
         EnterAlternateScreen,
         Clear(ClearType::All),
         crossterm::cursor::Hide
     )
-    .context("Failed to setup TUI mode")?;
+    .context("Failed to setup TUI mode"));
 
     let result = loop {
         // ── Clamp scroll so selected stays inside visible window ──
@@ -286,12 +287,12 @@ fn run_selector_inner(
         )?;
 
         // Single flush — everything drawn at once, no partial states
-        stdout.flush().context("Failed to flush stdout")?;
+        try_bug!(stdout.flush().context("Failed to flush stdout"));
 
         // ── Event loop ──
-        let ev = event::poll(Duration::from_secs(3)).context("Event poll failed")?;
+        let ev = try_bug!(event::poll(Duration::from_secs(3)).context("Event poll failed"));
         if ev {
-            if let Event::Key(key) = event::read().context("Event read failed")? {
+            if let Event::Key(key) = try_bug!(event::read().context("Event read failed")) {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
@@ -331,9 +332,9 @@ fn run_selector_inner(
     };
 
     // Restore terminal: show cursor + leave alternate screen + disable raw
-    execute!(stdout, crossterm::cursor::Show, LeaveAlternateScreen)
-        .context("Failed to restore terminal")?;
-    crossterm::terminal::disable_raw_mode().context("Failed to disable raw mode")?;
+    try_bug!(execute!(stdout, crossterm::cursor::Show, LeaveAlternateScreen)
+        .context("Failed to restore terminal"));
+    try_bug!(crossterm::terminal::disable_raw_mode().context("Failed to disable raw mode"));
 
     Ok(result)
 }

@@ -1,6 +1,6 @@
+use crate::CommandHandler;
 use clap::Parser;
 use sdkcore::manager::SdkManager;
-use crate::CommandHandler;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {
@@ -13,7 +13,7 @@ pub struct InstallHandler {
 
     /// 目标版本号，支持模糊匹配，如 '21' 自动解析为最新 21.x
     #[arg(
-        value_name = "VERSION",
+        value_name = "version",
         help = "Target version (fuzzy match supported, e.g. '21' → latest 21.x)"
     )]
     sdk_version: String,

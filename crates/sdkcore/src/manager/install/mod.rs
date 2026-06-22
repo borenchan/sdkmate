@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use util::consts::{SDKM_STORE_DIR, SDKM_TMP_DIR};
 use util::path::{get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
-use util::{info, warning, detail};
+use util::{info, warning, detail, try_bug, bail_bug};
 use util::terminal::prompt_confirm;
 
 use crate::manager::SdkManager;
@@ -30,7 +30,8 @@ impl SdkManager {
     ) -> Result<()> {
         let rt = tokio::runtime::Runtime::new()
             .context("Failed to create tokio runtime")?;
-        rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch))
+        let _ = try_bug!(rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch)));
+        Ok(())
     }
 
     /// 异步安装核心流程：通用主备 + 模糊匹配 + 交互确认
@@ -56,7 +57,8 @@ impl SdkManager {
             let (version_url, version_fallback_url) = match sdk {
                 Sdk::Built(b) => {
                     let cfg = find_builtin_sdk_config(b)
-                        .context(format!("no builtin config for {}", sdk_name))?;
+                    .context(format!("no builtin config for {}", sdk_name))?;
+                // 内置配置缺失属于程序 bug，标记 BugReportError
                     (cfg.version_url.to_string(), cfg.version_fallback_url.map(|s| s.to_string()))
                 }
                 Sdk::Custom(_) => {
@@ -157,8 +159,8 @@ impl SdkManager {
         let sdkm_home = get_sdkm_home()?;
         let tmp_root = sdkm_home.join(SDKM_STORE_DIR).join(SDKM_TMP_DIR);
         let tmp_dir = tmp_root.join(&sdk_name).join(full_version);
-        fs::create_dir_all(&tmp_dir)
-            .context("Failed to create temporary directory")?;
+        try_bug!(fs::create_dir_all(&tmp_dir)
+            .context("Failed to create temporary directory"));
         detail!("Temporary directory: {}", tmp_dir.display());
 
         let archive_filename = derive_archive_filename(&download_url);
@@ -196,18 +198,18 @@ impl SdkManager {
         } else {
             InstallProgress::new_extract_tar_gz(&sdk_name, full_version)
         };
-        extract_archive(&actual_archive_path, &tmp_extracted_path, &extract_pb.pb)?;
+        try_bug!(extract_archive(&actual_archive_path, &tmp_extracted_path, &extract_pb.pb));
         extract_pb.finish_with_message(format!("✅ Extracted {} {}", sdk_name, full_version));
 
         // ── Phase 7: 验证解压结果 ────────────────────────────────
         if !tmp_extracted_path.exists() {
             cleanup_temp(&tmp_dir)?;
-            bail!("Extraction failed: no output directory found");
+            bail_bug!("Extraction failed: no output directory found");
         }
 
         // ── Phase 8: 目录调整 ────────────────────────────────────
         let move_pb = InstallProgress::new_verify();
-        normalize_extracted_dir(&tmp_extracted_path, &version_dir)?;
+        try_bug!(normalize_extracted_dir(&tmp_extracted_path, &version_dir));
         move_pb.finish_with_message(format!("📂 Moved to {}", version_dir.display()));
 
         // ── Phase 9: 验证安装 ────────────────────────────────────
@@ -215,7 +217,7 @@ impl SdkManager {
         if let Err(e) = verify_extraction(&version_dir, &sdk_name) {
             let _ = fs::remove_dir_all(&version_dir);
             cleanup_temp(&tmp_dir)?;
-            bail!("Installation verification failed: {}. Rolled back.", e);
+            bail_bug!("Installation verification failed: {}. Rolled back.", e);
         }
         verify_pb.finish_with_message(format!("✅ Verified {} {}", sdk_name, full_version));
 

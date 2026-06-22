@@ -12,7 +12,7 @@ use util::path::{
     get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home, is_sdkm_dedicated_dir,
 };
 use util::terminal::{prompt_confirm, suggest_sdkm_path};
-use util::{banner, detail, divider, info, step, success, tree, warning};
+use util::{banner, detail, divider, info, step, success, tree, warning, try_bug};
 
 impl SdkManager {
     /// 初始化 sdkm
@@ -54,23 +54,23 @@ impl SdkManager {
         step!("1/4", "Creating store directory");
         let sdks_dir = get_installed_sdks_dir()?;
         if !sdks_dir.exists() {
-            fs::create_dir(&sdks_dir)?;
+            try_bug!(fs::create_dir(&sdks_dir));
         }
         detail!("{} — {}", sdks_dir.display(), DIR_DESC_STORE);
 
         step!("2/4", "Adding sdkm to system PATH");
         detail!("{} — sdkm CLI accessible from any terminal", root_dir.display());
         let os = OsEnvOperation {};
-        os.add_sdk_path(root_dir.to_string_lossy().as_ref())?;
+        try_bug!(os.add_sdk_path(root_dir.to_string_lossy().as_ref()));
 
         step!("3/4", "Creating config file");
-        Self::init_sdkm_config()?;
+        try_bug!(Self::init_sdkm_config());
         detail!("{} — {}", config_file.display(), DIR_DESC_CONFIG);
 
         step!("4/4", "Creating symlink directory");
-        let config = SdkmConfig::read_from_disk()?;
+        let config = try_bug!(SdkmConfig::read_from_disk());
         let symlink_dir = config.symlink_dir;
-        fs::create_dir_all(&symlink_dir)?;
+        try_bug!(fs::create_dir_all(&symlink_dir));
         detail!("{} — active SDK bin links for PATH resolution", symlink_dir);
 
         // ── 目录树：透明展示 sdkm home 结构 ──

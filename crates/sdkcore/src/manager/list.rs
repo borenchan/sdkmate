@@ -13,7 +13,7 @@ use util::consts::STATUS_ACTIVE;
 use util::path::get_installed_sdks_dir;
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::find_builtin_sdk_config;
-use util::{divider, info, success, warning};
+use util::{divider, info, success, warning, try_bug};
 
 // ─── Data Structures ───────────────────────────────────────────────
 
@@ -183,6 +183,7 @@ impl SdkManager {
             Sdk::Built(b) => {
                 let cfg = find_builtin_sdk_config(b)
                     .context(format!("no builtin config for {}", sdk_name))?;
+                // 内置配置缺失属于程序 bug，标记 BugReportError
                 (
                     cfg.version_url.to_string(),
                     cfg.version_fallback_url.map(|s| s.to_string()),
@@ -268,7 +269,7 @@ impl SdkManager {
 
     /// Sync bridge: fetch remote version list data (for TUI selector)
     pub fn fetch_remote_version_list(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        let rt = try_bug!(tokio::runtime::Runtime::new().context("Failed to create tokio runtime"));
         rt.block_on(self.fetch_remote_versions_async(sdk, limit))
     }
 }

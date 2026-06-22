@@ -1,6 +1,6 @@
+use crate::CommandHandler;
 use clap::Parser;
 use sdkcore::manager::SdkManager;
-use crate::CommandHandler;
 
 #[derive(Debug, Parser)]
 pub struct SwitchHandler {
@@ -12,7 +12,7 @@ pub struct SwitchHandler {
     sdk: String,
 
     /// 目标版本号，必须是已安装的版本
-    #[arg(value_name = "VERSION", help = "Target version (must be installed locally)")]
+    #[arg(value_name = "version", help = "Target version (must be installed locally)")]
     sdk_version: String,
 }
 

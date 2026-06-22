@@ -60,3 +60,43 @@ pub const SDKM_SYMLINK_DIR: &str = "C:\\Program Files\\sdkm";
 
 #[cfg(unix)]
 pub const SDKM_SYMLINK_DIR: &str = "/usr/local/sdkm";
+
+/// GitHub issue URL（用于 bug report 提示）
+pub const GITHUB_ISSUES_URL: &str = "https://github.com/borenchan/sdkmate/issues/new";
+
+/// 不可由用户解决的错误标记——CLI 层检测到此标记时建议提交 bug report
+///
+/// 包装内部错误，不修改 Display 输出（用户看到的仍是原始错误消息）。
+/// 通过 `downcast_ref::<BugReportError>()` 检测，类型安全无需字符串匹配。
+pub struct BugReportError {
+    /// 内部错误
+    source: anyhow::Error,
+}
+
+impl BugReportError {
+    /// 包装错误并标记为 bug report
+    pub fn wrap(err: anyhow::Error) -> anyhow::Error {
+        anyhow::Error::new(Self { source: err })
+    }
+}
+
+impl std::fmt::Debug for BugReportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("BugReportError")
+            .field("source", &self.source)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for BugReportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // 只显示内部错误，不添加额外标记到用户可见的错误消息
+        self.source.fmt(f)
+    }
+}
+
+impl std::error::Error for BugReportError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
