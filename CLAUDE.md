@@ -69,9 +69,10 @@ bin_dir = "bin"
 
 ### 错误处理与输出
 - 全项目使用 `anyhow::Result`（启用 backtrace 特性）；`anyhow::bail!` 和 `.context()` 处理错误
-- 无自定义错误类型，不使用 thiserror
-- 终端输出通过自定义宏：`info!`、`success!`、`warning!`、`error!`（crossterm 彩色，不是 `log` crate）
-- CLI 错误：用 `error!` 宏打印；debug 构建额外显示 backtrace
+- 无自定义错误类型，不使用 thiserror（`BugReport` 标记类型除外——用于 CLI 层检测不可由用户解决的错误）
+- 终端输出通过自定义宏：`info!`、`success!`、`warning!`、`error!`、`detail!`（crossterm 彩色，不是 `log` crate）
+- CLI 错误：用 `error!` 宏打印；debug 构建额外显示 backtrace；检测 `BugReport` 标记时提示 GitHub issue URL
+- CLI 错误退出码：失败时 `process::exit(1)`
 
 ## CLI 命令结构
 
@@ -80,7 +81,7 @@ bin_dir = "bin"
 | `sdkm init` | — | cli/InitHandler | 已实现（目录部署检测 + 项目目录识别 + 平台建议路径） |
 | `sdkm install <SDK> <VERSION>` | `i` | cli/InstallHandler | 已实现（模块拆分为 resolver/downloader/extractor/progress，12阶段异步流程） |
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler | 已实现（交互式 TUI 选择器 + 远程版本 + 安装/切换动作触发） |
-| `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持） |
+| `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制**） |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler | 已实现 |
 | `sdkm config` | — | — | 未实现 |
 
@@ -96,7 +97,29 @@ bin_dir = "bin"
 - `extractor.rs` — 解压：tar.gz/zip 解压 + 目录标准化 + 安装验证
 - `progress.rs` — 进度显示：各阶段 indicaotr 风格的进度条
 
-## 当前开发进度（2026-06-18）
+## 当前开发进度（2026-06-22）
+
+### 本次改动（2026-06-22）
+1. **switch 备份回滚机制** — `switch_sdk_to_version` 重构为 Snapshot + 显式回滚链模式
+   - 定义 `SwitchSnapshot` 结构体：备份旧符号链接目标、旧环境变量值、已添加 PATH 条目、旧 config 快照
+   - 新增 `EnvOperation` trait 方法：`get_env_value`（读旧值）、`unset_sdk_env`（删变量）、`restore_sdk_envs`（批量恢复）
+   - Windows 实现：注册表读取旧值 + 删除注册表值 + 批量写回旧值
+   - Unix 实现：shell profile 读取旧值 + 删除 export 行 + 批量恢复
+   - `link/symlink.rs` 新增 `read_symlink_target`（备份旧链接目标）+ `remove_symlink`（回滚删除）
+   - `try_step!` 宏：消除 5 处重复的 `if-let-Err + rollback` 模式，自动嵌入 `BugReport` 标记
+   - `RollbackFailure` 结构体：只输出对用户有影响的结果 + 修复建议，不暴露内部细节
+2. **Bug Report 链路** — 命令失败时自动提示 GitHub issue
+   - `util/consts.rs` 新增 `BugReportError` 包装器（类型安全的 downcast 检测，不修改用户可见的错误消息）+ `GITHUB_ISSUES_URL` 常量
+   - `util/macros.rs` 新增 `try_bug!`（自动 BugReportError::wrap）和 `bail_bug!`（bail + BugReportError）两个宏
+   - `util/terminal.rs` 新增 `suggest_bug_report()` 公共函数
+   - `cli/lib.rs` 全局错误处理重构：`command_name()` + `needs_bug_report()` + `suggest_bug_report` + `process::exit(1)`
+   - 白名单模式：只在源头标记不可由用户解决的错误，其余用户错误不触发 bug report
+   - 已标记的子命令错误点：
+     - **switch**: try_step! 宏自动标记（符号链接、环境变量、PATH、config 写入失败）
+     - **install**: tokio runtime 创建、临时目录创建、解压、目录调整、安装验证失败
+     - **init**: 目录创建、PATH 添加、配置写入、符号链接目录创建失败
+     - **tui**: 终端 raw mode、alternate screen、事件轮询/读取、终端恢复失败
+     - **list**: tokio runtime 创建、内置配置缺失失败
 
 ### 已完成并提交的改动（2026-06-17）
 1. **依赖更新** (`2898678`) — 新增 tokio、indicatif、zip、flate2、tar、futures-util、serde_json；reqwest stream feature

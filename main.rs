@@ -1,7 +1,8 @@
 use clap::Parser;
 use cli::SdkMateCli;
+use std::process::ExitCode;
 
-fn main() {
+fn main() -> ExitCode {
     // debug 构建自动启用 backtrace（anyhow 需要此环境变量才能捕获堆栈）
     // Rust 2024 edition 中 set_var 是 unsafe，这里仅在程序启动最早期设置，
     // 不存在多线程竞争风险
@@ -11,5 +12,6 @@ fn main() {
     }
 
     let cli = SdkMateCli::parse();
-    cli.run();
+    let code = cli.run();
+    ExitCode::from(code as u8)
 }
