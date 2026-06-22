@@ -1,46 +1,35 @@
-pub mod progress;
-pub mod resolver;
 pub mod downloader;
 pub mod extractor;
+pub mod progress;
+pub mod resolver;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use util::consts::{SDKM_STORE_DIR, SDKM_TMP_DIR};
+use util::consts::SDKM_TMP_DIR;
 use util::path::{get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
-use util::{info, warning, detail, try_bug, bail_bug};
 use util::terminal::prompt_confirm;
+use util::{bail_bug, detail, info, try_bug, warning};
 
 use crate::manager::SdkManager;
 use downloader::{build_reqwest_client, download_with_retry};
 use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
 use progress::InstallProgress;
-use resolver::{get_install_strategy, resolve_sdk_version, resolve_java_version, VersionSource, ResolvedVersion};
+use resolver::{ResolvedVersion, VersionSource, get_install_strategy, resolve_java_version, resolve_sdk_version};
 use util::sdk_resources::find_builtin_sdk_config;
 
 impl SdkManager {
     /// 安装 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）
-    pub fn install_sdk(
-        &mut self,
-        sdk: &Sdk,
-        version_input: &str,
-        auto_switch: bool,
-    ) -> Result<()> {
-        let rt = tokio::runtime::Runtime::new()
-            .context("Failed to create tokio runtime")?;
+    pub fn install_sdk(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
+        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
         let _ = try_bug!(rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch)));
         Ok(())
     }
 
     /// 异步安装核心流程：通用主备 + 模糊匹配 + 交互确认
-    async fn install_sdk_async(
-        &mut self,
-        sdk: &Sdk,
-        version_input: &str,
-        auto_switch: bool,
-    ) -> Result<()> {
+    async fn install_sdk_async(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
         let strategy = get_install_strategy(sdk);
@@ -56,20 +45,23 @@ impl SdkManager {
             // 通用流程：主备切换 + 缓存兜底 + 模糊匹配（所有 SDK 包括自定义）
             let (version_url, version_fallback_url) = match sdk {
                 Sdk::Built(b) => {
-                    let cfg = find_builtin_sdk_config(b)
-                    .context(format!("no builtin config for {}", sdk_name))?;
-                // 内置配置缺失属于程序 bug，标记 BugReportError
+                    let cfg = find_builtin_sdk_config(b).context(format!("no builtin config for {}", sdk_name))?;
+                    // 内置配置缺失属于程序 bug，标记 BugReportError
                     (cfg.version_url.to_string(), cfg.version_fallback_url.map(|s| s.to_string()))
                 }
-                Sdk::Custom(_) => {
-                    (sdk_conf.version_url.clone().unwrap_or_default(), sdk_conf.version_fallback_url.clone())
-                }
+                Sdk::Custom(_) => (
+                    sdk_conf.version_url.clone().unwrap_or_default(),
+                    sdk_conf.version_fallback_url.clone(),
+                ),
             };
 
             if version_url.is_empty() && version_fallback_url.as_ref().is_none_or(|s| s.is_empty()) {
                 // 无版本发现源 → 仅支持精确版本
                 if !version_input.contains('.') {
-                    bail!("exact version required, fuzzy '{}' not supported (no version_url configured)", version_input);
+                    bail!(
+                        "exact version required, fuzzy '{}' not supported (no version_url configured)",
+                        version_input
+                    );
                 }
                 let fv = version_input.split('.').next().map(|v| v.to_string());
                 ResolvedVersion {
@@ -87,13 +79,24 @@ impl SdkManager {
                 let cache_key = sdk_name.to_lowercase();
                 // 备源是 GitHub API 时需要 Accept header
                 let headers = if let Sdk::Built(BuiltinSdk::Python) = sdk {
-                    Some(HashMap::from([
-                        ("Accept".to_string(), "application/vnd.github+json".to_string()),
-                    ]))
+                    Some(HashMap::from([(
+                        "Accept".to_string(),
+                        "application/vnd.github+json".to_string(),
+                    )]))
                 } else {
                     None
                 };
-                resolve_sdk_version(&client, strategy.as_ref(), &source, &cache_key, &sdk_name, version_input, headers, self.config.network.cache_ttl_secs as u64).await?
+                resolve_sdk_version(
+                    &client,
+                    strategy.as_ref(),
+                    &source,
+                    &cache_key,
+                    &sdk_name,
+                    version_input,
+                    headers,
+                    self.config.network.cache_ttl_secs as u64,
+                )
+                .await?
             }
         };
 
@@ -108,9 +111,7 @@ impl SdkManager {
             }
         }
 
-        resolve_pb.finish_with_message(format!(
-            "✅ Resolved: {} → {}", version_input, resolved.full_version
-        ));
+        resolve_pb.finish_with_message(format!("✅ Resolved: {} → {}", version_input, resolved.full_version));
 
         let full_version = &resolved.full_version;
 
@@ -135,12 +136,15 @@ impl SdkManager {
         };
         detail!("Download URL (primary): {}", download_url);
 
-        let download_fallback_url = sdk_conf.download_fallback_url.clone()
+        let download_fallback_url = sdk_conf
+            .download_fallback_url
+            .clone()
             .or_else(|| {
                 // 内置 SDK 的静态备源
                 match sdk {
-                    Sdk::Built(b) => find_builtin_sdk_config(b)
-                        .and_then(|c| c.download_fallback_url.map(|s| s.to_string())),
+                    Sdk::Built(b) => {
+                        find_builtin_sdk_config(b).and_then(|c| c.download_fallback_url.map(|s| s.to_string()))
+                    }
                     _ => None,
                 }
             })
@@ -150,17 +154,17 @@ impl SdkManager {
                     // 有直链时，备源逻辑不同（暂不支持直链备源）
                     fallback_template
                 } else {
-                    strategy.build_download_url(&fallback_template, &resolved)
+                    strategy
+                        .build_download_url(&fallback_template, &resolved)
                         .unwrap_or(fallback_template)
                 }
             });
 
         // ── Phase 4: 创建临时目录 ─────────────────────────────────
         let sdkm_home = get_sdkm_home()?;
-        let tmp_root = sdkm_home.join(SDKM_STORE_DIR).join(SDKM_TMP_DIR);
+        let tmp_root = sdkm_home.join(SDKM_TMP_DIR);
         let tmp_dir = tmp_root.join(&sdk_name).join(full_version);
-        try_bug!(fs::create_dir_all(&tmp_dir)
-            .context("Failed to create temporary directory"));
+        try_bug!(fs::create_dir_all(&tmp_dir).context("Failed to create temporary directory"));
         detail!("Temporary directory: {}", tmp_dir.display());
 
         let archive_filename = derive_archive_filename(&download_url);
@@ -173,7 +177,8 @@ impl SdkManager {
         let download_pb = InstallProgress::new_download(&sdk_name, full_version);
 
         // 先尝试主源下载
-        let download_result = download_with_retry(&download_client, &download_url, &tmp_archive_path, &download_pb.pb, 3).await;
+        let download_result =
+            download_with_retry(&download_client, &download_url, &tmp_archive_path, &download_pb.pb, 3).await;
 
         let final_download_url = if download_result.is_err() && download_fallback_url.is_some() {
             // 主源下载失败，尝试备源
@@ -241,8 +246,7 @@ impl SdkManager {
 /// 清理临时目录
 fn cleanup_temp(tmp_dir: &PathBuf) -> Result<()> {
     if tmp_dir.exists() {
-        fs::remove_dir_all(tmp_dir)
-            .context("Failed to clean up temporary directory")?;
+        fs::remove_dir_all(tmp_dir).context("Failed to clean up temporary directory")?;
     }
     if let Some(parent) = tmp_dir.parent()
         && parent.exists()
@@ -272,5 +276,9 @@ fn derive_archive_filename(url: &str) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max { s.to_string() } else { s[..max].to_string() }
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        s[..max].to_string()
+    }
 }
