@@ -1,5 +1,8 @@
 use anyhow::{Result, anyhow};
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use util::info;
 
 /// 读取符号链接目标路径，用于回滚备份

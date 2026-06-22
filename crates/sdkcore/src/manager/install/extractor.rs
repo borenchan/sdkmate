@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use indicatif::ProgressBar;
 use std::fs;
 use std::path::Path;
@@ -7,13 +7,9 @@ use std::path::Path;
 /// - Windows / .zip → 使用 zip crate，逐文件进度
 /// - .tar.gz → 使用 flate2 + tar crate，spinner 动画（gzip 流不支持 Seek，无法手动迭代文件）
 pub fn extract_archive(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -> Result<()> {
-    let ext = archive_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let ext = archive_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    fs::create_dir_all(dest_dir)
-        .context("Failed to create extraction directory")?;
+    fs::create_dir_all(dest_dir).context("Failed to create extraction directory")?;
 
     if ext == "zip"
         || archive_path
@@ -38,37 +34,31 @@ pub fn extract_archive(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -
 
 /// 解压 .zip 文件，逐文件更新进度条
 fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -> Result<()> {
-    let file = fs::File::open(archive_path)
-        .context(format!("Failed to open zip archive: {}", archive_path.display()))?;
+    let file =
+        fs::File::open(archive_path).context(format!("Failed to open zip archive: {}", archive_path.display()))?;
 
-    let mut archive = zip::ZipArchive::new(file)
-        .context("Failed to read zip archive")?;
+    let mut archive = zip::ZipArchive::new(file).context("Failed to read zip archive")?;
 
     // zip 支持随机访问，可以预知文件总数
     let total = archive.len() as u64;
     pb.set_length(total);
 
     for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .context(format!("Failed to read zip entry #{}", i))?;
+        let mut entry = archive.by_index(i).context(format!("Failed to read zip entry #{}", i))?;
 
-        let entry_path = entry
-            .enclosed_name()
-            .context(format!("Invalid zip entry path at #{}", i))?;
+        let entry_path = entry.enclosed_name().context(format!("Invalid zip entry path at #{}", i))?;
 
         let out_path = dest_dir.join(entry_path);
 
         if entry.is_dir() {
-            fs::create_dir_all(&out_path)
-                .context(format!("Failed to create directory: {}", out_path.display()))?;
+            fs::create_dir_all(&out_path).context(format!("Failed to create directory: {}", out_path.display()))?;
         } else {
             if let Some(parent) = out_path.parent() {
                 fs::create_dir_all(parent)
                     .context(format!("Failed to create parent directory: {}", parent.display()))?;
             }
-            let mut out_file = fs::File::create(&out_path)
-                .context(format!("Failed to create file: {}", out_path.display()))?;
+            let mut out_file =
+                fs::File::create(&out_path).context(format!("Failed to create file: {}", out_path.display()))?;
             std::io::copy(&mut entry, &mut out_file)
                 .context(format!("Failed to write zip entry to: {}", out_path.display()))?;
         }
@@ -83,15 +73,13 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -> Result
 /// 注意：gzip 解码流不支持 Seek，无法使用 tar::Archive::entries() 手动迭代
 /// 只能使用 archive.unpack() 整体解压，进度由外部 spinner 动画表示
 fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
-    let file = fs::File::open(archive_path)
-        .context(format!("Failed to open tar.gz archive: {}", archive_path.display()))?;
+    let file =
+        fs::File::open(archive_path).context(format!("Failed to open tar.gz archive: {}", archive_path.display()))?;
 
     let gz_decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(gz_decoder);
 
-    archive
-        .unpack(dest_dir)
-        .context("Failed to extract tar.gz archive")?;
+    archive.unpack(dest_dir).context("Failed to extract tar.gz archive")?;
 
     Ok(())
 }
@@ -137,11 +125,13 @@ fn lift_single_inner_dir(target_dir: &Path) -> Result<()> {
 
     // 使用临时 staging 目录避免移动冲突：inner_dir 在 target_dir 内，
     // 不能直接 rename inner_dir → target_dir（target_dir 是 inner_dir 的父目录）
-    let staging_dir = target_dir.parent()
-        .unwrap_or(target_dir)
-        .join(format!("{}_staging", target_dir.file_name()
+    let staging_dir = target_dir.parent().unwrap_or(target_dir).join(format!(
+        "{}_staging",
+        target_dir
+            .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()));
+            .unwrap_or_default()
+    ));
 
     // 将 inner_dir 移到 staging
     move_dir(&inner_dir, &staging_dir)?;
@@ -165,8 +155,7 @@ fn move_dir(src: &Path, dst: &Path) -> Result<()> {
 
     // 2. 目标已存在则先删除
     if dst.exists() {
-        fs::remove_dir_all(dst)
-            .context(format!("Failed to remove existing target directory: {}", dst.display()))?;
+        fs::remove_dir_all(dst).context(format!("Failed to remove existing target directory: {}", dst.display()))?;
     }
 
     // 3. 优先 rename（同卷时是原子操作，极快）
@@ -176,20 +165,16 @@ fn move_dir(src: &Path, dst: &Path) -> Result<()> {
 
     // 4. rename 失败（跨卷 / Windows 文件锁），回退到 copy + remove
     copy_dir_recursive(src, dst)?;
-    fs::remove_dir_all(src)
-        .context(format!("Failed to remove source after copy: {}", src.display()))?;
+    fs::remove_dir_all(src).context(format!("Failed to remove source after copy: {}", src.display()))?;
 
     Ok(())
 }
 
 /// 递归复制目录（用于 rename 失败时的回退方案）
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst)
-        .context(format!("Failed to create directory: {}", dst.display()))?;
+    fs::create_dir_all(dst).context(format!("Failed to create directory: {}", dst.display()))?;
 
-    for entry in fs::read_dir(src)
-        .context(format!("Failed to read directory: {}", src.display()))?
-    {
+    for entry in fs::read_dir(src).context(format!("Failed to read directory: {}", src.display()))? {
         let entry = entry.context("Failed to read directory entry")?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
@@ -197,12 +182,11 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            fs::copy(&src_path, &dst_path)
-                .context(format!(
-                    "Failed to copy file: {} → {}",
-                    src_path.display(),
-                    dst_path.display()
-                ))?;
+            fs::copy(&src_path, &dst_path).context(format!(
+                "Failed to copy file: {} → {}",
+                src_path.display(),
+                dst_path.display()
+            ))?;
         }
     }
 
@@ -218,13 +202,9 @@ pub fn verify_extraction(target_dir: &Path, sdk_name: &str) -> Result<()> {
         )
     }
 
-    let entries = fs::read_dir(target_dir)
-        .context("Failed to read extracted target directory")?;
+    let entries = fs::read_dir(target_dir).context("Failed to read extracted target directory")?;
     if entries.count() == 0 {
-        bail!(
-            "Extraction verification failed: directory {} is empty",
-            target_dir.display()
-        )
+        bail!("Extraction verification failed: directory {} is empty", target_dir.display())
     }
 
     if sdk_name != "node" && sdk_name != "python" {

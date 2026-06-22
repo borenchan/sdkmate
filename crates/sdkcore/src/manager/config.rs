@@ -1,16 +1,18 @@
-use std::collections::HashMap;
-use std::env::var;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::env::var;
 use std::fs;
-use util::config_helper::{TemplateRenderer, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, PLACEHOLDER_SDK_DIR};
+use util::config_helper::{
+    PLACEHOLDER_SDK_DIR, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
+};
 use util::consts::{CONFIG_FILE_NAME, ENV_JAVA_HOME, SDKM_SYMLINK_DIR};
 use util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::BUILTIN_SDK_CONFIG;
 
-#[derive(Debug,Clone,Serialize,Deserialize)]
-#[serde(deny_unknown_fields,default)]  //ignore unknown fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)] //ignore unknown fields
 pub struct SdkmConfig {
     //sdkm self home dir readonly
     #[serde(default)]
@@ -26,7 +28,7 @@ pub struct SdkmConfig {
     pub sdks: Vec<SdkConfig>,
 }
 /// [network] network settings
-#[derive(Debug, Deserialize, Serialize,Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NetworkConfig {
     /// Proxy URL, e.g. "http://127.0.0.1:7890"
     #[serde(default)]
@@ -53,7 +55,9 @@ pub struct NetworkConfig {
     pub github_token: Option<String>,
 }
 
-fn default_cache_ttl_secs() -> u32 { 3600 }
+fn default_cache_ttl_secs() -> u32 {
+    3600
+}
 
 impl Default for NetworkConfig {
     fn default() -> Self {
@@ -66,10 +70,10 @@ impl Default for NetworkConfig {
         }
     }
 }
-#[derive(Debug,Clone,Serialize,Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SdkConfig {
     //sdk unique name
-    pub name : String,
+    pub name: String,
     //版本发现主源 URL
     #[serde(default)]
     pub version_url: Option<String>,
@@ -93,7 +97,7 @@ pub struct SdkConfig {
     pub extra_paths: Vec<String>,
 }
 impl SdkConfig {
-    pub fn new(name: String, version_url: String,download_url: String, bin_dir: String) -> SdkConfig {
+    pub fn new(name: String, version_url: String, download_url: String, bin_dir: String) -> SdkConfig {
         SdkConfig {
             name,
             version_url: Some(version_url),
@@ -109,11 +113,12 @@ impl SdkConfig {
 
     pub fn get_actual_extra_vars(&self, dynamic_val: &HashMap<&str, &str>) -> Result<HashMap<String, String>> {
         let mut renderer = TemplateRenderer::new();
-        renderer = renderer.vars(dynamic_val)
-            .var(PLACEHOLDER_SDKM_HOME_DIR,get_sdkm_home()?.to_string_lossy())
-            .var(PLACEHOLDER_SDKS_INSTALL_DIR,get_installed_sdks_dir()?.to_string_lossy());
+        renderer = renderer
+            .vars(dynamic_val)
+            .var(PLACEHOLDER_SDKM_HOME_DIR, get_sdkm_home()?.to_string_lossy())
+            .var(PLACEHOLDER_SDKS_INSTALL_DIR, get_installed_sdks_dir()?.to_string_lossy());
         let mut actual_extra_vars = HashMap::with_capacity(self.extra_vars.len());
-        for (k,v) in &self.extra_vars {
+        for (k, v) in &self.extra_vars {
             let val = renderer.render(v)?;
             actual_extra_vars.insert(k.to_string(), val);
         }
@@ -128,21 +133,27 @@ impl Default for SdkmConfig {
             network: NetworkConfig::default(),
             sdks: Self::get_default_builtin_sdks(),
         }
-
     }
 }
 
-
 impl SdkmConfig {
     pub fn get_default_builtin_sdks() -> Vec<SdkConfig> {
-        BUILTIN_SDK_CONFIG.iter()
+        BUILTIN_SDK_CONFIG
+            .iter()
             .map(|s| {
-                let mut config = SdkConfig::new(s.sdk.to_string(), s.version_url.to_string(), s.download_url.to_string(), s.sdk.get_sdk_bin_dir().to_string());
+                let mut config = SdkConfig::new(
+                    s.sdk.to_string(),
+                    s.version_url.to_string(),
+                    s.download_url.to_string(),
+                    s.sdk.get_sdk_bin_dir().to_string(),
+                );
                 config.version_fallback_url = s.version_fallback_url.map(|u| u.to_string());
                 config.download_fallback_url = s.download_fallback_url.map(|u| u.to_string());
                 match s.sdk {
                     BuiltinSdk::Java => {
-                        config.extra_vars.insert(ENV_JAVA_HOME.to_string(), PLACEHOLDER_SDK_DIR.to_string());
+                        config
+                            .extra_vars
+                            .insert(ENV_JAVA_HOME.to_string(), PLACEHOLDER_SDK_DIR.to_string());
                     }
                     // Python install_only 版本：二次提升后，pip.exe 在 Scripts 子目录（仅 Windows）
                     BuiltinSdk::Python => {
@@ -159,9 +170,10 @@ impl SdkmConfig {
     }
 
     pub fn read_from_disk() -> Result<SdkmConfig> {
-        if let Ok(config_file)  = fs::read_to_string(get_sdkm_config_path()?) {
-            let config = toml::from_str(config_file.as_str()).context("Failed to parse toml file,please check config.toml syntax!")?;
-            return Ok(config)
+        if let Ok(config_file) = fs::read_to_string(get_sdkm_config_path()?) {
+            let config = toml::from_str(config_file.as_str())
+                .context("Failed to parse toml file,please check config.toml syntax!")?;
+            return Ok(config);
         }
         anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir")
     }
@@ -179,13 +191,14 @@ impl SdkmConfig {
         self.sdks.iter_mut().find(|s| s.name == sdk.to_string())
     }
     pub fn find_sdk_ok(&self, sdk: &Sdk) -> Result<&SdkConfig> {
-        self.find_sdk(sdk).ok_or_else(|| anyhow::anyhow!("Unregistered SDK:`{}` please check config!", sdk))
+        self.find_sdk(sdk)
+            .ok_or_else(|| anyhow::anyhow!("Unregistered SDK:`{}` please check config!", sdk))
     }
     pub fn find_sdk_mut_ok(&mut self, sdk: &Sdk) -> Result<&mut SdkConfig> {
-        self.find_sdk_mut(sdk).ok_or_else(|| anyhow::anyhow!("Unregistered SDK:`{}` please check config!", sdk))
+        self.find_sdk_mut(sdk)
+            .ok_or_else(|| anyhow::anyhow!("Unregistered SDK:`{}` please check config!", sdk))
     }
     pub fn exist_sdk(&self, sdk: &Sdk) -> bool {
         self.find_sdk(sdk).is_some()
     }
 }
-

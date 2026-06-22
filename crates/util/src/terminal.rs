@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::consts::{DIVIDER, GITHUB_ISSUES_URL};
+use anyhow::Result;
 use crossterm::style::Stylize;
 use std::io::{self, Write};
 use url::Url;
@@ -75,14 +75,7 @@ pub fn suggest_sdkm_path() -> String {
     #[cfg(windows)]
     {
         let username = std::env::var("USERNAME")
-            .or_else(|_| {
-                std::env::var("USERPROFILE").map(|p| {
-                    p.rsplit('\\')
-                        .next()
-                        .unwrap_or("YourName")
-                        .to_string()
-                })
-            })
+            .or_else(|_| std::env::var("USERPROFILE").map(|p| p.rsplit('\\').next().unwrap_or("YourName").to_string()))
             .unwrap_or_else(|_| "YourName".to_string());
         format!("C:\\Users\\{}\\sdkm\\", username)
     }
@@ -150,12 +143,9 @@ pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
     );
 
     // 使用 url crate 构建合法 URL（自动 percent-encode）
-    let mut url = Url::parse(GITHUB_ISSUES_URL).unwrap_or_else(|_| {
-        Url::parse("https://github.com/borenchan/sdkmate/issues/new").unwrap()
-    });
-    url.query_pairs_mut()
-        .append_pair("title", &title)
-        .append_pair("body", &body);
+    let mut url = Url::parse(GITHUB_ISSUES_URL)
+        .unwrap_or_else(|_| Url::parse("https://github.com/borenchan/sdkmate/issues/new").unwrap());
+    url.query_pairs_mut().append_pair("title", &title).append_pair("body", &body);
 
     url.to_string()
 }
@@ -163,10 +153,18 @@ pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
 /// 平台信息：操作系统 + 架构
 fn platform_info() -> String {
     let os = std::env::var("OS").unwrap_or_else(|_| {
-        if cfg!(windows) { "windows".to_string() } else { "unix".to_string() }
+        if cfg!(windows) {
+            "windows".to_string()
+        } else {
+            "unix".to_string()
+        }
     });
-    let arch = if cfg!(target_arch = "x86_64") { "x86_64" }
-               else if cfg!(target_arch = "aarch64") { "aarch64" }
-               else { "unknown" };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "unknown"
+    };
     format!("{} ({})", os, arch)
 }

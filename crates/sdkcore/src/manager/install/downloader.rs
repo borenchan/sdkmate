@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use crate::manager::config::NetworkConfig;
+use anyhow::{Context, Result, bail};
 use indicatif::ProgressBar;
 use reqwest::Client;
 use std::path::Path;
 use std::time::Duration;
-use crate::manager::config::NetworkConfig;
 use util::warning;
 
 /// Build reqwest Client from NetworkConfig.
@@ -21,18 +21,12 @@ pub fn build_reqwest_client(network: &NetworkConfig) -> Result<Client> {
     // Add GitHub token as default Authorization header if configured
     if let Some(token) = &network.github_token {
         let auth_value = format!("Bearer {}", token);
-        let header_value = reqwest::header::HeaderValue::from_str(&auth_value)
-            .context("Invalid github_token value")?;
-        builder = builder.default_headers(
-            [(reqwest::header::AUTHORIZATION, header_value)]
-                .into_iter()
-                .collect()
-        );
+        let header_value = reqwest::header::HeaderValue::from_str(&auth_value).context("Invalid github_token value")?;
+        builder = builder.default_headers([(reqwest::header::AUTHORIZATION, header_value)].into_iter().collect());
     }
 
     if let Some(proxy_url) = &network.proxy {
-        let proxy = reqwest::Proxy::all(proxy_url)
-            .context(format!("Invalid proxy URL: {}", proxy_url))?;
+        let proxy = reqwest::Proxy::all(proxy_url).context(format!("Invalid proxy URL: {}", proxy_url))?;
         builder = builder.proxy(proxy);
     }
 
@@ -44,12 +38,7 @@ pub fn build_reqwest_client(network: &NetworkConfig) -> Result<Client> {
 }
 
 /// 异步下载文件到指定路径，支持 streaming + 进度条
-pub async fn download_with_progress(
-    client: &Client,
-    url: &str,
-    dest_path: &Path,
-    pb: &ProgressBar,
-) -> Result<()> {
+pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path, pb: &ProgressBar) -> Result<()> {
     let resp = client
         .get(url)
         .send()
@@ -67,9 +56,7 @@ pub async fn download_with_progress(
         pb.set_length(total_size);
     }
 
-    let parent_dir = dest_path
-        .parent()
-        .context("Download destination has no parent directory")?;
+    let parent_dir = dest_path.parent().context("Download destination has no parent directory")?;
     tokio::fs::create_dir_all(parent_dir)
         .await
         .context("Failed to create download destination directory")?;

@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -53,7 +53,8 @@ pub fn detect_os_with(style: OsStyle) -> String {
         },
         "linux" => "linux",
         other => other,
-    }.to_string()
+    }
+    .to_string()
 }
 
 /// 标准化的 ARCH 检测函数，按指定风格映射
@@ -72,7 +73,8 @@ pub fn detect_arch_with(style: ArchStyle) -> String {
             ArchStyle::Python => "win32",
         },
         other => other,
-    }.to_string()
+    }
+    .to_string()
 }
 
 /// 检测当前平台的默认压缩包扩展名
@@ -91,10 +93,7 @@ pub fn detect_platform_triple() -> Result<String> {
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
         ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
-        (os, arch) => bail!(
-            "Unsupported platform for python-build-standalone: os={}, arch={}",
-            os, arch
-        ),
+        (os, arch) => bail!("Unsupported platform for python-build-standalone: os={}, arch={}", os, arch),
     };
     Ok(triple.to_string())
 }
@@ -120,7 +119,9 @@ pub struct TemplateRenderer {
 impl TemplateRenderer {
     pub fn new() -> Self {
         init_static_vars();
-        Self { dynamic: HashMap::new() }
+        Self {
+            dynamic: HashMap::new(),
+        }
     }
 
     pub fn var(mut self, key: &str, value: impl Into<String>) -> Self {
@@ -165,5 +166,7 @@ impl TemplateRenderer {
 }
 
 impl Default for TemplateRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

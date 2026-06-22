@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use anyhow::Result;
-
+use std::collections::HashMap;
 
 pub trait EnvOperation {
     /// set sdk must require some env variables, it's a optional action
@@ -40,7 +39,6 @@ pub fn split_path_entries(path: &str) -> Vec<String> {
         .map(|s| s.to_string())
         .collect()
 }
-
 
 #[cfg(windows)]
 mod windows;

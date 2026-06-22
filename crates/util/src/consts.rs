@@ -82,9 +82,7 @@ impl BugReportError {
 
 impl std::fmt::Debug for BugReportError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("BugReportError")
-            .field("source", &self.source)
-            .finish()
+        f.debug_struct("BugReportError").field("source", &self.source).finish()
     }
 }
 

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use util::{info, warning};
 use util::consts::ENV_PATH;
+use util::{info, warning};
 
 use crate::env::EnvOperation;
 
@@ -15,16 +15,11 @@ pub struct UnixEnvOperation {}
 
 impl UnixEnvOperation {
     fn get_shell_profile_path() -> Result<PathBuf> {
-        let home = env::var_os("HOME")
-            .context("HOME environment variable not set")?;
+        let home = env::var_os("HOME").context("HOME environment variable not set")?;
         let home = PathBuf::from(home);
 
         let shell = env::var("SHELL").unwrap_or_default();
-        let profile_name = if shell.contains("zsh") {
-            ".zshrc"
-        } else {
-            ".bashrc"
-        };
+        let profile_name = if shell.contains("zsh") { ".zshrc" } else { ".bashrc" };
 
         Ok(home.join(profile_name))
     }
@@ -91,7 +86,7 @@ impl UnixEnvOperation {
         // Check current PATH from file content
         let current_path = Self::get_path_from_content(&content)?;
         let paths: Vec<&str> = current_path.split(':').collect();
-        if paths.iter().any(|p| p.to_string()  == expanded_path) {
+        if paths.iter().any(|p| p.to_string() == expanded_path) {
             warning!("path exists. sdk_path: {}", new_path);
             return Ok(());
         }
@@ -134,9 +129,7 @@ impl UnixEnvOperation {
 
     fn source_profile(profile_path: &PathBuf) -> Result<()> {
         let shell = env::var("SHELL").unwrap_or_default();
-        let profile_name = profile_path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(".bashrc");
+        let profile_name = profile_path.file_name().and_then(|n| n.to_str()).unwrap_or(".bashrc");
 
         // Try to source by executing a new shell
         let output = if shell.contains("zsh") {
@@ -152,7 +145,9 @@ impl UnixEnvOperation {
         if output.status.success() {
             let new_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !new_path.is_empty() {
-                unsafe { env::set_var(ENV_PATH, new_path); }
+                unsafe {
+                    env::set_var(ENV_PATH, new_path);
+                }
             }
         }
 
@@ -253,7 +248,8 @@ impl EnvOperation for UnixEnvOperation {
             return Ok(()); // 文件不存在，无需移除
         };
         let export_pattern = format!("export {}=", key);
-        let lines: Vec<String> = content.lines()
+        let lines: Vec<String> = content
+            .lines()
             .filter(|l| !l.trim().starts_with(&export_pattern))
             .map(|l| l.to_string())
             .collect();

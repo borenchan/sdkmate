@@ -1,4 +1,6 @@
+use crate::impls::current::CurrentHandler;
 use crate::impls::init::InitHandler;
+use crate::impls::install::InstallHandler;
 use crate::impls::list::ListHandler;
 use crate::impls::switch::SwitchHandler;
 use clap::builder::styling;
@@ -7,18 +9,15 @@ use crossterm::style::Stylize;
 use util::consts::{ABOUT, BANNER, BugReportError};
 use util::error;
 use util::terminal::suggest_bug_report;
-use crate::impls::current::CurrentHandler;
-use crate::impls::install::InstallHandler;
 
 mod impls;
 mod tui;
 
 #[derive(Debug, Parser)]
 #[command(name = "sdkm", author,  version, about = ABOUT.cyan().to_string(), long_about = BANNER.cyan().to_string())]
-#[command(propagate_version = true)]  //subcommand extend parent's version
+#[command(propagate_version = true)] //subcommand extend parent's version
 #[command(styles = cargo_style(), color = ColorChoice::Always)] // open color output
 pub struct SdkMateCli {
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -105,29 +104,11 @@ fn full_command_line() -> String {
 // 定义 cargo 风格的颜色方案
 fn cargo_style() -> styling::Styles {
     styling::Styles::styled()
-        .header(
-            styling::AnsiColor::Green.on_default()
-                | styling::Effects::BOLD,
-        )
-        .usage(
-            styling::AnsiColor::Green.on_default()
-                | styling::Effects::BOLD,
-        )
-        .literal(
-            styling::AnsiColor::Cyan.on_default()
-                | styling::Effects::BOLD,
-        )
+        .header(styling::AnsiColor::Green.on_default() | styling::Effects::BOLD)
+        .usage(styling::AnsiColor::Green.on_default() | styling::Effects::BOLD)
+        .literal(styling::AnsiColor::Cyan.on_default() | styling::Effects::BOLD)
         .placeholder(styling::AnsiColor::Cyan.on_default())
-        .error(
-            styling::AnsiColor::Red.on_default()
-                | styling::Effects::BOLD,
-        )
-        .valid(
-            styling::AnsiColor::Cyan.on_default()
-                | styling::Effects::BOLD,
-        )
-        .invalid(
-            styling::AnsiColor::Yellow.on_default()
-                | styling::Effects::BOLD,
-        )
+        .error(styling::AnsiColor::Red.on_default() | styling::Effects::BOLD)
+        .valid(styling::AnsiColor::Cyan.on_default() | styling::Effects::BOLD)
+        .invalid(styling::AnsiColor::Yellow.on_default() | styling::Effects::BOLD)
 }

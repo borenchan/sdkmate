@@ -3,8 +3,8 @@ use anyhow::Result;
 use std::collections::HashMap;
 use util::{consts::ENV_PATH, info, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
-use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
+use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 
 pub struct WindowsEnvOperation;
 
@@ -112,15 +112,11 @@ fn open_env_key(write: bool) -> Result<RegKey> {
 
 /// 广播环境变量变更，让 Explorer 和其他程序感知
 fn broadcast_env_change() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
-    };
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE};
 
-    let msg: Vec<u16> = OsStr::new("Environment\0")
-        .encode_wide()
-        .collect();
+    let msg: Vec<u16> = OsStr::new("Environment\0").encode_wide().collect();
 
     unsafe {
         SendMessageTimeoutW(

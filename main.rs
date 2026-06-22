@@ -8,7 +8,9 @@ fn main() -> ExitCode {
     // 不存在多线程竞争风险
     #[cfg(debug_assertions)]
     if std::env::var("RUST_BACKTRACE").is_err() {
-        unsafe { std::env::set_var("RUST_BACKTRACE", "1"); }
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
     }
 
     let cli = SdkMateCli::parse();

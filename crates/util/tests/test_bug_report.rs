@@ -58,10 +58,8 @@ fn test_bug_report_url_contains_title_and_body() {
 
     // 验证 URL 合法可解析
     let parsed = url::Url::parse(&url).expect("URL should be valid");
-    let params: std::collections::HashMap<String, String> = parsed
-        .query_pairs()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+    let params: std::collections::HashMap<String, String> =
+        parsed.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
 
     // URL 应包含 title 和 body 参数
     assert!(params.contains_key("title"), "URL should have title param");
@@ -91,10 +89,8 @@ fn test_bug_report_url_truncates_long_error() {
 
     // 解析 URL 获取 title 参数值
     let parsed = url::Url::parse(&url).expect("URL should be valid");
-    let params: std::collections::HashMap<String, String> = parsed
-        .query_pairs()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+    let params: std::collections::HashMap<String, String> =
+        parsed.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
 
     let title = params.get("title").expect("title param should exist");
     // 截断后的 title 应包含 "...", 且总长度合理

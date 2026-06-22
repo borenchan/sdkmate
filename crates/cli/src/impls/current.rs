@@ -1,6 +1,6 @@
+use crate::CommandHandler;
 use clap::Parser;
 use sdkcore::manager::SdkManager;
-use crate::CommandHandler;
 
 #[derive(Debug, Parser)]
 pub struct CurrentHandler {

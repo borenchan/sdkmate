@@ -1,7 +1,7 @@
 use crate::CommandHandler;
 use anyhow::Result;
-use clap::Parser;
 use clap::ArgAction::SetTrue;
+use clap::Parser;
 use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]

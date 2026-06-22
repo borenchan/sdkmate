@@ -1,18 +1,16 @@
 use crate::env::{EnvOperation, OsEnvOperation};
-use crate::manager::config::SdkmConfig;
 use crate::manager::SdkManager;
+use crate::manager::config::SdkmConfig;
 use anyhow::Result;
 use std::env;
 use std::fs;
 use util::consts::{
-    CONFIG_FILE_NAME, DIR_DESC_CACHE, DIR_DESC_CONFIG, DIR_DESC_STORE, DIR_DESC_TMP,
-    SDKM_CACHE_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR, BANNER,
+    BANNER, CONFIG_FILE_NAME, DIR_DESC_CACHE, DIR_DESC_CONFIG, DIR_DESC_STORE, DIR_DESC_TMP, SDKM_CACHE_DIR,
+    SDKM_STORE_DIR, SDKM_TMP_DIR,
 };
-use util::path::{
-    get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home, is_sdkm_dedicated_dir,
-};
+use util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home, is_sdkm_dedicated_dir};
 use util::terminal::{prompt_confirm, suggest_sdkm_path};
-use util::{banner, detail, divider, info, step, success, tree, warning, try_bug};
+use util::{banner, detail, divider, info, step, success, tree, try_bug, warning};
 
 impl SdkManager {
     /// 初始化 sdkm

@@ -1,18 +1,18 @@
+use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::clone;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::str::FromStr;
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub enum Sdk {
     Built(BuiltinSdk),
-    Custom(String)
+    Custom(String),
 }
 /// builtin sdk
-#[derive(Debug, Clone, Copy,PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BuiltinSdk {
     ///java programming language development environment
     Java,
@@ -37,8 +37,8 @@ impl FromStr for Sdk {
 impl Display for Sdk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Sdk::Built(b) => {b.fmt( f)}
-            Sdk::Custom(o) => {o.fmt( f)}
+            Sdk::Built(b) => b.fmt(f),
+            Sdk::Custom(o) => o.fmt(f),
         }
     }
 }
@@ -50,7 +50,7 @@ impl FromStr for BuiltinSdk {
             "maven" => Ok(BuiltinSdk::Maven),
             "node" => Ok(BuiltinSdk::Node),
             "python" => Ok(BuiltinSdk::Python),
-            _ => Err(anyhow::anyhow!("not builtin sdk"))
+            _ => Err(anyhow::anyhow!("not builtin sdk")),
         }
     }
 }
@@ -75,7 +75,7 @@ impl BuiltinSdk {
                 // install_only 二次提升后：Windows 扁平结构，Unix bin/ 子目录
                 if cfg!(target_os = "windows") { "" } else { "bin" }
             }
-            _ => "bin"
+            _ => "bin",
         }
     }
 
@@ -89,5 +89,4 @@ impl BuiltinSdk {
             BuiltinSdk::Maven => &["mvn"],
         }
     }
-
 }

@@ -25,7 +25,9 @@ pub const BUILTIN_SDK_CONFIG: &[SdkSourceConfig] = &[
         // {arch}            = x64 / aarch64 (Adoptium 映射)
         download_url: "https://api.adoptium.net/v3/binary/latest/{feature_version}/ga/{os}/{arch}/jdk/hotspot/normal/eclipse",
         download_fallback_url: None,
-        assets_url: Some("https://api.adoptium.net/v3/assets/latest/{feature_version}/hotspot?architecture={arch}&image_type=jdk&os={os}&vendor=eclipse"),
+        assets_url: Some(
+            "https://api.adoptium.net/v3/assets/latest/{feature_version}/hotspot?architecture={arch}&image_type=jdk&os={os}&vendor=eclipse",
+        ),
     },
     SdkSourceConfig {
         sdk: BuiltinSdk::Node,
@@ -54,7 +56,7 @@ pub const BUILTIN_SDK_CONFIG: &[SdkSourceConfig] = &[
     },
     SdkSourceConfig {
         sdk: BuiltinSdk::Maven,
-        version_url: "",  // Maven 暂无远程版本发现，仅精确版本
+        version_url: "", // Maven 暂无远程版本发现，仅精确版本
         version_fallback_url: None,
         // {version} = 完整版本号，如 3.9.9
         // {ext}     = zip (win) / tar.gz (linux/mac)

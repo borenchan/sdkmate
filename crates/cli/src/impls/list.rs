@@ -1,6 +1,6 @@
 use crate::CommandHandler;
 use crate::tui::{SelectorAction, run_local_selector, run_remote_selector};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Parser;
 use sdkcore::manager::SdkManager;
 use sdkcore::manager::list::RemoteVersionResult;
@@ -16,11 +16,20 @@ pub struct ListHandler {
     sdk: Option<String>,
 
     /// 从远程服务器获取版本列表，需要指定 SDK 名称
-    #[arg(short = 'r', long = "remote", help = "Fetch versions from remote (requires SDK name)")]
+    #[arg(
+        short = 'r',
+        long = "remote",
+        help = "Fetch versions from remote (requires SDK name)"
+    )]
     remote: bool,
 
     /// 远程版本显示上限，默认 20
-    #[arg(short, long, default_value_t = 20, help = "Max remote versions to display (default: 20)")]
+    #[arg(
+        short,
+        long,
+        default_value_t = 20,
+        help = "Max remote versions to display (default: 20)"
+    )]
     limit: u32,
 }
 

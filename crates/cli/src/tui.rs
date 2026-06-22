@@ -27,10 +27,7 @@ const MAX_VISIBLE: usize = 10;
 const STATUS_COL_WIDTH: usize = 3;
 
 /// Run interactive version selector for local SDK versions
-pub fn run_local_selector(
-    sdk_name: &str,
-    versions: &[SdkVersionItem],
-) -> Result<SelectorAction> {
+pub fn run_local_selector(sdk_name: &str, versions: &[SdkVersionItem]) -> Result<SelectorAction> {
     if versions.is_empty() {
         return Ok(SelectorAction::Quit);
     }
@@ -41,8 +38,8 @@ pub fn run_local_selector(
         None,
         versions.iter().map(|v| v.sdk_version.as_str()).collect(),
         versions.iter().map(|v| v.is_active).collect(),
-        versions.iter().map(|_| true).collect(), // local = always installed
-        versions.iter().map(|_| false).collect(),                // no "not installed" in local
+        versions.iter().map(|_| true).collect(),  // local = always installed
+        versions.iter().map(|_| false).collect(), // no "not installed" in local
     )
 }
 
@@ -72,7 +69,10 @@ pub fn run_remote_selector(
         Some(total_count),
         items.iter().map(|i| i.full_version.as_str()).collect(),
         items.iter().map(|i| i.install_status == InstallStatus::Active).collect(),
-        items.iter().map(|i| i.install_status == InstallStatus::Installed || i.install_status == InstallStatus::Active).collect(),
+        items
+            .iter()
+            .map(|i| i.install_status == InstallStatus::Installed || i.install_status == InstallStatus::Active)
+            .collect(),
         items.iter().map(|i| i.install_status == InstallStatus::NotInstalled).collect(),
     )
 }
@@ -104,13 +104,10 @@ fn run_selector_inner(
     // Enter TUI mode: raw mode + alternate screen + hide cursor
     try_bug!(crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode"));
     let mut stdout = io::stdout();
-    try_bug!(execute!(
-        stdout,
-        EnterAlternateScreen,
-        Clear(ClearType::All),
-        crossterm::cursor::Hide
-    )
-    .context("Failed to setup TUI mode"));
+    try_bug!(
+        execute!(stdout, EnterAlternateScreen, Clear(ClearType::All), crossterm::cursor::Hide)
+            .context("Failed to setup TUI mode")
+    );
 
     let result = loop {
         // ── Clamp scroll so selected stays inside visible window ──
@@ -305,7 +302,9 @@ fn run_selector_inner(
                         selected = selected.saturating_sub(1);
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if selected < total - 1 { selected += 1; }
+                        if selected < total - 1 {
+                            selected += 1;
+                        }
                     }
                     KeyCode::Enter | KeyCode::Char('s') => {
                         if is_installed[selected] || is_active[selected] {
@@ -332,8 +331,7 @@ fn run_selector_inner(
     };
 
     // Restore terminal: show cursor + leave alternate screen + disable raw
-    try_bug!(execute!(stdout, crossterm::cursor::Show, LeaveAlternateScreen)
-        .context("Failed to restore terminal"));
+    try_bug!(execute!(stdout, crossterm::cursor::Show, LeaveAlternateScreen).context("Failed to restore terminal"));
     try_bug!(crossterm::terminal::disable_raw_mode().context("Failed to disable raw mode"));
 
     Ok(result)

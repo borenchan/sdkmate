@@ -1,10 +1,8 @@
 use crate::manager::SdkManager;
 use crate::manager::install::downloader::build_reqwest_client;
 use crate::manager::install::progress::InstallProgress;
-use crate::manager::install::resolver::{
-    fetch_version_data, get_install_strategy, VersionSource,
-};
-use anyhow::{bail, Context, Result};
+use crate::manager::install::resolver::{VersionSource, fetch_version_data, get_install_strategy};
+use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -13,7 +11,7 @@ use util::consts::STATUS_ACTIVE;
 use util::path::get_installed_sdks_dir;
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::find_builtin_sdk_config;
-use util::{divider, info, success, warning, try_bug};
+use util::{divider, info, success, try_bug, warning};
 
 // ─── Data Structures ───────────────────────────────────────────────
 
@@ -105,7 +103,11 @@ impl SdkManager {
             let sdk = self.match_valid_sdk(&entry.file_name().to_string_lossy())?;
             let sdk_conf = self.config.find_sdk_ok(&sdk)?;
             divider!();
-            success!("{} current is {}", sdk, &sdk_conf.current_version.clone().unwrap_or("N/A".to_string()));
+            success!(
+                "{} current is {}",
+                sdk,
+                &sdk_conf.current_version.clone().unwrap_or("N/A".to_string())
+            );
             divider!();
         }
         Ok(())
@@ -162,11 +164,7 @@ impl SdkManager {
     ///
     /// Reuses resolver's fetch_version_data + parse_version_data pipeline.
     /// Cache-first with TTL ensures instant response on subsequent calls.
-    async fn fetch_remote_versions_async(
-        &self,
-        sdk: &Sdk,
-        limit: u32,
-    ) -> Result<RemoteVersionResult> {
+    async fn fetch_remote_versions_async(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let strategy = get_install_strategy(sdk);
         let client = build_reqwest_client(&self.config.network)?;
@@ -181,13 +179,16 @@ impl SdkManager {
         // Build version source URLs
         let (primary_url, secondary_url, source_display_url) = match sdk {
             Sdk::Built(b) => {
-                let cfg = find_builtin_sdk_config(b)
-                    .context(format!("no builtin config for {}", sdk_name))?;
+                let cfg = find_builtin_sdk_config(b).context(format!("no builtin config for {}", sdk_name))?;
                 // 内置配置缺失属于程序 bug，标记 BugReportError
                 (
                     cfg.version_url.to_string(),
                     cfg.version_fallback_url.map(|s| s.to_string()),
-                    if !cfg.version_url.is_empty() { cfg.version_url.to_string() } else { "N/A".to_string() },
+                    if !cfg.version_url.is_empty() {
+                        cfg.version_url.to_string()
+                    } else {
+                        "N/A".to_string()
+                    },
                 )
             }
             Sdk::Custom(_) => {
@@ -214,15 +215,24 @@ impl SdkManager {
 
         // Python fallback is GitHub API → needs Accept header
         let headers = if let Sdk::Built(BuiltinSdk::Python) = sdk {
-            Some(HashMap::from([
-                ("Accept".to_string(), "application/vnd.github+json".to_string()),
-            ]))
+            Some(HashMap::from([(
+                "Accept".to_string(),
+                "application/vnd.github+json".to_string(),
+            )]))
         } else {
             None
         };
 
         // Reuse resolver's cache-first + fetch pipeline
-        let body = fetch_version_data(&client, &source, &cache_key, &sdk_name, headers, self.config.network.cache_ttl_secs as u64).await?;
+        let body = fetch_version_data(
+            &client,
+            &source,
+            &cache_key,
+            &sdk_name,
+            headers,
+            self.config.network.cache_ttl_secs as u64,
+        )
+        .await?;
         pb.finish_with_message(format!("✅ Fetched remote versions for {}", sdk_name));
 
         let entries = strategy.parse_version_data(&body)?;
@@ -234,9 +244,7 @@ impl SdkManager {
         let items: Vec<RemoteVersionItem> = entries
             .iter()
             .map(|entry| {
-                let is_local = local_versions
-                    .iter()
-                    .any(|v| v.sdk_version == entry.full_version);
+                let is_local = local_versions.iter().any(|v| v.sdk_version == entry.full_version);
                 let is_active = current_version == Some(&entry.full_version);
                 let status = if is_active {
                     InstallStatus::Active
@@ -264,7 +272,10 @@ impl SdkManager {
             items
         };
 
-        Ok(RemoteVersionResult { items: result_items, total_count })
+        Ok(RemoteVersionResult {
+            items: result_items,
+            total_count,
+        })
     }
 
     /// Sync bridge: fetch remote version list data (for TUI selector)

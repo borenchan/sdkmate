@@ -1,4 +1,4 @@
-use indicatif::{ProgressBar, ProgressStyle, ProgressState};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use std::fmt::Write;
 use std::time::Duration;
 use util::consts::INSTALL_TIPS;
@@ -10,8 +10,8 @@ pub struct InstallProgress {
 }
 
 // ── 速度阈值常量（bytes/sec）──
-const SPEED_SLOW: f64 = 200_000.0;     // < 200 KB/s → 🐢
-const SPEED_FAST: f64 = 1_000_000.0;    // > 1 MB/s   → 🚀
+const SPEED_SLOW: f64 = 200_000.0; // < 200 KB/s → 🐢
+const SPEED_FAST: f64 = 1_000_000.0; // > 1 MB/s   → 🚀
 
 // ── Tips 轮播周期（秒）──
 const TIP_ROTATE_INTERVAL: u64 = 5;
@@ -46,7 +46,7 @@ impl InstallProgress {
                     let elapsed_secs = state.elapsed().as_secs();
                     let tip_idx = (elapsed_secs / TIP_ROTATE_INTERVAL) as usize % INSTALL_TIPS.len();
                     w.write_str(INSTALL_TIPS[tip_idx]).unwrap();
-                })
+                }),
         );
         pb.set_message(format!("Downloading {} {}...", sdk, version));
         pb.enable_steady_tick(Duration::from_millis(500));
@@ -61,11 +61,7 @@ impl InstallProgress {
             "📦 {{msg}}\n    {{bar:30.▓▒░.cyan/yellow}} {{percent:>3}}% {{pos:>5}}/{{len:>5}} files ⏱{{eta:>5}}",
         );
 
-        pb.set_style(
-            ProgressStyle::with_template(&template)
-                .unwrap()
-                .progress_chars("▓▒░")
-        );
+        pb.set_style(ProgressStyle::with_template(&template).unwrap().progress_chars("▓▒░"));
         pb.set_message(format!("Extracting {} {}...", sdk, version));
         pb.enable_steady_tick(Duration::from_millis(500));
 
@@ -75,16 +71,12 @@ impl InstallProgress {
     /// 创建解压阶段 spinner（tar.gz：无法预知文件数，仅动画 + elapsed）
     pub fn new_extract_tar_gz(sdk: &str, version: &str) -> Self {
         let pb = ProgressBar::new_spinner();
-        let template = format!(
-            "📦 {{msg}} {{spinner:.cyan}} ⏱{{elapsed:>4}}",
-        );
+        let template = format!("📦 {{msg}} {{spinner:.cyan}} ⏱{{elapsed:>4}}",);
 
         pb.set_style(
             ProgressStyle::with_template(&template)
                 .unwrap()
-                .tick_strings(&[
-                    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-                ])
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         pb.set_message(format!("Extracting {} {}...", sdk, version));
         pb.enable_steady_tick(Duration::from_millis(100));
@@ -98,9 +90,7 @@ impl InstallProgress {
         pb.set_style(
             ProgressStyle::with_template("🔍 {msg} {spinner:.blue}")
                 .unwrap()
-                .tick_strings(&[
-                    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-                ])
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         pb.set_message(format!("Resolving version '{}' for {}...", version_input, sdk));
         pb.enable_steady_tick(Duration::from_millis(100));
@@ -114,9 +104,7 @@ impl InstallProgress {
         pb.set_style(
             ProgressStyle::with_template("🔐 {msg} {spinner:.cyan}")
                 .unwrap()
-                .tick_strings(&[
-                    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-                ])
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         pb.set_message("Verifying installation...");
         pb.enable_steady_tick(Duration::from_millis(100));
@@ -144,7 +132,13 @@ impl InstallProgress {
         if switched {
             success!("{} {} installed and switched successfully!", sdk, version);
         } else {
-            success!("{} {} installed successfully! (not switched, use 'sdkm switch {} {}' to activate)", sdk, version, sdk, version);
+            success!(
+                "{} {} installed successfully! (not switched, use 'sdkm switch {} {}' to activate)",
+                sdk,
+                version,
+                sdk,
+                version
+            );
         }
     }
 }
