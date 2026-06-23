@@ -295,13 +295,16 @@ impl AddSdkHandler {
         let download_url_validated = validate_by_type(&self.download_url, &ValueType::UrlTemplate)?;
         let download_url = download_url_validated.into_string();
 
-        // 解析 bin_dir：不传 → 空（二进制在根目录），传了 → 校验禁止路径分隔符
+        // 解析 bin_dir：不传 → None（二进制在根目录），传了 → 校验禁止路径分隔符
         let bin_dir = match &self.bin_dir {
             Some(dir) => {
+                if dir.is_empty() {
+                    anyhow::bail!("--bin-dir should be omitted (means root dir) or set to a directory name like 'bin'. Passing an empty string is redundant.");
+                }
                 let validated = validate_by_type(dir, &ValueType::FreeString)?;
-                validated.into_string()
+                Some(validated.into_string())
             }
-            None => String::new(), // 空字符串 = 二进制在 SDK 根目录
+            None => None, // None = 二进制在 SDK 根目录
         };
 
         // 校验可选 URL 字段

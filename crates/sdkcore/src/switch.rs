@@ -68,7 +68,7 @@ impl SdkManager {
 
         let symlink_root_dir = self.config.symlink_dir.clone();
         let sdk_symlink_dir = PathBuf::from(symlink_root_dir).join(sdk.to_string());
-        let sdk_symlink_bin_dir = sdk_symlink_dir.join(sdk_conf.bin_dir.as_str());
+        let sdk_symlink_bin_dir = sdk_symlink_dir.join(sdk_conf.bin_dir.as_deref().unwrap_or(""));
         let sdk_symlink_bin_cow = sdk_symlink_bin_dir.to_string_lossy();
         let path = self.env_operation.get_path()?;
 

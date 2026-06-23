@@ -101,9 +101,9 @@ pub struct SdkConfig {
     //current active version
     #[serde(default)]
     pub current_version: Option<String>,
-    //二进制目录名，空值表示二进制在 SDK 根目录（如 Node.js）
+    //二进制目录名，None 表示二进制在 SDK 根目录（如 Node.js）
     #[serde(default)]
-    pub bin_dir: String,
+    pub bin_dir: Option<String>,
     //extra env vars
     pub extra_vars: HashMap<String, String>,
     //extra paths relative to sdk symlink dir
@@ -111,8 +111,8 @@ pub struct SdkConfig {
     pub extra_paths: Vec<String>,
 }
 impl SdkConfig {
-    /// 构造 SdkConfig，bin_dir 传空字符串表示二进制在 SDK 根目录
-    pub fn new(name: String, version_url: String, download_url: String, bin_dir: String) -> SdkConfig {
+    /// 构造 SdkConfig，bin_dir 传 None 表示二进制在 SDK 根目录
+    pub fn new(name: String, version_url: String, download_url: String, bin_dir: Option<String>) -> SdkConfig {
         SdkConfig {
             name,
             version_url: Some(version_url),
@@ -156,11 +156,15 @@ impl SdkmConfig {
         BUILTIN_SDK_CONFIG
             .iter()
             .map(|s| {
+                let bin_dir = match s.sdk.get_sdk_bin_dir() {
+                    "" => None,
+                    dir => Some(dir.to_string()),
+                };
                 let mut config = SdkConfig::new(
                     s.sdk.to_string(),
                     s.version_url.to_string(),
                     s.download_url.to_string(),
-                    s.sdk.get_sdk_bin_dir().to_string(),
+                    bin_dir,
                 );
                 config.version_fallback_url = s.version_fallback_url.map(|u| u.to_string());
                 config.download_fallback_url = s.download_fallback_url.map(|u| u.to_string());
@@ -285,7 +289,7 @@ impl SdkmConfig {
                     SdkField::DownloadUrl => Ok(sdk.download_url.clone()),
                     SdkField::DownloadFallbackUrl => Ok(sdk.download_fallback_url.clone().unwrap_or_default()),
                     SdkField::CurrentVersion => Ok(sdk.current_version.clone().unwrap_or_default()),
-                    SdkField::BinDir => Ok(sdk.bin_dir.clone()),
+                    SdkField::BinDir => Ok(sdk.bin_dir.clone().unwrap_or_default()),
                 }
             }
             ConfigKey::SdkExtraVar { name, var_key } => {
@@ -339,7 +343,7 @@ impl SdkmConfig {
                         SdkField::DownloadUrl => sdk.download_url = value,
                         SdkField::DownloadFallbackUrl => sdk.download_fallback_url = Some(value),
                         SdkField::CurrentVersion => sdk.current_version = Some(value),
-                        SdkField::BinDir => sdk.bin_dir = value,
+                        SdkField::BinDir => sdk.bin_dir = Some(value),
                     }
                 }
             }
@@ -465,7 +469,7 @@ impl SdkmConfig {
             entries.push((format!("{}.download_url", prefix), sdk.download_url.clone()));
             entries.push((format!("{}.download_fallback_url", prefix), sdk.download_fallback_url.clone().unwrap_or("(none)".to_string())));
             entries.push((format!("{}.current_version", prefix), sdk.current_version.clone().unwrap_or("(none)".to_string())));
-            entries.push((format!("{}.bin_dir", prefix), sdk.bin_dir.clone()));
+            entries.push((format!("{}.bin_dir", prefix), sdk.bin_dir.clone().unwrap_or("(root dir)".to_string())));
 
             // extra_vars
             for (var_key, var_val) in &sdk.extra_vars {
