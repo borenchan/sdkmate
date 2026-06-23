@@ -82,8 +82,8 @@ struct AddSdkHandler {
     #[arg(long, help = "Download URL template (required, supports {version} placeholders)")]
     download_url: String,
 
-    /// SDK binary directory name (required, e.g. bin, Scripts)
-    #[arg(long, help = "SDK binary directory name (required, e.g. bin, Scripts)")]
+    /// SDK binary directory name, empty = binaries in SDK root dir (e.g. bin, Scripts, or "")
+    #[arg(long, default_value = "bin", help = "SDK binary directory name (empty = binaries in SDK root dir, e.g. bin, Scripts)")]
     bin_dir: String,
 
     /// Version discovery URL (optional)
@@ -295,13 +295,9 @@ impl AddSdkHandler {
         let download_url_validated = validate_by_type(&self.download_url, &ValueType::UrlTemplate)?;
         let download_url = download_url_validated.into_string();
 
-        // 校验 bin_dir（非空，不含路径分隔符）
-        if self.bin_dir.is_empty() {
-            anyhow::bail!("bin_dir cannot be empty.");
-        }
-        if self.bin_dir.contains('/') || self.bin_dir.contains('\\') {
-            anyhow::bail!("bin_dir must be a relative directory name, not a path with separators.");
-        }
+        // 校验 bin_dir（允许空值=二进制在根目录，禁止路径分隔符）
+        let bin_dir_validated = validate_by_type(&self.bin_dir, &ValueType::FreeString)?;
+        let bin_dir = bin_dir_validated.into_string();
 
         // 校验可选 URL 字段
         let version_url = self.version_url.as_ref().map(|u| {
@@ -337,7 +333,7 @@ impl AddSdkHandler {
             download_url,
             download_fallback_url,
             current_version: None,
-            bin_dir: self.bin_dir.clone(),
+            bin_dir,
             extra_vars,
             extra_paths: self.extra_path.clone(),
         };

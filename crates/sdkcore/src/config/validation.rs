@@ -25,6 +25,8 @@ pub enum ValueType {
     Token,
     /// 自由字符串（非空）
     NonEmptyString,
+    /// 自由字符串（允许空值，如 bin_dir="" 表示二进制在根目录）→ 禁止路径分隔符
+    FreeString,
 }
 
 /// 校验后的值容器（携带具体类型，用于 set 操作）
@@ -36,6 +38,7 @@ pub enum ValidatedValue {
     Path(String),
     Token(String),
     NonEmptyString(String),
+    FreeString(String),
 }
 
 impl ValidatedValue {
@@ -48,6 +51,7 @@ impl ValidatedValue {
             ValidatedValue::Path(s) => s,
             ValidatedValue::Token(s) => s,
             ValidatedValue::NonEmptyString(s) => s,
+            ValidatedValue::FreeString(s) => s,
         }
     }
 
@@ -62,6 +66,7 @@ impl ValidatedValue {
             ValidatedValue::Path(s) => s,
             ValidatedValue::Token(s) => s,
             ValidatedValue::NonEmptyString(s) => s,
+            ValidatedValue::FreeString(s) => s,
         }
     }
 }
@@ -92,7 +97,7 @@ pub fn field_type(key: &ConfigKey) -> ValueType {
         ConfigKey::Sdk { field: SdkField::DownloadUrl, .. } => ValueType::UrlTemplate,
         ConfigKey::Sdk { field: SdkField::DownloadFallbackUrl, .. } => ValueType::UrlTemplate,
         ConfigKey::Sdk { field: SdkField::CurrentVersion, .. } => ValueType::NonEmptyString,
-        ConfigKey::Sdk { field: SdkField::BinDir, .. } => ValueType::NonEmptyString,
+        ConfigKey::Sdk { field: SdkField::BinDir, .. } => ValueType::FreeString,
         ConfigKey::SdkExtraVar { .. } => ValueType::NonEmptyString,
         ConfigKey::SdkExtraPath { .. } => ValueType::Path,
     }
@@ -162,8 +167,8 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
         },
         ConfigKey::Sdk { field: SdkField::BinDir, .. } => KeyMeta {
             deletable: false, // 必须字段，任何 SDK 都不可删除
-            value_type: ValueType::NonEmptyString,
-            default_desc: "(required)".to_string(),
+            value_type: ValueType::FreeString,
+            default_desc: "(empty = binaries in SDK root dir)".to_string(),
         },
         ConfigKey::SdkExtraVar { .. } => KeyMeta {
             deletable: sdk_deletable,
@@ -192,6 +197,7 @@ pub fn validate_by_type(raw: &str, ty: &ValueType) -> Result<ValidatedValue> {
         ValueType::Path => validate_path(raw),
         ValueType::Token => validate_token(raw),
         ValueType::NonEmptyString => validate_non_empty_string(raw),
+        ValueType::FreeString => validate_free_string(raw),
     }
 }
 
@@ -276,6 +282,15 @@ fn validate_non_empty_string(raw: &str) -> Result<ValidatedValue> {
         bail!("Value cannot be empty");
     }
     Ok(ValidatedValue::NonEmptyString(raw.to_string()))
+}
+
+/// 自由字符串校验（允许空值，禁止路径分隔符）
+/// 空值表示二进制在 SDK 根目录（如 Node.js、Windows Python）
+fn validate_free_string(raw: &str) -> Result<ValidatedValue> {
+    if raw.contains('/') || raw.contains('\\') {
+        bail!("Value must be a simple directory name, not a path with separators. Use empty string for binaries in SDK root.");
+    }
+    Ok(ValidatedValue::FreeString(raw.to_string()))
 }
 
 /// Token 脱敏：只显示前 4 字符 + ***
