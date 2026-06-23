@@ -82,9 +82,9 @@ struct AddSdkHandler {
     #[arg(long, help = "Download URL template (required, supports {version} placeholders)")]
     download_url: String,
 
-    /// SDK binary directory name, empty = binaries in SDK root dir (e.g. bin, Scripts, or "")
-    #[arg(long, default_value = "bin", help = "SDK binary directory name (empty = binaries in SDK root dir, e.g. bin, Scripts)")]
-    bin_dir: String,
+    /// SDK binary directory name (omit = binaries in SDK root dir, e.g. bin, Scripts)
+    #[arg(long, help = "SDK binary directory name (omit for root-dir binaries, e.g. bin, Scripts)")]
+    bin_dir: Option<String>,
 
     /// Version discovery URL (optional)
     #[arg(long, help = "Version discovery URL (optional)")]
@@ -295,9 +295,14 @@ impl AddSdkHandler {
         let download_url_validated = validate_by_type(&self.download_url, &ValueType::UrlTemplate)?;
         let download_url = download_url_validated.into_string();
 
-        // 校验 bin_dir（允许空值=二进制在根目录，禁止路径分隔符）
-        let bin_dir_validated = validate_by_type(&self.bin_dir, &ValueType::FreeString)?;
-        let bin_dir = bin_dir_validated.into_string();
+        // 解析 bin_dir：不传 → 空（二进制在根目录），传了 → 校验禁止路径分隔符
+        let bin_dir = match &self.bin_dir {
+            Some(dir) => {
+                let validated = validate_by_type(dir, &ValueType::FreeString)?;
+                validated.into_string()
+            }
+            None => String::new(), // 空字符串 = 二进制在 SDK 根目录
+        };
 
         // 校验可选 URL 字段
         let version_url = self.version_url.as_ref().map(|u| {
