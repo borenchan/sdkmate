@@ -4,7 +4,7 @@ use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct CurrentHandler {
-    /// 要查询的 SDK 名称。内置: java, node, python, maven; 留空则显示全部活跃版本
+    /// SDK name. Built-in: java, node, python, maven; omit to show all active versions
     #[arg(
         value_name = "SDK",
         help = "SDK name. Built-in: java, node, python, maven. Omit to show all active versions"

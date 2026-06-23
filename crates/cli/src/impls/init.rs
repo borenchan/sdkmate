@@ -6,7 +6,7 @@ use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct InitHandler {
-    /// 强制重新初始化，覆盖已有配置文件，跳过目录名检测
+    /// Force reinitialize sdkm (overwrites config, skips dir check)
     #[arg(
         long,
         short,

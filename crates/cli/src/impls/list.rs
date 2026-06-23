@@ -8,14 +8,14 @@ use util::sdk::Sdk;
 
 #[derive(Debug, Parser)]
 pub struct ListHandler {
-    /// 要查询的 SDK 名称。内置: java, node, python, maven; 留空则显示全部已安装 SDK
+    /// SDK name. Built-in: java, node, python, maven; omit to list all installed SDKs
     #[arg(
         value_name = "SDK",
         help = "SDK name. Built-in: java, node, python, maven. Omit to list all installed SDKs"
     )]
     sdk: Option<String>,
 
-    /// 从远程服务器获取版本列表，需要指定 SDK 名称
+    /// Fetch versions from remote (requires SDK name)
     #[arg(
         short = 'r',
         long = "remote",
@@ -23,7 +23,7 @@ pub struct ListHandler {
     )]
     remote: bool,
 
-    /// 远程版本显示上限，默认 20
+    /// Max remote versions to display (default: 20)
     #[arg(
         short,
         long,

@@ -4,21 +4,21 @@ use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {
-    /// 要安装的 SDK 名称。内置: java, node, python, maven; 自定义 SDK 见 config.toml
+    /// SDK name. Built-in: java, node, python, maven; custom SDKs from config.toml
     #[arg(
         value_name = "SDK",
         help = "SDK name. Built-in: java, node, python, maven. Custom SDKs from config.toml also accepted"
     )]
     sdk: String,
 
-    /// 目标版本号，支持模糊匹配，如 '21' 自动解析为最新 21.x
+    /// Target version (fuzzy match supported, e.g. '21' resolves to latest 21.x)
     #[arg(
         value_name = "version",
         help = "Target version (fuzzy match supported, e.g. '21' → latest 21.x)"
     )]
     sdk_version: String,
 
-    /// 安装后不自动切换到新版本
+    /// Do not auto-switch to the installed version
     #[arg(long, help = "Do not auto-switch to the installed version")]
     no_switch: bool,
 }

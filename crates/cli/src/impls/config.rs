@@ -18,98 +18,98 @@ pub struct ConfigHandler {
 
 #[derive(Debug, Parser)]
 enum ConfigCommands {
-    /// 设置一个配置值，如: sdkm config set network.proxy http://127.0.0.1:7890
+    /// Set a config value, e.g. sdkm config set network.proxy http://127.0.0.1:7890
     #[command(name = "set")]
     Set(ConfigSetHandler),
 
-    /// 获取一个配置值，如: sdkm config get network.proxy
+    /// Get a config value, e.g. sdkm config get network.proxy
     #[command(name = "get")]
     Get(ConfigGetHandler),
 
-    /// 列出所有配置项及其当前值
+    /// List all config keys and their current values
     #[command(name = "list", visible_aliases = ["ls", "l"])]
     List,
 
-    /// 删除一个配置值（恢复为默认值），如: sdkm config delete network.proxy
+    /// Delete a config value (reset to default), e.g. sdkm config delete network.proxy
     #[command(name = "delete", visible_alias = "del")]
     Delete(ConfigDeleteHandler),
 
-    /// 用系统编辑器打开配置文件，保存后自动校验 TOML 格式
+    /// Open config file in system editor, validate TOML on save
     #[command(name = "edit", visible_alias = "e")]
     Edit,
 
-    /// 新增自定义 SDK 条目，如: sdkm config add-sdk mytool --download-url https://... --bin-dir bin
+    /// Add a custom SDK entry, e.g. sdkm config add-sdk mytool --download-url https://... --bin-dir bin
     #[command(name = "add-sdk")]
     AddSdk(AddSdkHandler),
 
-    /// 移除自定义 SDK 条目（内置 SDK 不可移除）
+    /// Remove a custom SDK entry (built-in SDKs cannot be removed)
     #[command(name = "remove-sdk")]
     RemoveSdk(RemoveSdkHandler),
 }
 
 #[derive(Debug, Parser)]
 struct ConfigSetHandler {
-    /// 配置键名，点分隔格式，如 network.proxy、sdk.java.download_url
+    /// Config key in dot notation, e.g. network.proxy or sdk.java.download_url
     #[arg(value_name = "KEY", help = "Config key in dot notation, e.g. network.proxy")]
     key: String,
 
-    /// 配置值
+    /// Config value to set
     #[arg(value_name = "VALUE", help = "Config value to set")]
     value: String,
 }
 
 #[derive(Debug, Parser)]
 struct ConfigGetHandler {
-    /// 配置键名
+    /// Config key in dot notation
     #[arg(value_name = "KEY", help = "Config key in dot notation")]
     key: String,
 }
 
 #[derive(Debug, Parser)]
 struct ConfigDeleteHandler {
-    /// 配置键名
+    /// Config key to delete (resets to default)
     #[arg(value_name = "KEY", help = "Config key to delete (resets to default)")]
     key: String,
 }
 
 #[derive(Debug, Parser)]
 struct AddSdkHandler {
-    /// SDK 名称（不能与已有 SDK 重名）
+    /// SDK name (must be unique, no duplicates)
     #[arg(value_name = "NAME", help = "SDK name (must be unique)")]
     name: String,
 
-    /// 下载主源 URL 模板（必填，支持 {version} 等占位符）
+    /// Download URL template (required, supports {version} placeholders)
     #[arg(long, help = "Download URL template (required, supports {version} placeholders)")]
     download_url: String,
 
-    /// SDK 的 bin 目录名（必填，如 bin、Scripts）
+    /// SDK binary directory name (required, e.g. bin, Scripts)
     #[arg(long, help = "SDK binary directory name (required, e.g. bin, Scripts)")]
     bin_dir: String,
 
-    /// 版本发现主源 URL（可选）
+    /// Version discovery URL (optional)
     #[arg(long, help = "Version discovery URL (optional)")]
     version_url: Option<String>,
 
-    /// 版本发现备源 URL（可选）
+    /// Version discovery fallback URL (optional)
     #[arg(long, help = "Version discovery fallback URL (optional)")]
     version_fallback_url: Option<String>,
 
-    /// 下载备源 URL 模板（可选）
+    /// Download fallback URL template (optional)
     #[arg(long, help = "Download fallback URL template (optional)")]
     download_fallback_url: Option<String>,
 
-    /// 额外环境变量，格式 KEY=VALUE，可多次指定
+    /// Extra env var in KEY=VALUE format, repeatable
     #[arg(long, value_name = "KEY=VALUE", help = "Extra env vars (KEY=VALUE, repeatable)")]
     extra_var: Vec<String>,
 
-    /// 额外路径（相对于 SDK 符号链接目录），可多次指定
+    /// Extra path relative to SDK symlink dir, repeatable
     #[arg(long, help = "Extra paths relative to symlink dir (repeatable)")]
     extra_path: Vec<String>,
 }
 
 #[derive(Debug, Parser)]
 struct RemoveSdkHandler {
-    /// 要移除的 SDK 名称（内置 SDK 不可移除）
+    /// SDK name to remove (built-in SDKs cannot be removed)
     #[arg(value_name = "NAME", help = "SDK name to remove (built-in SDKs cannot be removed)")]
     name: String,
 }
@@ -261,7 +261,7 @@ fn run_edit() -> Result<()> {
     Ok(())
 }
 
-/// 检测系统编辑器：$EDITOR / $VISUAL → 平台 fallback
+/// Detect system editor: $EDITOR / $VISUAL → platform fallback
 fn detect_editor() -> String {
     // 优先使用环境变量
     if let Ok(ed) = std::env::var("EDITOR") {
