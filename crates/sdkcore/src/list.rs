@@ -1,7 +1,7 @@
 use crate::manager::SdkManager;
-use crate::manager::install::downloader::build_reqwest_client;
-use crate::manager::install::progress::InstallProgress;
-use crate::manager::install::resolver::{VersionSource, fetch_version_data, get_install_strategy};
+use crate::install::downloader::build_reqwest_client;
+use crate::install::progress::InstallProgress;
+use crate::install::resolver::{VersionSource, fetch_version_data, get_install_strategy};
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::ffi::OsStr;

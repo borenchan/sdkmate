@@ -1,6 +1,6 @@
 use crate::env::{EnvOperation, OsEnvOperation};
 use crate::manager::SdkManager;
-use crate::manager::config::SdkmConfig;
+use crate::config::SdkmConfig;
 use anyhow::Result;
 use std::env;
 use std::fs;

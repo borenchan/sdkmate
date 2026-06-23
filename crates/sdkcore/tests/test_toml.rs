@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use anyhow::Context;
-    use sdkcore::manager::config::SdkmConfig;
+    use sdkcore::config::SdkmConfig;
     use std::fs;
     use toml::Table;
 

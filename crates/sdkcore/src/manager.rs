@@ -1,15 +1,8 @@
+use crate::config::SdkmConfig;
 use crate::env::{EnvOperation, OsEnvOperation};
-use crate::manager::config::SdkmConfig;
 use std::str::FromStr;
 use util::sdk::Sdk;
 
-pub mod config;
-pub mod init;
-pub mod install;
-pub mod list;
-pub mod switch;
-
-// #[derive(Debug)]
 pub struct SdkManager {
     pub config: SdkmConfig,
     pub env_operation: Box<dyn EnvOperation>,
@@ -23,8 +16,7 @@ impl SdkManager {
             env_operation: Box::new(OsEnvOperation {}),
         })
     }
-    /// match a valid sdk in sdkm config file
-    /// config sdks must be match
+    /// 校验 SDK 名称是否在配置中注册
     pub fn match_valid_sdk(&self, sdk_name: &str) -> anyhow::Result<Sdk> {
         let sdk = Sdk::from_str(sdk_name)?;
         if !self.config.exist_sdk(&sdk) {

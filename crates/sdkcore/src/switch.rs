@@ -1,7 +1,8 @@
 use crate::env::split_path_entries;
 use crate::link::symlink::{create_symlink, read_symlink_target, remove_symlink};
 use crate::manager::SdkManager;
-use crate::manager::config::SdkConfig;
+use crate::config::SdkConfig;
+use crate::config::SdkmConfig;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +23,7 @@ struct SwitchSnapshot {
     /// 本次 switch 添加到 PATH 的所有条目（回滚时按反序 remove）
     added_path_entries: Vec<String>,
     /// 内存级 config 快照（SdkmConfig 已 derive Clone）
-    old_config: crate::manager::config::SdkmConfig,
+    old_config: SdkmConfig,
 }
 
 /// 回滚不可恢复的项目：记录对用户的影响描述和修复建议
@@ -35,7 +36,7 @@ struct RollbackFailure {
 
 // ── try_step! 宏：执行操作，失败时自动回滚并提前返回 ──
 //
-// 消除 Phase 3 中 5 处重复的 `if let Err(e) + rollback + return Err(e)` 模式。
+// 消除 Phase 3 中 5 处重复的 `if-let-Err + rollback + return Err(e)` 模式。
 // 失败时自动嵌入 BugReportError 标记，CLI 层可检测此标记提示 bug report。
 macro_rules! try_step {
     ($expr:expr, $snapshot:expr, $manager:expr, $msg:expr $(, $fmt_arg:expr)* $(,)?) => {

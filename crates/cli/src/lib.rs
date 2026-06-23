@@ -3,6 +3,7 @@ use crate::impls::init::InitHandler;
 use crate::impls::install::InstallHandler;
 use crate::impls::list::ListHandler;
 use crate::impls::switch::SwitchHandler;
+use crate::impls::config::ConfigHandler;
 use clap::builder::styling;
 use clap::{ColorChoice, Parser, Subcommand};
 use crossterm::style::Stylize;
@@ -40,7 +41,7 @@ pub enum Commands {
     Current(CurrentHandler),
 
     #[command(name = "config", about = "View or edit sdkm configuration")]
-    Config,
+    Config(ConfigHandler),
 }
 
 impl SdkMateCli {
@@ -68,7 +69,7 @@ impl Commands {
             Commands::List(handler) => handler.run(),
             Commands::Switch(handler) => handler.run(),
             Commands::Current(handler) => handler.run(),
-            _ => Err(anyhow::anyhow!("Not implemented yet")),
+            Commands::Config(handler) => handler.run(),
         };
         match res {
             Ok(()) => 0,

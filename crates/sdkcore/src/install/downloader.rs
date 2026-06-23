@@ -1,4 +1,4 @@
-use crate::manager::config::NetworkConfig;
+use crate::config::NetworkConfig;
 use anyhow::{Context, Result, bail};
 use indicatif::ProgressBar;
 use reqwest::Client;
@@ -105,7 +105,7 @@ pub async fn download_with_retry(
                     warning!("Download attempt #{} failed: {}. Retrying...", attempt + 1, e);
                 });
                 tokio::time::sleep(Duration::from_secs(2)).await;
-            }
+            },
             Err(e) => bail!("Download failed after {} attempts: {}", max_retries, e),
         }
     }

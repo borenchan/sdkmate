@@ -24,7 +24,7 @@ cargo clippy --all-targets --all-features  # 代码检查
 ```
 sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
   crates/cli    → CLI 层：clap 命令定义 + handler 实现
-  crates/sdkcore → 核心业务逻辑：manager、env 操作、符号链接
+  crates/sdkcore → 核心业务逻辑：config、init、install、list、switch、env 操作、符号链接
   crates/util   → 共享工具：宏、SDK 类型、终端输出、配置辅助、路径
 ```
 
@@ -83,7 +83,7 @@ bin_dir = "bin"
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler | 已实现（交互式 TUI 选择器 + 远程版本 + 安装/切换动作触发） |
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制**） |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler | 已实现 |
-| `sdkm config` | — | — | 未实现 |
+| `sdkm config` | — | cli/ConfigHandler | 已实现（set/get/list/delete/edit/add-sdk/remove-sdk 子命令，按类型校验 + 原子写入 + 回滚） |
 
 每个命令在 `crates/cli/src/impls/` 中有 `CommandHandler` trait 实现，委托给 `crates/sdkcore/src/manager/` 中的 `SdkManager` 方法。
 
@@ -97,7 +97,23 @@ bin_dir = "bin"
 - `extractor.rs` — 解压：tar.gz/zip 解压 + 目录标准化 + 安装验证
 - `progress.rs` — 进度显示：各阶段 indicaotr 风格的进度条
 
-## 当前开发进度（2026-06-22）
+## 当前开发进度（2026-06-23）
+
+### 本次改动（2026-06-23）
+1. **config 命令** — 完整实现 config 命令系统（set/get/list/delete/edit/add-sdk/remove-sdk）
+   - 新增 `ConfigKey`/`SdkField`/`ValueType`/`ValidatedValue`/`KeyMeta` 类型定义（`sdkcore/manager/config.rs`）
+   - 按类型校验：`validate_by_type()` 根据 `ValueType`（Url/UrlTemplate/Bool/U32/Path/Token/String）校验值格式
+   - 键名解析：`parse_config_key()` 将点分隔字符串映射到具体配置路径
+   - 内置 SDK 保护：所有字段不可 delete，不可 remove-sdk，只能 set 修改
+   - 原子写入：`atomic_write_to_disk()` 替代 `fs::write()`（写入-重命名模式）
+   - 快照回滚：`ConfigSnapshot` + `rollback_config()`/`rollback_config_from_raw()`，set/delete/add-sdk/remove-sdk 失败自动恢复
+   - `write_to_disk()` 内部改为调用 `atomic_write_to_disk()`（向后兼容）
+   - CLI 层 `ConfigHandler` + 7 个子命令 handler（`cli/impls/config.rs`）
+   - `edit` 子命令：检测 `$EDITOR/$VISUAL` → 平台 fallback（Windows: notepad, Unix: vi）→ 调用外部编辑器 → TOML 校验
+   - `add-sdk` 子命令：参数式创建自定义 SDK（必填 download_url + bin_dir，可选版本源 URL + extra_vars/extra_paths）
+   - `remove-sdk` 子命令：移除自定义 SDK（内置 SDK 不可移除）
+   - 新增 `regex-lite` workspace 依赖（URL 模板占位符替换）
+   - `lib.rs` 中 `Commands::Config` 从裸变体改为带 `ConfigHandler` 参数
 
 ### 本次改动（2026-06-22）
 1. **switch 备份回滚机制** — `switch_sdk_to_version` 重构为 Snapshot + 显式回滚链模式
@@ -153,12 +169,29 @@ bin_dir = "bin"
 
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
 - Rust 完全缺失内置源配置条目
-- `config` 命令完全未实现
 - Windows 环境变量操作写入 `HKEY_LOCAL_MACHINE`（需要管理员权限），非 `HKEY_CURRENT_USER`
 - Unix 环境变量操作使用 `unsafe { env::set_var() }`，在 Rust 2024 edition 中属于 UB
 - 现有集成测试使用硬编码的 Windows 绝对路径——不可移植，无单元测试（`#[cfg(test)]` 模块）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有此限制，主源 uv metadata 无此问题）
 - Rust 工具链通过 `rust-toolchain.toml` 固定为 1.92.0（edition 2024）
+
+### config 命令架构
+
+| 子命令 | 功能 | 键名格式 |
+|--------|------|----------|
+| `sdkm config set <KEY> <VALUE>` | 设置配置值（按类型校验后写入） | `network.proxy`, `sdk.java.download_url` |
+| `sdkm config get <KEY>` | 获取配置值（敏感值自动脱敏） | 同上 |
+| `sdkm config list` | 列出所有配置项 | — |
+| `sdkm config delete <KEY>` | 删除配置值（恢复为默认值，内置 SDK 不可删除） | 同上 |
+| `sdkm config edit` | 用系统编辑器打开配置文件 + TOML 校验 | — |
+| `sdkm config add-sdk <NAME> <ARGS>` | 新增自定义 SDK 条目 | — |
+| `sdkm config remove-sdk <NAME>` | 移除 SDK 条目（内置 SDK 不可移除） | — |
+
+**设计特点**：
+- **按类型校验**：校验逻辑绑定在 `ValueType` 上（Url/UrlTemplate/Bool/U32/Path/Token/String），新增字段只需声明类型自动获得校验
+- **原子写入**：`atomic_write_to_disk()` 使用写入-重命名模式，替代 `fs::write()` 直接写入
+- **快照回滚**：set/delete/add-sdk/remove-sdk 操作失败时自动回滚（`ConfigSnapshot` + 内存级恢复 + 磁盘级原始内容恢复）
+- **内置 SDK 保护**：内置 SDK（java/node/python/maven）不可 delete 任何字段，不可 remove-sdk，只能通过 set 修改
 
 ## 提交规范
 

@@ -6,7 +6,7 @@ use crossterm::{
     style::{Attribute, Color, ContentStyle, Print, SetBackgroundColor, SetForegroundColor, SetStyle, Stylize},
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use sdkcore::manager::list::{InstallStatus, RemoteVersionItem, SdkVersionItem};
+use sdkcore::list::{InstallStatus, RemoteVersionItem, SdkVersionItem};
 use std::io::{self, Write};
 use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
