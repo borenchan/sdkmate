@@ -101,7 +101,8 @@ pub struct SdkConfig {
     //current active version
     #[serde(default)]
     pub current_version: Option<String>,
-    //binary dir
+    //二进制目录名，空值表示二进制在 SDK 根目录（如 Node.js）
+    #[serde(default)]
     pub bin_dir: String,
     //extra env vars
     pub extra_vars: HashMap<String, String>,
@@ -110,6 +111,7 @@ pub struct SdkConfig {
     pub extra_paths: Vec<String>,
 }
 impl SdkConfig {
+    /// 构造 SdkConfig，bin_dir 传空字符串表示二进制在 SDK 根目录
     pub fn new(name: String, version_url: String, download_url: String, bin_dir: String) -> SdkConfig {
         SdkConfig {
             name,
