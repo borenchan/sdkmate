@@ -1,5 +1,3 @@
-![sdkmate](./assets/logo.svg)
-
 <div align="center">
 
   <h1 align="center">
@@ -13,13 +11,12 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/Rust-1.80+-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
-    <img src="https://img.shields.io/badge/MSRV-1.80.0%2B-green.svg?style=flat-square" alt="MSRV">
+    <img src="https://img.shields.io/badge/Rust-1.92.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg?style=flat-square" alt="Platform">
     <img src="https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square" alt="License">
   </p>
 
-  <h2>⚡ Next-Gen SDK Version Manager · Version Switching Made Effortless</h2>
+  <h2>⚡ A cross-platform SDK version manager built for full-stack developers</h2>
 
   <p>
     <strong>English</strong> ·
@@ -27,60 +24,62 @@
   </p>
 
   <p>
-    <a href="#installation">Quick Install</a> ·
     <a href="#quick-start">Quick Start</a> ·
-    <a href="#command-reference">Commands</a> ·
-    <a href="#development">Development</a>
+    <a href="#why-sdkmate">Why sdkmate</a> ·
+    <a href="./docs/usage.md">Detailed Usage</a>
   </p>
 </div>
 
 ---
 
-## 🎯 Elevator Pitch
+## 🎯 In One Line
 
-> **sdkmate** is a blazing-fast, cross-platform SDK version manager built for full-stack engineers. Switch between Java, Node.js, Python, Maven, and Rust environments with a single command. **Faster, smarter, and easier than nvm/jenv/pyenv**.
+> **sdkmate** is a cross-platform SDK version manager built for full-stack developers. Switch between Java, Node.js, Python, Maven and more with one tool — **faster, smarter, and more hassle-free than nvm / jenv / pyenv**.
+
+```bash
+sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. One line, done.
+```
 
 ---
 
-## ✨ Key Advantages
+## ✨ Core Advantages
 
 <div align="center">
   <table>
     <tr>
       <td width="33%" align="center">
-        <h3>🚀 Extreme Performance</h3>
-        <p>Built in Rust<br>Millisecond version switching<br>< 5MB memory footprint</p>
+        <h3>🟢 Portable · Green</h3>
+        <p>Single binary, no runtime deps<br>Copy the folder and run<br>Hand your existing SDKs to it</p>
       </td>
       <td width="33%" align="center">
-        <h3>🎯 Effortless UX</h3>
-        <p>One-command installation<br>Zero config, works out of box<br>Smart auto-completion</p>
+        <h3>⚡ Instant · No restart</h3>
+        <p>Symlink + PATH injection + broadcast<br>Millisecond switching<br>Already-open processes pick it up</p>
       </td>
       <td width="33%" align="center">
-        <h3>🌈 Native Cross-Platform</h3>
-        <p>Perfect Windows support<br>Linux / macOS fully supported<br>Consistent experience</p>
+        <h3>🛡️ Transparent · Rollback-safe</h3>
+        <p>Every step printed aloud<br>Snapshot rollback on failure<br>Atomic config writes</p>
       </td>
     </tr>
   </table>
 </div>
 
-### 🔥 Why sdkmate is Better Than the Competition?
+### 🔥 Designed for full-stack developers
 
-| Feature | sdkmate ✨ | nvm / jenv / pyenv | sdkman! |
-|:---:|:---:|:---:|:---:|
-| **Install Speed** | ⚡ Millisecond | 🐢 Shell script loading | 🐢 Slow JVM startup |
-| **Memory Usage** | 💨 < 5MB | 💨 ~20-50MB | 💨 > 100MB |
-| **Windows Support** | ✅ Native perfect | ⚠️ Needs WSL | ❌ Barely supported |
-| **Multi-SDK Unified** | ✅ One tool for all | ❌ Need multiple tools | ⚠️ JVM-focused |
-| **Env Broadcast** | ✅ Instant effect | ❌ Need terminal restart | ❌ Need terminal restart |
-| **Symlink Switching** | ✅ Atomic operation | ⚠️ Shell-dependent | ⚠️ Manual operation |
+Juggling Java, Node.js, Python is the norm for a full-stack developer — sdkmate manages them all from one tool, instead of running nvm, jenv, pyenv in parallel.
+
+- **🟢 Portable, green, non-intrusive**: single binary, no service, no registry beyond what's needed. sdkm's "home" is the folder of the executable — copy the whole folder to another machine, config and installed SDKs come with it. No forced remote downloads: drop existing JDK / Node / Python into the `store/` directory and sdkmate discovers and manages them.
+- **⚡ Instant switching, no terminal restart**: via symlink + PATH injection + env-var broadcast. On Windows, `WM_SETTINGCHANGE` makes already-open processes pick up the change too.
+- **🛡️ Transparent and rollback-safe**: every step printed aloud with its purpose; `switch` auto-rolls back to the previous state if any step fails; `config` uses atomic write + snapshot rollback — the config file can never be left half-written.
+- **🧩 Extensible, one tool for everything**: Java / Node.js / Python / Maven built in, and any tool downloadable from a URL can be registered as a custom SDK with one command. Config values are type-validated — bad values error on the spot.
+- **🖥️ Native cross-platform**: Windows / Linux / macOS are all first-class, same commands, same experience. Written in Rust: millisecond startup, low memory.
 
 ---
 
 ## 📦 Installation
 
-### 📥 Download Pre-built Binaries
+### 📥 Pre-built binaries
 
-Visit the [Releases](https://github.com/borenchan/sdkmate/releases) page to download the compressed package for your platform, extract it, and add the `sdkm` executable to your work directory.
+Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page, unzip and place `sdkm` (`sdkm.exe` on Windows) in any working directory.
 
 ---
 
@@ -89,304 +88,144 @@ Visit the [Releases](https://github.com/borenchan/sdkmate/releases) page to down
 ### 1️⃣ Initialize
 
 ```bash
-# First-time setup
-sdkm init
+sdkm init          # First-time use: create dirs, register env vars
 ```
 
-> After initialization, sdkmate automatically creates the config directory and registers environment variables.
-
-### 2️⃣ Check Available Versions
+### 2️⃣ Install or hand existing SDKs to sdkmate
 
 ```bash
-# List all locally installed SDK versions
-sdkm list
+# Install from remote (fuzzy match, auto-switch)
+sdkm install java 21              # '21' → latest 21.x
+sdkm install node 20.11.0
 
-# Check available Java versions remotely
-sdkm list java --source remote
-
-# Check available Node.js versions remotely
-sdkm list node --source remote
+# Or hand existing SDKs to sdkmate (no re-download)
+# Drop them under <sdkm-dir>/store/java/21/ — sdkm discovers them automatically
 ```
 
-### 3️⃣ Switch Versions
+### 3️⃣ Switch versions
 
 ```bash
-# Switch Java version with one command
-sdkm switch java 21
-
-# Switch Node.js to specific version
-sdkm switch node 20.11.0
-
-# Switch Python version
-sdkm switch python 3.12.0
+sdkm switch java 17        # Switch to locally installed Java 17
+sdkm s node 20.11.0        # Switch to Node.js 20.11.0
 ```
 
-### 4️⃣ Verify Current Version
+### 4️⃣ Browse interactively
 
 ```bash
-# Verify Java
-java -version
-
-# Verify Node.js
-node -v
-
-# Verify Python
-python --version
+sdkm list                  # List all installed SDKs + current versions
+sdkm list node -r          # Interactive remote Node.js picker — i to install, s to switch
+sdkm current               # Show active versions of all SDKs
 ```
+
+📖 **Full commands, args, config options and custom SDKs: see [Detailed Usage](./docs/usage.md)**.
 
 ---
 
 ## 🎮 Command Reference
 
-| Command | Alias | Description | Example |
+| Command | Alias | What it does | Example |
 |:---|:---|:---|:---|
-| `sdkm init` | - | Initialize sdkmate | `sdkm init --force` |
-| `sdkm install` | `i` | Install SDK version | `sdkm install java 21` |
-| `sdkm list` | `ls`, `l` | List SDK versions | `sdkm list java --source remote` |
-| `sdkm switch` | `s` | Switch SDK version | `sdkm switch java 21` |
-| `sdkm current` | `c` | Show current version | `sdkm current java` |
-| `sdkm config` | - | Configuration management | `sdkm config edit` |
+| `sdkm init` | — | Initialize sdkmate | `sdkm init --force` |
+| `sdkm install` | `i` | Install a version (fuzzy match, auto-switch) | `sdkm install java 21` |
+| `sdkm list` | `ls`, `l` | List/browse versions (interactive TUI) | `sdkm list node -r` |
+| `sdkm switch` | `s` | Switch to a locally installed version | `sdkm switch java 21` |
+| `sdkm current` | `c` | Show the active version | `sdkm current java` |
+| `sdkm config` | — | Configuration management | `sdkm config edit` |
 
-### 📋 Detailed Usage
-
-#### `sdkm init`
-
-Initialize sdkmate environment, creating necessary directory structure and config files.
-
-```bash
-sdkm init              # Standard initialization
-sdkm init --force      # Force re-initialization
-```
-
-#### `sdkm list`
-
-Query locally installed or remotely available SDK versions.
-
-```bash
-sdkm list                              # List all locally installed SDK versions
-sdkm list java                         # List local Java versions
-sdkm list node --source remote         # List remote Node.js versions
-sdkm list python --source local         # List local Python versions
-```
-
-#### `sdkm switch`
-
-Switch the active version of the specified SDK.
-
-```bash
-sdkm switch <SDK> <VERSION>
-
-# Examples
-sdkm switch java 21        # Switch to Java 21
-sdkm switch node 20        # Switch to Node.js 20.x latest
-sdkm switch python 3.11    # Switch to Python 3.11
-```
-
-#### `sdkm install` *(Coming Soon)*
-
-Install the specified version of an SDK.
-
-```bash
-sdkm install java 21      # Install Java 21
-sdkm install node 20.11.0  # Install Node.js 20.11.0
-```
-
-#### `sdkm current` *(Coming Soon)*
-
-Display the currently active SDK version.
-
-```bash
-sdkm current              # Show all SDK current versions
-sdkm current java         # Show current Java version
-```
-
-#### `sdkm config` *(Coming Soon)*
-
-Manage sdkmate configuration.
-
-```bash
-sdkm config show          # Show current config
-sdkm config edit          # Edit config file
-sdkm config add           # Add custom SDK
-```
+> Too many flags? `sdkm list <sdk>` opens an interactive TUI — arrow keys to browse, one key to install/switch.
 
 ---
 
 ## 🏗️ Supported SDKs
 
-| SDK | Status | Download Source |
+| SDK | Status | Source |
 |:---|:---:|:---|
 | ☕ **Java (JDK)** | ✅ Supported | Adoptium Eclipse Temurin |
 | 🟢 **Node.js** | ✅ Supported | nodejs.org |
-| 🐍 **Python** | ✅ Supported | python.org |
-| 🧶 **Maven** | ✅ Supported | Apache Maven |
-| 🦀 **Rust** | ✅ Supported | rustup.rs |
-| ⚙️ **Custom SDK** | 🔜 Coming Soon | User-defined |
+| 🐍 **Python** | ✅ Supported | astral-sh python-build-standalone |
+| 🧶 **Maven** | ✅ Supported | Apache Maven (dlcdn) |
+| ⚙️ **Custom SDK** | ✅ Extensible | User-configured (any URL) |
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Component | Technology | Description |
+| Component | Tech | Description |
 |:---|:---|:---|
-| **Language** | Rust 1.80+ | Performance meets safety |
-| **CLI Parsing** | clap | Elegant command-line argument handling |
-| **HTTP Client** | reqwest | Cross-platform HTTP requests |
-| **Terminal Output** | crossterm | Colorful terminal output |
-| **Config Parsing** | toml | Human-friendly config file format |
-| **Windows API** | winreg / windows-sys | Native Windows support |
+| **Language** | Rust 1.92.0 | Performance meets safety |
+| **CLI parsing** | clap | Elegant argument handling |
+| **Async runtime** | tokio | High-performance async IO |
+| **HTTP client** | reqwest | Cross-platform HTTP |
+| **Terminal output** | crossterm + indicatif | Colored output + progress bars |
+| **Config parsing** | toml (serde) | Human-friendly config format |
 
 ---
 
-## 🔧 Development Guide
+## 🔧 Development
 
-### Environment Requirements
+### Requirements
 
-- Rust 1.80+
+- Rust 1.92.0 (edition 2024)
 - Cargo
 
-### Local Development
+### Local development
 
 ```bash
 # Clone the project
 git clone https://github.com/borenchan/sdkmate.git
 cd sdkmate
 
-# Build the project
+# Build
 cargo build --release
 
 # Run tests
 cargo test
 
-# Run examples
+# Try it out
 ./target/release/sdkm init
 ./target/release/sdkm list
 ./target/release/sdkm switch java 21
 ```
 
-### Code Standards
+### Code quality
 
 ```bash
-# Format code
-cargo fmt
-
-# Run Clippy checks
-cargo clippy --all-targets --all-features
+cargo fmt                                              # Format code
+cargo clippy --all-targets --all-features              # Lint code
 ```
 
 ---
 
-## 🤝 Contributing Guide
+## 🤝 Contributing
 
-We welcome all forms of contributions! Whether you submit bug reports, feature requests, or directly contribute code, we greatly appreciate it.
+Contributions of any kind are welcome — bug reports, feature ideas, or code.
 
-### 🐛 Reporting Issues
+### 📋 PR checklist
 
-If you find a bug or have a feature request, please submit via [GitHub Issues](https://github.com/borenchan/sdkmate/issues). Please include:
+1. Fork the repo and create a branch: `git checkout -b feature/your-feature-name`
+2. Write code and make sure all tests pass: `cargo test`
+3. Commit with a clear message: `git commit -m "feat: add xxx"`
+4. Push and open a Pull Request: `git push origin feature/your-feature-name`
 
-- Clear problem description
-- Reproduction steps
-- Expected behavior vs actual behavior
-- Environment info (OS, Rust version, etc.)
-
-### 🔧 Development Roadmap
-
-Features we're developing or planning:
-
-- [ ] `sdkm install` - SDK installation command
-- [ ] `sdkm current` - Show current version
-- [ ] `sdkm config` - Configuration management
-- [ ] Custom SDK support
-- [ ] Mirror source configuration
-- [ ] Plugin system
-- [ ] Interactive version selector
-- [ ] Fish Shell support
-
-### 📋 Pull Request Guidelines
-
-1. **Fork the repo** and create a branch
-
-   ```bash
-   # Create new branch based on main
-   git checkout -b feature/your-feature-name
-   # Or fix a bug
-   git checkout -b fix/your-bug-fix
-   ```
-
-2. **Write code** and ensure all tests pass
-
-   ```bash
-   # Development & debugging
-   cargo build
-
-   # Run tests
-   cargo test
-
-   # Format code
-   cargo fmt
-
-   # Lint code
-   cargo clippy --all-targets --all-features
-   ```
-
-3. **Commit** with clear messages
-
-   ```bash
-   git commit -m "feat: add xxx feature"
-   git commit -m "fix: resolve xxx issue"
-   ```
-
-4. **Push** and create a Pull Request
-
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-5. Wait for code review, we'll process it ASAP
-
-### 📐 Code Standards
-
-- Follow Rust official code style
-- Format code with `cargo fmt`
-- Check code with `cargo clippy`
-- Ensure all tests pass before submitting
-- Add test cases for new features
-- Update relevant documentation
-
-### 📖 Development Conventions
+### 📖 Conventions
 
 | Type | Convention | Example |
 |:---|:---|:---|
 | Commit message | `type: description` | `feat: add switch command` |
-| Types | feat / fix / docs / refactor / test / chore | - |
+| Types | feat / fix / docs / refactor / test / chore | — |
 | Branch naming | `feature/xxx` / `fix/xxx` / `docs/xxx` | `feature/add-install-command` |
-
-### 🙏 Acknowledgments
-
-Thanks to all contributors!
 
 ---
 
 ## 📄 License
 
-This project is open source under [Apache-2.0](./LICENSE) license.
-
----
-
-## 🙏 Acknowledgments
-
-Thanks to these open source projects:
-
-- [Rust](https://www.rust-lang.org/) - Systems programming language
-- [clap](https://github.com/clap-rs/clap) - Command-line argument parsing
-- [reqwest](https://github.com/seanmonstar/reqwest) - HTTP client
-- [tokio](https://github.com/tokio-rs/tokio) - Async runtime
+This project is open-sourced under the [Apache-2.0](./LICENSE) license.
 
 ---
 
 <div align="center">
 
-**If this project is helpful to you, please give it a ⭐ !**
+**If this project helps you, please give it a ⭐!**
 
 Made with ❤️ by the sdkmate team
 
