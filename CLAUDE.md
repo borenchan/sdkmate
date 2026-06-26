@@ -97,7 +97,17 @@ bin_dir = "bin"
 - `extractor.rs` — 解压：tar.gz/zip 解压 + 目录标准化 + 安装验证
 - `progress.rs` — 进度显示：各阶段 indicaotr 风格的进度条
 
-## 当前开发进度（2026-06-23）
+## 当前开发进度（2026-06-26）
+
+### 本次改动（2026-06-26）
+1. **文档体系重建** — README + docs/ 详细用法文档
+   - 重写 `README.md`（中文）/ `README-en.md`（英文）：营销向，突出"专为全栈工程师打造"定位 + 纯绿色可移植 / 即时切换 / 透明可回滚 / 可扩展 / 跨平台原生五大优势；一行命令快速上手；图标式标题（🎯/✨/📦/🚀/🎮/🏗️/🛠️/🔧/🤝/📄）保持原排版风格；单 logo 居中；修正过时信息（install/current/config 不再标"即将到来"；`list` 参数由 `--source remote` 改为 `-r/--remote`；Rust 徽章 1.80 → 1.92.0；路线图移除）
+   - 新建 `docs/` 目录，拆分四篇详细文档（互相跳转）：
+     - `docs/usage.md` — 详细用法总入口（快速上手 + 导航索引 + TUI + 托管已有 SDK + 已知限制附录）
+     - `docs/commands.md` — 每个子命令详解（init/install/list/switch/current/config，含别名、参数、TUI 按键、示例）
+     - `docs/configuration.md` — `config.toml` 结构 + 每个配置项含义（可删除性/默认值）+ 点分隔键名格式 + 8 种 ValueType 校验规则 + 原子写入/快照回滚
+     - `docs/custom-sdk.md` — `add-sdk`/`remove-sdk` 用法 + URL 模板占位符系统（`{version}`/`{os}`/`{arch}`/`{ext}`/`{feature_version}`/`{release_tag}`/`{platform}`/`{sdk_dir}` 等）+ 内置 SDK 源参考
+   - 已知限制从 README 移至 `docs/usage.md` 末尾附录；docs 中不提及 Rust 内置源缺失与 CLAUDE.md
 
 ### 本次改动（2026-06-23）
 1. **config 命令** — 完整实现 config 命令系统（set/get/list/delete/edit/add-sdk/remove-sdk）
