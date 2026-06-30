@@ -34,7 +34,7 @@
 
 ## 🎯 一句话简介
 
-> **sdkmate** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键切换 Java、Node.js、Python、Maven 等开发环境，**比 nvm/jenv/pyenv 更快、更智能、更省心**。
+> **sdkm** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键切换 Java、Node.js、Python、Maven 等开发环境，**比 sdkman/nvm/jenv/pyenv 更快、更智能、更省心**。
 
 ```bash
 sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换，一行搞定
@@ -65,9 +65,9 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
 
 ### 🔥 专为全栈工程师设计
 
-全栈工程师在 Java、Node.js、Python 之间来回切换是常态——sdkmate 用一个工具统一管理所有 SDK，无需 nvm、jenv、pyenv 多工具并行。
+全栈工程师在 Java、Node.js、Python 之间来回切换是常态——sdkm 用一个工具统一管理所有 SDK，无需 nvm、jenv、pyenv 多工具并行。
 
-- **🟢 纯绿色，零侵入**：单二进制就是全部，不装服务、不写系统注册表以外的地方。sdkm 的「家」就是可执行文件所在目录——拷到 U 盘、另一台机器，配置和已装 SDK 一并带走。不强制从远程下载，把已有 JDK / Node / Python 直接放进 `store/` 目录，sdkmate 自动发现并托管。
+- **🟢 纯绿色，零侵入**：单二进制就是全部，不装服务、不写系统注册表以外的地方。sdkm 的「家」就是可执行文件所在目录——拷到 U 盘、另一台机器，配置和已装 SDK 一并带走。不强制从远程下载，把已有 JDK / Node / Python 直接放进 `store/` 目录，sdkm 自动发现并托管。
 - **⚡ 即时切换，无需重启终端**：通过符号链接 + PATH 注入 + 环境变量广播三件套切换版本，Windows 下通过 `WM_SETTINGCHANGE` 广播，已打开的进程也能感知。
 - **🛡️ 透明可回滚，出错不翻车**：每一步操作都逐步打印做了什么、为什么；`switch` 任一步骤失败自动恢复到切换前状态；`config` 采用原子写入 + 快照回滚，配置文件绝不会写到一半损坏。
 - **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错。
@@ -125,7 +125,7 @@ sdkm current               # 查看所有 SDK 当前激活版本
 
 | 命令 | 别名 | 说明 | 示例 |
 |:---|:---|:---|:---|
-| `sdkm init` | — | 初始化 sdkmate | `sdkm init --force` |
+| `sdkm init` | — | 初始化 sdkm | `sdkm init --force` |
 | `sdkm install` | `i` | 安装 SDK 版本（模糊匹配，自动切换） | `sdkm install java 21` |
 | `sdkm list` | `ls`, `l` | 列出/浏览 SDK 版本（含交互式 TUI） | `sdkm list node -r` |
 | `sdkm switch` | `s` | 切换 SDK 版本 | `sdkm switch java 21` |
@@ -227,6 +227,6 @@ cargo clippy --all-targets --all-features              # 代码检查
 
 **如果这个项目对你有帮助，请点个 ⭐ 支持一下！**
 
-Made with ❤️ by the sdkmate team
+Made with ❤️ by the sdkm team
 
 </div>
