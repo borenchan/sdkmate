@@ -2,7 +2,7 @@
 // 配置值类型校验与脱敏
 // ──────────────────────────────────────────────────────
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use regex_lite::Regex;
 use util::consts::SDKM_SYMLINK_DIR;
 
@@ -92,12 +92,30 @@ pub fn field_type(key: &ConfigKey) -> ValueType {
         ConfigKey::NetworkConnectTimeout => ValueType::U32 { min: 1, max: 600 },
         ConfigKey::NetworkCacheTtlSecs => ValueType::U32 { min: 0, max: 86400 },
         ConfigKey::NetworkGithubToken => ValueType::Token,
-        ConfigKey::Sdk { field: SdkField::VersionUrl, .. } => ValueType::Url,
-        ConfigKey::Sdk { field: SdkField::VersionFallbackUrl, .. } => ValueType::Url,
-        ConfigKey::Sdk { field: SdkField::DownloadUrl, .. } => ValueType::UrlTemplate,
-        ConfigKey::Sdk { field: SdkField::DownloadFallbackUrl, .. } => ValueType::UrlTemplate,
-        ConfigKey::Sdk { field: SdkField::CurrentVersion, .. } => ValueType::NonEmptyString,
-        ConfigKey::Sdk { field: SdkField::BinDir, .. } => ValueType::FreeString,
+        ConfigKey::Sdk {
+            field: SdkField::VersionUrl,
+            ..
+        } => ValueType::Url,
+        ConfigKey::Sdk {
+            field: SdkField::VersionFallbackUrl,
+            ..
+        } => ValueType::Url,
+        ConfigKey::Sdk {
+            field: SdkField::DownloadUrl,
+            ..
+        } => ValueType::UrlTemplate,
+        ConfigKey::Sdk {
+            field: SdkField::DownloadFallbackUrl,
+            ..
+        } => ValueType::UrlTemplate,
+        ConfigKey::Sdk {
+            field: SdkField::CurrentVersion,
+            ..
+        } => ValueType::NonEmptyString,
+        ConfigKey::Sdk {
+            field: SdkField::BinDir,
+            ..
+        } => ValueType::FreeString,
         ConfigKey::SdkExtraVar { .. } => ValueType::NonEmptyString,
         ConfigKey::SdkExtraPath { .. } => ValueType::Path,
     }
@@ -140,32 +158,50 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
             value_type: ValueType::Token,
             default_desc: "(none)".to_string(),
         },
-        ConfigKey::Sdk { field: SdkField::VersionUrl, .. } => KeyMeta {
+        ConfigKey::Sdk {
+            field: SdkField::VersionUrl,
+            ..
+        } => KeyMeta {
             deletable: sdk_deletable,
             value_type: ValueType::Url,
             default_desc: "(none)".to_string(),
         },
-        ConfigKey::Sdk { field: SdkField::VersionFallbackUrl, .. } => KeyMeta {
+        ConfigKey::Sdk {
+            field: SdkField::VersionFallbackUrl,
+            ..
+        } => KeyMeta {
             deletable: sdk_deletable,
             value_type: ValueType::Url,
             default_desc: "(none)".to_string(),
         },
-        ConfigKey::Sdk { field: SdkField::DownloadUrl, .. } => KeyMeta {
+        ConfigKey::Sdk {
+            field: SdkField::DownloadUrl,
+            ..
+        } => KeyMeta {
             deletable: false, // 必须字段，任何 SDK 都不可删除
             value_type: ValueType::UrlTemplate,
             default_desc: "(required)".to_string(),
         },
-        ConfigKey::Sdk { field: SdkField::DownloadFallbackUrl, .. } => KeyMeta {
+        ConfigKey::Sdk {
+            field: SdkField::DownloadFallbackUrl,
+            ..
+        } => KeyMeta {
             deletable: sdk_deletable,
             value_type: ValueType::UrlTemplate,
             default_desc: "(none)".to_string(),
         },
-        ConfigKey::Sdk { field: SdkField::CurrentVersion, .. } => KeyMeta {
+        ConfigKey::Sdk {
+            field: SdkField::CurrentVersion,
+            ..
+        } => KeyMeta {
             deletable: sdk_deletable,
             value_type: ValueType::NonEmptyString,
             default_desc: "(none)".to_string(),
         },
-        ConfigKey::Sdk { field: SdkField::BinDir, .. } => KeyMeta {
+        ConfigKey::Sdk {
+            field: SdkField::BinDir,
+            ..
+        } => KeyMeta {
             deletable: false, // 必须字段，任何 SDK 都不可删除
             value_type: ValueType::FreeString,
             default_desc: "(empty = binaries in SDK root dir)".to_string(),
@@ -222,8 +258,7 @@ fn validate_url(raw: &str) -> Result<ValidatedValue> {
 fn validate_url_template(raw: &str) -> Result<ValidatedValue> {
     // 将所有 {xxx} 占位符替换为合法路径段 dummy
     let dummy_url = replace_placeholders_with_dummy(raw);
-    url::Url::parse(&dummy_url)
-        .context(format!("Invalid URL template: '{}'", raw))?;
+    url::Url::parse(&dummy_url).context(format!("Invalid URL template: '{}'", raw))?;
     Ok(ValidatedValue::Url(raw.to_string()))
 }
 
@@ -242,18 +277,13 @@ fn validate_bool(raw: &str) -> Result<ValidatedValue> {
     match lower.as_str() {
         "true" | "1" | "yes" | "on" => Ok(ValidatedValue::Bool(true)),
         "false" | "0" | "no" | "off" => Ok(ValidatedValue::Bool(false)),
-        _ => bail!(
-            "Invalid boolean value '{}'. Accepted: true/false/1/0/yes/no/on/off",
-            raw
-        ),
+        _ => bail!("Invalid boolean value '{}'. Accepted: true/false/1/0/yes/no/on/off", raw),
     }
 }
 
 /// 正整数校验：范围 [min, max]
 fn validate_u32(raw: &str, min: u32, max: u32) -> Result<ValidatedValue> {
-    let num: u32 = raw
-        .parse()
-        .context(format!("Invalid integer: '{}'", raw))?;
+    let num: u32 = raw.parse().context(format!("Invalid integer: '{}'", raw))?;
     if num < min || num > max {
         bail!("Value {} out of range [{}, {}]", num, min, max);
     }
@@ -288,7 +318,9 @@ fn validate_non_empty_string(raw: &str) -> Result<ValidatedValue> {
 /// 空值表示二进制在 SDK 根目录（如 Node.js、Windows Python）
 fn validate_free_string(raw: &str) -> Result<ValidatedValue> {
     if raw.contains('/') || raw.contains('\\') {
-        bail!("Value must be a simple directory name, not a path with separators. Use empty string for binaries in SDK root.");
+        bail!(
+            "Value must be a simple directory name, not a path with separators. Use empty string for binaries in SDK root."
+        );
     }
     Ok(ValidatedValue::FreeString(raw.to_string()))
 }

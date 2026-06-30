@@ -2,7 +2,7 @@
 // sdkmate 配置系统——结构体、序列化、磁盘读写、配置操作 API
 // ──────────────────────────────────────────────────────
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -17,12 +17,14 @@ use util::sdk_resources::BUILTIN_SDK_CONFIG;
 
 // ── 子模块声明 + 重新导出（pub use 同时满足内部使用和外部访问） ──
 pub mod keys;
-pub mod validation;
 pub mod snapshot;
+pub mod validation;
 
-pub use keys::{ConfigKey, SdkField, parse_config_key, known_keys};
-pub use validation::{ValueType, ValidatedValue, KeyMeta, field_type, key_meta, validate_by_type, mask_by_type, mask_token};
-pub use snapshot::{ConfigSnapshot, take_config_snapshot, rollback_config, rollback_config_from_raw};
+pub use keys::{ConfigKey, SdkField, known_keys, parse_config_key};
+pub use snapshot::{ConfigSnapshot, rollback_config, rollback_config_from_raw, take_config_snapshot};
+pub use validation::{
+    KeyMeta, ValidatedValue, ValueType, field_type, key_meta, mask_by_type, mask_token, validate_by_type,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)] //ignore unknown fields
@@ -210,19 +212,13 @@ impl SdkmConfig {
     /// 4. 失败时清理临时文件
     pub fn atomic_write_to_disk(&self) -> Result<()> {
         let config_path = get_sdkm_config_path()?;
-        let dir = config_path
-            .parent()
-            .context("config file has no parent directory")?;
+        let dir = config_path.parent().context("config file has no parent directory")?;
 
         // 序列化为 TOML
-        let content =
-            toml::to_string_pretty(self).context("Failed to serialize config to TOML")?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize config to TOML")?;
 
         // 生成临时文件名（基于时间戳，防并发冲突）
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
         let tmp_name = format!("{}.tmp.{:016x}", CONFIG_FILE_NAME, ts & 0xFFFFFFFFFFFFFFFF);
         let tmp_path = dir.join(&tmp_name);
 
@@ -451,11 +447,17 @@ impl SdkmConfig {
         entries.push(("symlink_dir".to_string(), self.symlink_dir.clone()));
 
         // network 子表
-        entries.push(("network.proxy".to_string(), self.network.proxy.clone().unwrap_or("(none)".to_string())));
+        entries.push((
+            "network.proxy".to_string(),
+            self.network.proxy.clone().unwrap_or("(none)".to_string()),
+        ));
         entries.push(("network.ssl_verify".to_string(), self.network.ssl_verify.to_string()));
         entries.push(("network.connect_timeout".to_string(), self.network.connect_timeout.to_string()));
         entries.push(("network.cache_ttl_secs".to_string(), self.network.cache_ttl_secs.to_string()));
-        entries.push(("network.github_token".to_string(), mask_token(&self.network.github_token.clone().unwrap_or_default())));
+        entries.push((
+            "network.github_token".to_string(),
+            mask_token(&self.network.github_token.clone().unwrap_or_default()),
+        ));
 
         // SDK 子表（按 name 字母序排列）
         let mut sorted_sdks: Vec<&SdkConfig> = self.sdks.iter().collect();
@@ -464,12 +466,27 @@ impl SdkmConfig {
         for sdk in &sorted_sdks {
             let prefix = format!("sdk.{}", sdk.name);
 
-            entries.push((format!("{}.version_url", prefix), sdk.version_url.clone().unwrap_or("(none)".to_string())));
-            entries.push((format!("{}.version_fallback_url", prefix), sdk.version_fallback_url.clone().unwrap_or("(none)".to_string())));
+            entries.push((
+                format!("{}.version_url", prefix),
+                sdk.version_url.clone().unwrap_or("(none)".to_string()),
+            ));
+            entries.push((
+                format!("{}.version_fallback_url", prefix),
+                sdk.version_fallback_url.clone().unwrap_or("(none)".to_string()),
+            ));
             entries.push((format!("{}.download_url", prefix), sdk.download_url.clone()));
-            entries.push((format!("{}.download_fallback_url", prefix), sdk.download_fallback_url.clone().unwrap_or("(none)".to_string())));
-            entries.push((format!("{}.current_version", prefix), sdk.current_version.clone().unwrap_or("(none)".to_string())));
-            entries.push((format!("{}.bin_dir", prefix), sdk.bin_dir.clone().unwrap_or("(root dir)".to_string())));
+            entries.push((
+                format!("{}.download_fallback_url", prefix),
+                sdk.download_fallback_url.clone().unwrap_or("(none)".to_string()),
+            ));
+            entries.push((
+                format!("{}.current_version", prefix),
+                sdk.current_version.clone().unwrap_or("(none)".to_string()),
+            ));
+            entries.push((
+                format!("{}.bin_dir", prefix),
+                sdk.bin_dir.clone().unwrap_or("(root dir)".to_string()),
+            ));
 
             // extra_vars
             for (var_key, var_val) in &sdk.extra_vars {
@@ -489,7 +506,11 @@ impl SdkmConfig {
     pub fn add_sdk(&mut self, sdk_config: SdkConfig) -> Result<()> {
         // 检查是否重名
         if self.sdks.iter().any(|s| s.name == sdk_config.name) {
-            bail!("SDK '{}' already exists in config. Use `sdkm config set sdk.{}.xxx <value>` to modify it.", sdk_config.name, sdk_config.name);
+            bail!(
+                "SDK '{}' already exists in config. Use `sdkm config set sdk.{}.xxx <value>` to modify it.",
+                sdk_config.name,
+                sdk_config.name
+            );
         }
 
         let snapshot = take_config_snapshot()?;
@@ -512,7 +533,10 @@ impl SdkmConfig {
     pub fn remove_sdk(&mut self, name: &str) -> Result<()> {
         // 内置 SDK 不可移除
         if SdkmConfig::is_builtin_sdk(name) {
-            bail!("Cannot remove built-in SDK '{}'. Use `sdkm config set` to modify its fields.", name);
+            bail!(
+                "Cannot remove built-in SDK '{}'. Use `sdkm config set` to modify its fields.",
+                name
+            );
         }
 
         // 检查 SDK 是否存在

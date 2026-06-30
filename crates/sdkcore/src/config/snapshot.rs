@@ -20,8 +20,7 @@ pub struct ConfigSnapshot {
 pub fn take_config_snapshot() -> Result<ConfigSnapshot> {
     let old_config = SdkmConfig::read_from_disk()?;
     let config_path = get_sdkm_config_path()?;
-    let old_file_content = fs::read_to_string(&config_path)
-        .context("Failed to read current config for snapshot")?;
+    let old_file_content = fs::read_to_string(&config_path).context("Failed to read current config for snapshot")?;
     Ok(ConfigSnapshot {
         old_config,
         old_file_content,
@@ -37,7 +36,6 @@ pub fn rollback_config(snapshot: &ConfigSnapshot) -> Result<()> {
 /// 仅在内存级恢复失败时使用（如序列化异常）
 pub fn rollback_config_from_raw(snapshot: &ConfigSnapshot) -> Result<()> {
     let config_path = get_sdkm_config_path()?;
-    fs::write(&config_path, &snapshot.old_file_content)
-        .context("Failed to restore config from raw backup")?;
+    fs::write(&config_path, &snapshot.old_file_content).context("Failed to restore config from raw backup")?;
     Ok(())
 }

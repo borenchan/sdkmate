@@ -2,7 +2,7 @@
 // 配置键名解析与类型枚举
 // ──────────────────────────────────────────────────────
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// 配置键的解析结果——将点分隔字符串映射到具体的配置路径
 #[derive(Debug, Clone)]
@@ -128,7 +128,9 @@ pub fn parse_config_key(key: &str) -> Result<ConfigKey> {
                 }),
                 "extra_vars" | "extra_paths" => bail!(
                     "Invalid config key '{}'. For extra_vars, use: sdk.{}.extra_vars.<KEY>\nFor extra_paths, use: sdk.{}.extra_paths.<N>",
-                    key, parts[1], parts[1]
+                    key,
+                    parts[1],
+                    parts[1]
                 ),
                 _ => bail_invalid_key(key),
             },
@@ -143,14 +145,15 @@ pub fn parse_config_key(key: &str) -> Result<ConfigKey> {
                     var_key: parts[3].to_string(),
                 }),
                 "extra_paths" => {
-                    let index: usize = parts[3]
-                        .parse()
-                        .context(format!("Invalid extra_paths index '{}', must be a non-negative integer", parts[3]))?;
+                    let index: usize = parts[3].parse().context(format!(
+                        "Invalid extra_paths index '{}', must be a non-negative integer",
+                        parts[3]
+                    ))?;
                     Ok(ConfigKey::SdkExtraPath {
                         name: parts[1].to_string(),
                         index,
                     })
-                },
+                }
                 _ => bail_invalid_key(key),
             },
             _ => bail_invalid_key(key),
