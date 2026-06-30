@@ -11,8 +11,11 @@ pub struct SwitchHandler {
     )]
     sdk: String,
 
-    /// Target version (must be installed locally)
-    #[arg(value_name = "version", help = "Target version (must be installed locally)")]
+    /// Target version (fuzzy match supported, e.g. '21' resolves to latest 21.x; must be installed locally)
+    #[arg(
+        value_name = "version",
+        help = "Target version (fuzzy match supported, e.g. '21' → latest 21.x; must be installed locally)"
+    )]
     sdk_version: String,
 }
 

@@ -1,15 +1,17 @@
+use crate::config::SdkConfig;
+use crate::config::SdkmConfig;
 use crate::env::split_path_entries;
 use crate::link::symlink::{create_symlink, read_symlink_target, remove_symlink};
 use crate::manager::SdkManager;
-use crate::config::SdkConfig;
-use crate::config::SdkmConfig;
-use anyhow::{Context, Result};
+use crate::version::fuzzy_match_version_core;
+use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use util::config_helper::PLACEHOLDER_SDK_DIR;
 use util::consts::BugReportError;
 use util::sdk::Sdk;
 use util::success;
+use util::terminal::prompt_confirm;
 use util::{detail, info, warning};
 
 /// switch 操作前的系统状态快照，用于失败时回滚
@@ -54,16 +56,33 @@ macro_rules! try_step {
 
 impl SdkManager {
     pub fn switch_sdk_to_version(&mut self, sdk: &Sdk, sdk_version: &str) -> Result<()> {
-        // ── Phase 0: 前置检查（只读操作，无副作用） ──
+        // ── Phase 0: 前置检查(只读操作,无副作用) ──
         let versions = self.list_local_sdk_versions(sdk)?;
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
-        let is_active = versions.iter().any(|v| v.is_active && v.sdk_version == sdk_version);
+
+        // 模糊匹配本地已安装版本(与 install 共用核心)
+        let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
+        let matched = fuzzy_match_version_core(&version_strings, sdk_version)?;
+        let target_version = matched.full_version;
+
+        // 模糊命中时交互确认(与 install 一致)
+        if matched.fuzzy_matched {
+            let confirmed = prompt_confirm(&format!(
+                "Resolved '{}' → '{}'. Switch to this version?",
+                sdk_version, target_version
+            ))?;
+            if !confirmed {
+                bail!("Switch cancelled by user");
+            }
+        }
+
+        let is_active = versions.iter().any(|v| v.is_active && v.sdk_version == target_version);
         if is_active {
-            success!("switch sdk `{}` to version `{}` success!", sdk, sdk_version);
+            success!("switch sdk `{}` to version `{}` success!", sdk, target_version);
             return Ok(());
         }
-        let current_version_sdk = versions.into_iter().find(|v| v.sdk_version == sdk_version).context(format!(
-            "local not found `{sdk}` version `{sdk_version}`, please check store dir or install the version!"
+        let current_version_sdk = versions.into_iter().find(|v| v.sdk_version == target_version).context(format!(
+            "local not found `{sdk}` version `{target_version}`, please check store dir or install the version!"
         ))?;
 
         let symlink_root_dir = self.config.symlink_dir.clone();
@@ -152,7 +171,7 @@ impl SdkManager {
         // Step 3e: 更新 config 并写磁盘
         {
             let sdk_conf_mut = self.config.find_sdk_mut_ok(sdk)?;
-            sdk_conf_mut.current_version = Some(sdk_version.to_string());
+            sdk_conf_mut.current_version = Some(target_version.clone());
         }
         try_step!(
             self.config.write_to_disk(),
@@ -163,7 +182,7 @@ impl SdkManager {
 
         // ── Phase 4: 成功完成 ──
         info!("PATH has been updated. Please restart your terminal for changes to take effect.");
-        success!("switch sdk `{}` to version `{}` success!", sdk, sdk_version);
+        success!("switch sdk `{}` to version `{}` success!", sdk, target_version);
         Ok(())
     }
 

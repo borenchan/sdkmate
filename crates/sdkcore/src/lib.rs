@@ -6,3 +6,4 @@ pub mod link;
 pub mod list;
 pub mod manager;
 pub mod switch;
+pub mod version;

@@ -1,7 +1,7 @@
-use crate::manager::SdkManager;
 use crate::install::downloader::build_reqwest_client;
 use crate::install::progress::InstallProgress;
-use crate::install::resolver::{VersionSource, fetch_version_data, get_install_strategy};
+use crate::manager::SdkManager;
+use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -13,7 +13,7 @@ use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::find_builtin_sdk_config;
 use util::{divider, info, success, try_bug, warning};
 
-// ─── Data Structures ───────────────────────────────────────────────
+// ─── 数据结构 ───────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub struct SdkVersionItem {
@@ -35,38 +35,38 @@ impl SdkVersionItem {
     }
 }
 
-/// Remote version entry enriched with local install status
+/// 远程版本条目(附带本地安装状态)
 #[derive(Debug, Clone)]
 pub struct RemoteVersionItem {
     pub full_version: String,
     pub feature_version: Option<String>,
     pub install_status: InstallStatus,
-    /// Source URL for transparency display
+    /// 源 URL(用于透明展示)
     pub source_url: String,
 }
 
-/// Install status marker for remote version display
+/// 远程版本展示用的安装状态标记
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InstallStatus {
-    /// Not installed locally
+    /// 本地未安装
     NotInstalled,
-    /// Installed locally but not the active version
+    /// 已安装但非当前激活版本
     Installed,
-    /// Installed and is the currently active version
+    /// 已安装且为当前激活版本
     Active,
 }
 
-// ─── Local List ────────────────────────────────────────────────────
+// ─── 本地列表 ────────────────────────────────────────────────────
 
-/// Remote version list result with total count before truncation
+/// 远程版本列表结果(含截断前的总数)
 pub struct RemoteVersionResult {
     pub items: Vec<RemoteVersionItem>,
-    /// Total count before limit truncation (for display in TUI header)
+    /// 应用数量限制前的总数(用于 TUI 头部展示)
     pub total_count: usize,
 }
 
 impl SdkManager {
-    /// Print all installed SDKs with current version (non-interactive summary)
+    /// 打印所有已安装 SDK 及其当前版本(非交互式摘要)
     pub fn show_local_sdk_list(&self) -> Result<()> {
         let sdk_dir = get_installed_sdks_dir()?;
         let mut i = 1;
@@ -92,7 +92,7 @@ impl SdkManager {
         Ok(())
     }
 
-    /// Show current version for one or all SDKs (used by `sdkm current` command)
+    /// 显示单个或全部 SDK 的当前版本(供 `sdkm current` 命令使用)
     pub fn show_local_sdks_current(&self, sdk: Option<Sdk>) -> Result<()> {
         if let Some(sdk) = sdk {
             let conf = self.config.find_sdk_ok(&sdk)?;
@@ -113,7 +113,7 @@ impl SdkManager {
         Ok(())
     }
 
-    /// Get local SDK versions (data layer, for TUI selector)
+    /// 获取本地 SDK 版本列表(数据层,供 TUI 选择器使用)
     pub fn list_local_sdk_versions(&self, sdk: &Sdk) -> Result<Vec<SdkVersionItem>> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdks_root_dir = get_installed_sdks_dir()?;
@@ -141,7 +141,7 @@ impl SdkManager {
         Ok(vec![])
     }
 
-    /// Print local version list with ✅ active marker (fallback for non-TUI)
+    /// 打印本地版本列表(带 ✅ 激活标记,非 TUI 的回退展示)
     pub fn show_local_sdk_version_list(&self, sdk: &Sdk) -> Result<()> {
         let versions = self.list_local_sdk_versions(sdk)?;
         let mut i = 1;
@@ -158,25 +158,25 @@ impl SdkManager {
         Ok(())
     }
 
-    // ─── Remote List ────────────────────────────────────────────────
+    // ─── 远程列表 ────────────────────────────────────────────────
 
-    /// Async: fetch remote versions — core logic with spinner
+    /// 异步:拉取远程版本——带 spinner 的核心逻辑
     ///
-    /// Reuses resolver's fetch_version_data + parse_version_data pipeline.
-    /// Cache-first with TTL ensures instant response on subsequent calls.
+    /// 复用 version 模块的 fetch_version_data + parse_version_data 管线。
+    /// 缓存优先 + TTL,确保后续调用即时响应。
     async fn fetch_remote_versions_async(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
-        let strategy = get_install_strategy(sdk);
+        let strategy = get_version_discovery(sdk);
         let client = build_reqwest_client(&self.config.network)?;
         let sdk_name = sdk.to_string();
         let cache_key = sdk_name.to_lowercase();
 
-        // Maven has no version_url → remote list not supported
+        // Maven 无 version_url → 不支持远程版本列表
         if let Sdk::Built(BuiltinSdk::Maven) = sdk {
             bail!("Maven does not support remote version listing. Specify an exact version to install.");
         }
 
-        // Build version source URLs
+        // 构建版本源 URL(主/备 + 用于透明展示的源 URL)
         let (primary_url, secondary_url, source_display_url) = match sdk {
             Sdk::Built(b) => {
                 let cfg = find_builtin_sdk_config(b).context(format!("no builtin config for {}", sdk_name))?;
@@ -201,19 +201,19 @@ impl SdkManager {
             }
         };
 
-        // No version discovery source → cannot list remote versions
+        // 无版本发现源 → 无法列出远程版本
         if primary_url.is_empty() && secondary_url.as_ref().is_none_or(|s| s.is_empty()) {
             bail!("{} has no version_url configured, cannot list remote versions", sdk_name);
         }
 
-        // Show spinner while fetching
+        // 拉取时显示 spinner
         let pb = InstallProgress::new_resolve(&sdk_name, "");
         let source = VersionSource {
             primary_url,
             secondary_url,
         };
 
-        // Python fallback is GitHub API → needs Accept header
+        // Python 备源是 GitHub API → 需要 Accept header
         let headers = if let Sdk::Built(BuiltinSdk::Python) = sdk {
             Some(HashMap::from([(
                 "Accept".to_string(),
@@ -223,7 +223,7 @@ impl SdkManager {
             None
         };
 
-        // Reuse resolver's cache-first + fetch pipeline
+        // 复用 version 模块的"缓存优先 + fetch"管线
         let body = fetch_version_data(
             &client,
             &source,
@@ -237,7 +237,7 @@ impl SdkManager {
 
         let entries = strategy.parse_version_data(&body)?;
 
-        // Enrich with local install status
+        // 用本地安装状态补充信息
         let local_versions = self.list_local_sdk_versions(sdk)?;
         let current_version = sdk_conf.current_version.as_deref();
 
@@ -262,7 +262,7 @@ impl SdkManager {
             })
             .collect();
 
-        // Apply limit
+        // 应用数量限制
         let max = limit as usize;
         let total_count = items.len();
         let result_items = if items.len() > max {
@@ -278,7 +278,7 @@ impl SdkManager {
         })
     }
 
-    /// Sync bridge: fetch remote version list data (for TUI selector)
+    /// 同步桥接:拉取远程版本列表数据(供 TUI 选择器使用)
     pub fn fetch_remote_version_list(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
         let rt = try_bug!(tokio::runtime::Runtime::new().context("Failed to create tokio runtime"));
         rt.block_on(self.fetch_remote_versions_async(sdk, limit))

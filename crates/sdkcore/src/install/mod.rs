@@ -1,7 +1,7 @@
+pub mod download_url;
 pub mod downloader;
 pub mod extractor;
 pub mod progress;
-pub mod resolver;
 
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
@@ -14,10 +14,13 @@ use util::terminal::prompt_confirm;
 use util::{bail_bug, detail, info, try_bug, warning};
 
 use crate::manager::SdkManager;
+use crate::version::{
+    ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
+};
+use download_url::build_download_url;
 use downloader::{build_reqwest_client, download_with_retry};
 use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
 use progress::InstallProgress;
-use resolver::{ResolvedVersion, VersionSource, get_install_strategy, resolve_java_version, resolve_sdk_version};
 use util::sdk_resources::find_builtin_sdk_config;
 
 impl SdkManager {
@@ -32,7 +35,6 @@ impl SdkManager {
     async fn install_sdk_async(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
-        let strategy = get_install_strategy(sdk);
 
         // ── Phase 1: 版本解析 ────────────────────────────────────
         let resolve_pb = InstallProgress::new_resolve(&sdk_name, version_input);
@@ -86,9 +88,10 @@ impl SdkManager {
                 } else {
                     None
                 };
+                let discovery = get_version_discovery(sdk);
                 resolve_sdk_version(
                     &client,
-                    strategy.as_ref(),
+                    discovery.as_ref(),
                     &source,
                     &cache_key,
                     &sdk_name,
@@ -132,7 +135,7 @@ impl SdkManager {
         let download_url = if resolved.download_url.is_some() {
             resolved.download_url.clone().unwrap()
         } else {
-            strategy.build_download_url(&sdk_conf.download_url, &resolved)?
+            build_download_url(sdk, &sdk_conf.download_url, &resolved)?
         };
         detail!("Download URL (primary): {}", download_url);
 
@@ -154,9 +157,7 @@ impl SdkManager {
                     // 有直链时，备源逻辑不同（暂不支持直链备源）
                     fallback_template
                 } else {
-                    strategy
-                        .build_download_url(&fallback_template, &resolved)
-                        .unwrap_or(fallback_template)
+                    build_download_url(sdk, &fallback_template, &resolved).unwrap_or(fallback_template)
                 }
             });
 

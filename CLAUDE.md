@@ -24,9 +24,11 @@ cargo clippy --all-targets --all-features  # 代码检查
 ```
 sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
   crates/cli    → CLI 层：clap 命令定义 + handler 实现
-  crates/sdkcore → 核心业务逻辑：config、init、install、list、switch、env 操作、符号链接
+  crates/sdkcore → 核心业务逻辑：config、init、install、list、switch、version、env 操作、符号链接
   crates/util   → 共享工具：宏、SDK 类型、终端输出、配置辅助、路径
 ```
+
+**sdkcore 内部模块**：`version` 是版本解析公共模块(install/switch/list 共用),含 `cache`(缓存+fetch)、`fuzzy`(模糊匹配+相近版本建议)、`discovery`(各 SDK 版本发现+resolve 编排);下载 URL 构建留在 `install/download_url`(install 专属)。
 
 **依赖关系**：`cli → sdkcore, util`；`sdkcore → util`；`util` 无内部依赖。所有 crate 继承 workspace 元数据（版本、edition、license），均为 `publish = false`。
 
@@ -79,9 +81,9 @@ bin_dir = "bin"
 | 命令 | 别名 | Handler | 状态 |
 |------|------|---------|------|
 | `sdkm init` | — | cli/InitHandler | 已实现（目录部署检测 + 项目目录识别 + 平台建议路径） |
-| `sdkm install <SDK> <VERSION>` | `i` | cli/InstallHandler | 已实现（模块拆分为 resolver/downloader/extractor/progress，12阶段异步流程） |
+| `sdkm install <SDK> <VERSION>` | `i` | cli/InstallHandler | 已实现（模块拆分为 download_url/downloader/extractor/progress，版本解析提取到 `version/` 公共模块，12阶段异步流程） |
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler | 已实现（交互式 TUI 选择器 + 远程版本 + 安装/切换动作触发） |
-| `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制**） |
+| `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制** + **版本模糊匹配（与 install 共用核心）**） |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler | 已实现 |
 | `sdkm config` | — | cli/ConfigHandler | 已实现（set/get/list/delete/edit/add-sdk/remove-sdk 子命令，按类型校验 + 原子写入 + 回滚） |
 
@@ -89,15 +91,49 @@ bin_dir = "bin"
 
 ### install 子模块架构（重构后）
 
-原 `install.rs` 单文件已拆为 `install/` 模块目录：
+原 `install.rs` 单文件已拆为 `install/` 模块目录；版本解析逻辑已进一步提取到公共模块 `version/`(见下)：
 
 - `mod.rs` — 安装流程入口，12 阶段同步/异步编排（resolve → check local → build URL → download → extract → verify → normalize → verify install → cleanup → auto-switch）
-- `resolver.rs` — 版本解析：缓存优先 + TTL 过期 + 通用主备切换 + 模糊匹配；Java 独立两步查询逻辑
+- `download_url.rs` — 下载 URL 构建：按 SDK 分发的自由函数 `build_download_url`（各 SDK os/arch 风格集中在此；install 专属，不属于版本解析）
 - `downloader.rs` — 下载：reqwest 客户端构建 + 主/备源切换 + 重试机制
 - `extractor.rs` — 解压：tar.gz/zip 解压 + 目录标准化 + 安装验证
 - `progress.rs` — 进度显示：各阶段 indicaotr 风格的进度条
 
-## 当前开发进度（2026-06-26）
+### version 公共模块（2026-06-30 提取）
+
+版本解析逻辑从 `install/resolver.rs` 提取为公共模块 `crates/sdkcore/src/version/`（install/switch/list 三方共用），按职责拆为多子文件：
+
+- `mod.rs` — 模块声明 + 公共 re-export + `truncate` 辅助
+- `cache.rs` — 版本数据缓存 + 网络获取：`VersionSource`、`fetch_version_data`（主备切换 + 重试 + 缓存兜底）
+- `fuzzy.rs` — 纯版本字符串模糊匹配：`FuzzyMatch`、`fuzzy_match_version_core`、`suggest_similar_version`（最长公共前缀 + 数值距离）
+- `discovery.rs` — 各 SDK 版本发现 + 解析编排：`VersionEntry`/`ResolvedVersion`/`VersionDiscovery` trait（仅 `parse_version_data`）/ `get_version_discovery` / `fuzzy_match_version`（薄封装）/ `resolve_sdk_version` / `resolve_java_version` + 各 SDK 发现结构体 + serde 解析
+
+**拆分要点**：原 `SdkInstallStrategy` trait 拆为 `VersionDiscovery`（只含 parse，公共）+ install 侧自由函数 `build_download_url`（按 SDK 分发，各 SDK os/arch 风格集中）；`get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy`（带 os_style/arch_style 字段）→ `ConfigBasedDiscovery`（单元结构体，custom SDK 下载 URL 风格改由 `build_download_url` 的 Custom 分支用 `OsStyle::Default`/`ArchStyle::Default` 表达，与原 `ConfigBasedStrategy::default()` 行为一致）。
+
+## 当前开发进度（2026-06-30）
+
+### 本次改动（2026-06-30）
+1. **提取版本解析逻辑到公共 `version/` 模块** — 不再混在 install 里
+   - 新建 `crates/sdkcore/src/version/{mod,cache,fuzzy,discovery}.rs`，从 `install/resolver.rs` 按职责迁入（逻辑不变，仅搬家 + 拆 trait）
+   - 拆分 `SdkInstallStrategy` → `VersionDiscovery`（仅 `parse_version_data`，公共）；`build_download_url` 移至新建 `install/download_url.rs`（按 SDK 分发的自由函数，install 专属）
+   - `get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy` → `ConfigBasedDiscovery`（单元结构体）
+   - 更新引用：`lib.rs` 新增 `pub mod version`；`install/mod.rs`（discovery 改为仅在有 version_url 分支创建、`build_download_url(sdk, ...)` 替换 `strategy.build_download_url`）；`list.rs`/`switch.rs` import 改指 `crate::version`
+   - 删除 `crates/sdkcore/src/install/resolver.rs`
+   - 验证：clippy 告警数 22→22（与提交基线一致，**零新增**）；build/test 全绿；本次文件 fmt 干净
+2. **模块重命名 + 注释中文化** — `versioning` → `version`；将 `version/`、`install/download_url.rs` 与 `list.rs` 中残留的英文注释（缓存/获取流程、各 SDK 段落标题、Step 1/2、数据结构/本地/远程列表段落等）改为中文（终端输出字符串保持英文,符合项目"终端输出英文"约定）
+3. **修复模糊匹配漏匹配 `v` 前缀版本** — `sdkm s node 14` 误报 "did you mean 'v14.16.0'"
+   - 根因：Node 等本地版本目录带 `v` 前缀（`v14.16.0`），而 `fuzzy_match_version_core` 未归一化——前缀匹配 `"14."` 命不中以 `v` 开头的候选；`parse_version_components("v14.16.0")` 因 `"v14"` 解析失败丢掉主版本号，导致排序/距离/建议全失真
+   - 修复：新增 `strip_v_prefix`（仅当 `v`/`V` 后紧跟数字才剥离，不误伤 `version` 串）；精确/前缀匹配均基于归一化形式比较（故 `"14"` 前缀命中 `"v14.16.0"`、`"14.16.0"` 精确等于 `"v14.16.0"`）；`parse_version_components` 先剥离 `v` 再切分；返回的 `full_version` 保留**原始串**（带 `v`），switch 才能定位正确目录
+   - 行为不变：精确→直接切换、模糊（单/多,取最新）→ `prompt_confirm` 确认、真正无前缀匹配（如 `node 13`）→ 仍报 "did you mean" 错误（用户确认此为期望行为）；install 共享核心同步受益
+   - 新增 `fuzzy.rs` 的 `#[cfg(test)]` 模块（13 项）：v 前缀归一化、精确/前缀/多版本取最新、前缀不跨版本边界（`3.1` 不匹配 `3.10`）、无匹配 did-you-mean、空列表报错、排序与建议
+
+### 本次改动（2026-06-29）
+1. **switch 版本参数支持模糊匹配** — 与 install 共用匹配核心
+   - 抽取共享核心 `fuzzy_match_version_core(versions: &[String], input) -> Result<FuzzyMatch>`（`install/resolver.rs`），与 SDK 来源无关，install/switch 复用
+   - 模糊粒度到**次版本**：`"3"` → 最新 `3.x.x`、`"3.12"` → 最新 `3.12.x`（前缀方案 `input + "."`，`"3.1."` 不会误匹配 `"3.10.x"`）；顺带修正 install 原有 doc 注释已声称但未实现的 `3.12` 模糊行为
+   - install 侧 `fuzzy_match_version(entries, input)` 改为薄封装：调用核心 + 回查 `VersionEntry` 填充附属字段；失败时传播核心的"did you mean"错误（install 自动获得建议提示），`install/mod.rs` 无需改动
+   - switch 侧 `switch_sdk_to_version` Phase 0 接入：本地版本列表 → `fuzzy_match_version_core` → 模糊命中时 `prompt_confirm` 交互确认（与 install 一致）；后续阶段统一用 `target_version`
+   - 新增 `suggest_similar_version`（最长公共数值前缀为主、数值距离为辅）+ 私有辅助 `parse_version_components`/`compare_versions_desc`/`version_distance`/`no_match_error`；匹配失败时两命令均提示 "did you mean 'X'?"
 
 ### 本次改动（2026-06-26）
 1. **文档体系重建** — README + docs/ 详细用法文档
