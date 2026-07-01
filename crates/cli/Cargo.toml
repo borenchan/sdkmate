@@ -8,8 +8,8 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
-sdkcore = { path = "../sdkcore", version = "0.1.1" }
-util = { path = "../util", version = "0.1.1" }
+sdkcore = { workspace = true }
+util = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true}

@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 authors = ["boren1007@qq.com"]
@@ -55,8 +55,11 @@ windows-sys = { version = "0.61", features = [
 unicode-width = {version = "0.2"}
 url = { version = "2" }
 regex-lite = { version = "0.1" }
-# 内部 crate 依赖在各 crate 的 Cargo.toml 里直接以 path+version 声明
-# （不通过 workspace=true，避免 release-plz 打包时丢 version）
+# 内部 crate 依赖（path-only：不发布到 crates.io，无需 version 约束；
+# 各 crate 用 workspace=true 继承，bump [workspace.package].version 即全工作区统一升版）
+cli = { path = "crates/cli" }
+sdkcore = { path = "crates/sdkcore" }
+util = { path = "crates/util" }
 
 #根目录 包配置
 [package]
@@ -88,6 +91,6 @@ name = "sdkm"
 path = "main.rs"
 
 [dependencies]
-cli = { path = "crates/cli", version = "0.1.1" }
+cli = { workspace = true }
 clap = {workspace = true}
 
