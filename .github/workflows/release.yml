@@ -113,7 +113,8 @@ jobs:
 
   # ── 3. 上传产物到 GitHub Release（自动生成 changelog 正文）──────
   upload-release:
-    needs: build
+    # 需直接列出 tag 才能读到 needs.tag.outputs.version（needs 上下文只含直接依赖）
+    needs: [tag, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
