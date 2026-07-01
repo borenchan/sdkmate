@@ -119,6 +119,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        env:
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          bash .github/scripts/gen_changelog.sh > changelog.md
+          echo "===== generated changelog ====="
+          cat changelog.md
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -127,7 +139,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.tag.outputs.version }}
-          generate_release_notes: true
+          body_path: changelog.md
           files: |
             dist/*.tar.gz
             dist/*.zip
