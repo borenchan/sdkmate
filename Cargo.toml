@@ -55,10 +55,8 @@ windows-sys = { version = "0.61", features = [
 unicode-width = {version = "0.2"}
 url = { version = "2" }
 regex-lite = { version = "0.1" }
-# 工作区包引用
-cli = { path = "crates/cli", version = "0.1.1" }
-sdkcore = { path = "crates/sdkcore", version = "0.1.1" }
-util = { path = "crates/util", version = "0.1.1" }
+# 内部 crate 依赖在各 crate 的 Cargo.toml 里直接以 path+version 声明
+# （不通过 workspace=true，避免 release-plz 打包时丢 version）
 
 #根目录 包配置
 [package]
@@ -90,6 +88,6 @@ name = "sdkm"
 path = "main.rs"
 
 [dependencies]
-cli = {workspace = true}
+cli = { path = "crates/cli", version = "0.1.1" }
 clap = {workspace = true}
 

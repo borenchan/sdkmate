@@ -8,7 +8,7 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
-util = {workspace = true}
+util = { path = "../util", version = "0.1.1" }
 reqwest = {workspace = true}
 anyhow = { workspace = true}
 crossterm = { workspace = true }
