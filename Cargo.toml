@@ -56,9 +56,9 @@ unicode-width = {version = "0.2"}
 url = { version = "2" }
 regex-lite = { version = "0.1" }
 # 工作区包引用
-cli = { path = "crates/cli" }
-sdkcore = { path = "crates/sdkcore" }
-util = { path = "crates/util" }
+cli = { path = "crates/cli", version = "0.1.1" }
+sdkcore = { path = "crates/sdkcore", version = "0.1.1" }
+util = { path = "crates/util", version = "0.1.1" }
 
 #根目录 包配置
 [package]
