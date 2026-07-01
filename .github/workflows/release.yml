@@ -1,28 +1,33 @@
 name: Release sdkmate
 
+# 开发流程：只改根 Cargo.toml 的 [workspace.package] version 一行 → push 到 master
+# → tag job 按版本号打 tag → build job 跨平台构建 → upload-release 发版（自动 changelog）
+# 注意：用默认 GITHUB_TOKEN 推 tag 不会触发其他 workflow run（GitHub 防递归限制），
+# 故 build/release 设计为同一 run 内 tag 的后续 job，而非依赖 tag-push 事件。
 on:
   push:
     branches:
       - master
-    tags:
-      - 'v*'
 
 jobs:
-  # ── 1. master 推送时，按 Cargo.toml 中的版本号自动打 tag（若该 tag 尚不存在）
-  #     开发流程：只改根 Cargo.toml 的 [workspace.package] version 一行 → push → 自动 tag → 触发构建+发布
+  # ── 1. 按 Cargo.toml 版本号打 tag（若该 tag 尚不存在）────────────
   tag:
     name: Tag version
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.maybe_tag.outputs.version }}
+      tag_created: ${{ steps.maybe_tag.outputs.tag_created }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Create tag if not exists
+        id: maybe_tag
         run: |
+          set -e
           # 读取 [workspace.package] version（文件首处出现的 version 行）
           VERSION=$(grep -m1 '^version = "' Cargo.toml | cut -d'"' -f2)
           echo "Detected version: ${VERSION}"
@@ -30,19 +35,23 @@ jobs:
             echo "::error::No version found in Cargo.toml"
             exit 1
           fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists, skipping"
+            echo "Tag v${VERSION} already exists, skipping build/release"
+            echo "tag_created=false" >> "$GITHUB_OUTPUT"
           else
             git tag "v${VERSION}"
             git push origin "v${VERSION}"
             echo "Created and pushed tag v${VERSION}"
+            echo "tag_created=true" >> "$GITHUB_OUTPUT"
           fi
 
-  # ── 2. 跨平台构建：tag 创建后触发 ──────────────────────────────
+  # ── 2. 跨平台构建（仅在新 tag 创建时跑）─────────────────────────
   build:
     name: Build (${{ matrix.asset_name }})
+    needs: tag
+    if: needs.tag.outputs.tag_created == 'true'
     runs-on: ${{ matrix.os }}
-    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -106,7 +115,6 @@ jobs:
   upload-release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
@@ -117,7 +125,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: v${{ needs.tag.outputs.version }}
           generate_release_notes: true
           files: |
             dist/*.tar.gz
