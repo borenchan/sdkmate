@@ -31,7 +31,6 @@ jobs:
           command: release        # 打 tag，创建 GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
   release-plz-pr:
     runs-on: ubuntu-latest

@@ -1,0 +1,7 @@
+# release-plz 配置：sdkmate 不发布到 crates.io（Cargo.toml 已 publish=false），
+# 用 git tag 跟踪已发布版本（git_only），仍自动创建 tag + GitHub Release + 更新 CHANGELOG。
+# 这样 push feat/fix 提交即可自动发版，不发 crates.io。
+[[package]]
+name = "sdkmate"
+git_only = true
+publish = false
