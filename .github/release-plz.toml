@@ -6,15 +6,19 @@ name = "sdkmate"
 git_only = true
 publish = false
 
-# 子 crate 是内部库（publish=false、version.workspace），不单独打 tag / 发 Release
+# 子 crate 是内部库（Cargo.toml publish=false、version.workspace）：
+# release=false 不单独打 tag / 发 Release；publish=false 与 Cargo 一致，避免 release-plz 校验冲突
 [[package]]
 name = "cli"
 release = false
+publish = false
 
 [[package]]
 name = "sdkcore"
 release = false
+publish = false
 
 [[package]]
 name = "util"
 release = false
+publish = false
