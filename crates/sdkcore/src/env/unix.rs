@@ -204,7 +204,7 @@ impl EnvOperation for UnixEnvOperation {
                 let current_value = line.trim_start_matches(path_export_pattern).trim_matches('"');
                 let paths: Vec<String> = current_value
                     .split(':')
-                    .filter(|p| p != expanded_target && p != target)
+                    .filter(|&p| p != expanded_target && p != target)
                     .map(|p| p.to_string())
                     .collect();
                 *line = format!("export PATH=\"{}\"", paths.join(":"));
