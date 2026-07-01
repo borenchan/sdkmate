@@ -14,6 +14,5 @@ fn main() -> ExitCode {
     }
 
     let cli = SdkMateCli::parse();
-    let code = cli.run();
-    ExitCode::from(code as u8)
+    cli.run()
 }

@@ -6,6 +6,7 @@ use crate::impls::switch::SwitchHandler;
 use crate::impls::config::ConfigHandler;
 use clap::builder::styling;
 use clap::{ColorChoice, Parser, Subcommand};
+use std::process::ExitCode;
 use crossterm::style::Stylize;
 use util::consts::{ABOUT, BANNER, BugReportError};
 use util::error;
@@ -45,8 +46,8 @@ pub enum Commands {
 }
 
 impl SdkMateCli {
-    /// 运行 CLI 应用，返回退出码（0=成功, 1=失败）
-    pub fn run(self) -> i32 {
+    /// 运行 CLI 应用，返回退出码（SUCCESS=成功, FAILURE=失败）
+    pub fn run(self) -> ExitCode {
         self.command.run()
     }
 }
@@ -60,7 +61,7 @@ pub trait CommandHandler {
 
 impl Commands {
     /// 执行子命令，返回退出码
-    pub fn run(self) -> i32 {
+    pub fn run(self) -> ExitCode {
         // 获取完整命令行输入（用于 bug report 信息）
         let command_line = full_command_line();
         let res = match self {
@@ -72,7 +73,7 @@ impl Commands {
             Commands::Config(handler) => handler.run(),
         };
         match res {
-            Ok(()) => 0,
+            Ok(()) => ExitCode::SUCCESS,
             Err(cli_err) => {
                 error!("{}", cli_err);
                 #[cfg(debug_assertions)]
@@ -81,7 +82,7 @@ impl Commands {
                 if needs_bug_report(&cli_err) {
                     suggest_bug_report(&command_line, &cli_err.to_string());
                 }
-                1
+                ExitCode::FAILURE
             }
         }
     }
