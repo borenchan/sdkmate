@@ -66,7 +66,8 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
 </div>
 
 ### 🤖 让AI Agent替你管理 SDK
-2026年了，嫌弃cli命令太多不好记？怕有学习成本？那就让Ai Agent来帮忙
+> 2026年了，嫌弃cli命令太多不好记？怕有学习成本？那就让Ai Agent来帮忙!
+
 sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claude Code、Codex 等 AI 编程助手读一遍就能在你的机器上替你装/切 SDK：它会用 `sdkm install` / `sdkm switch` 直接操作、凭退出码判断成败、失败自动回滚，不卡在交互式提示、不踩 shell 函数的坑。
 
 **安装 skill，任选一种即可(以Claude Code为例)：**

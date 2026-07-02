@@ -67,7 +67,7 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
 
 ### 🤖 Let an AI Agent manage your SDKs
 
-It's 2026 — tired of too many CLI flags? Worried about the learning curve? Let an AI agent do it for you.
+> It's 2026 — tired of too many CLI flags? Worried about the learning curve? Let an AI agent do it for you.
 
 sdkm ships with a self-contained [agent skill doc](./skills/SKILL.md) — AI coding assistants like Claude Code, Codex read it once and can install/switch SDKs on your machine for you: they call `sdkm install` / `sdkm switch` directly, judge success by exit code, and auto-roll back on failure — no interactive prompts to get stuck on, no shell-function traps.
 
