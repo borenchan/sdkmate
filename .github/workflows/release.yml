@@ -136,6 +136,18 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Clear existing release (support re-releasing the same version)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          # softprops 不覆盖已存在 release 的 body（只重传 assets）；
+          # 重发同一版本时先清掉旧 release，让 softprops 重新创建以写入新 body
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Found existing release v${VERSION}, deleting for a clean re-create"
+            gh release delete "v${VERSION}" --yes
+          fi
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.tag.outputs.version }}
