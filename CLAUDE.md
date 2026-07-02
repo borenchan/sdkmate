@@ -110,106 +110,19 @@ bin_dir = "bin"
 
 **拆分要点**：原 `SdkInstallStrategy` trait 拆为 `VersionDiscovery`（只含 parse，公共）+ install 侧自由函数 `build_download_url`（按 SDK 分发，各 SDK os/arch 风格集中）；`get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy`（带 os_style/arch_style 字段）→ `ConfigBasedDiscovery`（单元结构体，custom SDK 下载 URL 风格改由 `build_download_url` 的 Custom 分支用 `OsStyle::Default`/`ArchStyle::Default` 表达，与原 `ConfigBasedStrategy::default()` 行为一致）。
 
-## 当前开发进度（2026-06-30）
+## 当前开发进度（2026-07-02）
 
-### 本次改动（2026-06-30）
-1. **提取版本解析逻辑到公共 `version/` 模块** — 不再混在 install 里
-   - 新建 `crates/sdkcore/src/version/{mod,cache,fuzzy,discovery}.rs`，从 `install/resolver.rs` 按职责迁入（逻辑不变，仅搬家 + 拆 trait）
-   - 拆分 `SdkInstallStrategy` → `VersionDiscovery`（仅 `parse_version_data`，公共）；`build_download_url` 移至新建 `install/download_url.rs`（按 SDK 分发的自由函数，install 专属）
-   - `get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy` → `ConfigBasedDiscovery`（单元结构体）
-   - 更新引用：`lib.rs` 新增 `pub mod version`；`install/mod.rs`（discovery 改为仅在有 version_url 分支创建、`build_download_url(sdk, ...)` 替换 `strategy.build_download_url`）；`list.rs`/`switch.rs` import 改指 `crate::version`
-   - 删除 `crates/sdkcore/src/install/resolver.rs`
-   - 验证：clippy 告警数 22→22（与提交基线一致，**零新增**）；build/test 全绿；本次文件 fmt 干净
-2. **模块重命名 + 注释中文化** — `versioning` → `version`；将 `version/`、`install/download_url.rs` 与 `list.rs` 中残留的英文注释（缓存/获取流程、各 SDK 段落标题、Step 1/2、数据结构/本地/远程列表段落等）改为中文（终端输出字符串保持英文,符合项目"终端输出英文"约定）
-3. **修复模糊匹配漏匹配 `v` 前缀版本** — `sdkm s node 14` 误报 "did you mean 'v14.16.0'"
-   - 根因：Node 等本地版本目录带 `v` 前缀（`v14.16.0`），而 `fuzzy_match_version_core` 未归一化——前缀匹配 `"14."` 命不中以 `v` 开头的候选；`parse_version_components("v14.16.0")` 因 `"v14"` 解析失败丢掉主版本号，导致排序/距离/建议全失真
-   - 修复：新增 `strip_v_prefix`（仅当 `v`/`V` 后紧跟数字才剥离，不误伤 `version` 串）；精确/前缀匹配均基于归一化形式比较（故 `"14"` 前缀命中 `"v14.16.0"`、`"14.16.0"` 精确等于 `"v14.16.0"`）；`parse_version_components` 先剥离 `v` 再切分；返回的 `full_version` 保留**原始串**（带 `v`），switch 才能定位正确目录
-   - 行为不变：精确→直接切换、模糊（单/多,取最新）→ `prompt_confirm` 确认、真正无前缀匹配（如 `node 13`）→ 仍报 "did you mean" 错误（用户确认此为期望行为）；install 共享核心同步受益
-   - 新增 `fuzzy.rs` 的 `#[cfg(test)]` 模块（13 项）：v 前缀归一化、精确/前缀/多版本取最新、前缀不跨版本边界（`3.1` 不匹配 `3.10`）、无匹配 did-you-mean、空列表报错、排序与建议
-
-### 本次改动（2026-06-29）
-1. **switch 版本参数支持模糊匹配** — 与 install 共用匹配核心
-   - 抽取共享核心 `fuzzy_match_version_core(versions: &[String], input) -> Result<FuzzyMatch>`（`install/resolver.rs`），与 SDK 来源无关，install/switch 复用
-   - 模糊粒度到**次版本**：`"3"` → 最新 `3.x.x`、`"3.12"` → 最新 `3.12.x`（前缀方案 `input + "."`，`"3.1."` 不会误匹配 `"3.10.x"`）；顺带修正 install 原有 doc 注释已声称但未实现的 `3.12` 模糊行为
-   - install 侧 `fuzzy_match_version(entries, input)` 改为薄封装：调用核心 + 回查 `VersionEntry` 填充附属字段；失败时传播核心的"did you mean"错误（install 自动获得建议提示），`install/mod.rs` 无需改动
-   - switch 侧 `switch_sdk_to_version` Phase 0 接入：本地版本列表 → `fuzzy_match_version_core` → 模糊命中时 `prompt_confirm` 交互确认（与 install 一致）；后续阶段统一用 `target_version`
-   - 新增 `suggest_similar_version`（最长公共数值前缀为主、数值距离为辅）+ 私有辅助 `parse_version_components`/`compare_versions_desc`/`version_distance`/`no_match_error`；匹配失败时两命令均提示 "did you mean 'X'?"
-
-### 本次改动（2026-06-26）
-1. **文档体系重建** — README + docs/ 详细用法文档
-   - 重写 `README.md`（中文）/ `README-en.md`（英文）：营销向，突出"专为全栈工程师打造"定位 + 纯绿色可移植 / 即时切换 / 透明可回滚 / 可扩展 / 跨平台原生五大优势；一行命令快速上手；图标式标题（🎯/✨/📦/🚀/🎮/🏗️/🛠️/🔧/🤝/📄）保持原排版风格；单 logo 居中；修正过时信息（install/current/config 不再标"即将到来"；`list` 参数由 `--source remote` 改为 `-r/--remote`；Rust 徽章 1.80 → 1.92.0；路线图移除）
-   - 新建 `docs/` 目录，拆分四篇详细文档（互相跳转）：
-     - `docs/usage.md` — 详细用法总入口（快速上手 + 导航索引 + TUI + 托管已有 SDK + 已知限制附录）
-     - `docs/commands.md` — 每个子命令详解（init/install/list/switch/current/config，含别名、参数、TUI 按键、示例）
-     - `docs/configuration.md` — `config.toml` 结构 + 每个配置项含义（可删除性/默认值）+ 点分隔键名格式 + 8 种 ValueType 校验规则 + 原子写入/快照回滚
-     - `docs/custom-sdk.md` — `add-sdk`/`remove-sdk` 用法 + URL 模板占位符系统（`{version}`/`{os}`/`{arch}`/`{ext}`/`{feature_version}`/`{release_tag}`/`{platform}`/`{sdk_dir}` 等）+ 内置 SDK 源参考
-   - 已知限制从 README 移至 `docs/usage.md` 末尾附录；docs 中不提及 Rust 内置源缺失与 CLAUDE.md
-
-### 本次改动（2026-06-23）
-1. **config 命令** — 完整实现 config 命令系统（set/get/list/delete/edit/add-sdk/remove-sdk）
-   - 新增 `ConfigKey`/`SdkField`/`ValueType`/`ValidatedValue`/`KeyMeta` 类型定义（`sdkcore/manager/config.rs`）
-   - 按类型校验：`validate_by_type()` 根据 `ValueType`（Url/UrlTemplate/Bool/U32/Path/Token/String）校验值格式
-   - 键名解析：`parse_config_key()` 将点分隔字符串映射到具体配置路径
-   - 内置 SDK 保护：所有字段不可 delete，不可 remove-sdk，只能 set 修改
-   - 原子写入：`atomic_write_to_disk()` 替代 `fs::write()`（写入-重命名模式）
-   - 快照回滚：`ConfigSnapshot` + `rollback_config()`/`rollback_config_from_raw()`，set/delete/add-sdk/remove-sdk 失败自动恢复
-   - `write_to_disk()` 内部改为调用 `atomic_write_to_disk()`（向后兼容）
-   - CLI 层 `ConfigHandler` + 7 个子命令 handler（`cli/impls/config.rs`）
-   - `edit` 子命令：检测 `$EDITOR/$VISUAL` → 平台 fallback（Windows: notepad, Unix: vi）→ 调用外部编辑器 → TOML 校验
-   - `add-sdk` 子命令：参数式创建自定义 SDK（必填 download_url + bin_dir，可选版本源 URL + extra_vars/extra_paths）
-   - `remove-sdk` 子命令：移除自定义 SDK（内置 SDK 不可移除）
-   - 新增 `regex-lite` workspace 依赖（URL 模板占位符替换）
-   - `lib.rs` 中 `Commands::Config` 从裸变体改为带 `ConfigHandler` 参数
-
-### 本次改动（2026-06-22）
-1. **switch 备份回滚机制** — `switch_sdk_to_version` 重构为 Snapshot + 显式回滚链模式
-   - 定义 `SwitchSnapshot` 结构体：备份旧符号链接目标、旧环境变量值、已添加 PATH 条目、旧 config 快照
-   - 新增 `EnvOperation` trait 方法：`get_env_value`（读旧值）、`unset_sdk_env`（删变量）、`restore_sdk_envs`（批量恢复）
-   - Windows 实现：注册表读取旧值 + 删除注册表值 + 批量写回旧值
-   - Unix 实现：shell profile 读取旧值 + 删除 export 行 + 批量恢复
-   - `link/symlink.rs` 新增 `read_symlink_target`（备份旧链接目标）+ `remove_symlink`（回滚删除）
-   - `try_step!` 宏：消除 5 处重复的 `if-let-Err + rollback` 模式，自动嵌入 `BugReport` 标记
-   - `RollbackFailure` 结构体：只输出对用户有影响的结果 + 修复建议，不暴露内部细节
-2. **Bug Report 链路** — 命令失败时自动提示 GitHub issue
-   - `util/consts.rs` 新增 `BugReportError` 包装器（类型安全的 downcast 检测，不修改用户可见的错误消息）+ `GITHUB_ISSUES_URL` 常量
-   - `util/macros.rs` 新增 `try_bug!`（自动 BugReportError::wrap）和 `bail_bug!`（bail + BugReportError）两个宏
-   - `util/terminal.rs` 新增 `suggest_bug_report()` 公共函数
-   - `cli/lib.rs` 全局错误处理重构：`command_name()` + `needs_bug_report()` + `suggest_bug_report` + `process::exit(1)`
-   - 白名单模式：只在源头标记不可由用户解决的错误，其余用户错误不触发 bug report
-   - 已标记的子命令错误点：
-     - **switch**: try_step! 宏自动标记（符号链接、环境变量、PATH、config 写入失败）
-     - **install**: tokio runtime 创建、临时目录创建、解压、目录调整、安装验证失败
-     - **init**: 目录创建、PATH 添加、配置写入、符号链接目录创建失败
-     - **tui**: 终端 raw mode、alternate screen、事件轮询/读取、终端恢复失败
-     - **list**: tokio runtime 创建、内置配置缺失失败
-
-### 已完成并提交的改动（2026-06-17）
-1. **依赖更新** (`2898678`) — 新增 tokio、indicatif、zip、flate2、tar、futures-util、serde_json；reqwest stream feature
-2. **util 层增强** (`428362d`) — 终端输出重构（统一调色板 + detail/step/divider 宏）、模板渲染升级（OsStyle/ArchStyle + 新占位符）、SDK 类型扩展（primary_executables、Maven 配置）
-3. **env 模块扩展** (`75d1474`) — EnvOperation 新增 remove_sdk_path、path_separator/split_path_entries 公共辅助、Windows/Unix 重构
-4. **switch 增强** (`9c61aec`) — PATH 冲突检测 + extra_paths + github_token 配置字段
-5. **install 模块拆分** (`2d72e73`) — 单文件拆为 5 子模块（mod/resolver/downloader/extractor/progress），12 阶段异步安装流程
-6. **CLAUDE.md** (`18c902d`) — 项目架构文档 + 进度追踪
-
-### 本次改动（2026-06-18，待提交）
-1. **CLI 参数简化** — `--source` 改为 `-r/--remote` 布尔 flag；新增 `--limit` 参数（默认 20）；报错信息改为英文
-2. **交互式 TUI 版本选择器** — 新建 `cli/tui.rs`：crossterm raw mode + alternate screen；↑↓/jk 导航；i 触发安装（远程）；Enter/s 触发切换（已安装）；Ctrl+C/q/Esc 退出；旋转 tips；远程源 URL 顶部透明展示；总版本数+显示数量在 title 行
-3. **远程版本列表** — 复用 resolver `fetch_version_data + parse_version_data` 管道；spinner 加载进度；安装状态标记（✅ active / 📦 installed / blank = not installed）；`source_url` 字段透明展示；`RemoteVersionResult` 包含 total_count
-4. **缓存优先策略** — `resolver.rs` 从"缓存兜底"改为"缓存优先 + TTL"：TTL 值从硬编码常量改为 `NetworkConfig.cache_ttl_secs` 配置项（默认 3600秒）；基于文件 mtime；过期后才走 API；API 失败时退化返回 stale cache
-5. **本地 SDK 列表增强** — `sdkm list` 显示所有 SDK + 当前版本
-6. **英文输出** — 所有终端输出改为英文
-7. **常量统一** — `DIVIDER`、`STATUS_ACTIVE`、`STATUS_INSTALLED`、`TUI_TIPS` 集中在 `util/consts.rs`；`terminal::divider()` 使用常量而非 `"─".repeat(50)`
-8. **TUI 体验优化** — unicode_width 对齐 emoji 列；三级颜色（选中=白+DarkCyan bg / 已安装=绿 / 未安装=灰）；固定 MAX_VISIBLE=10 视口递补滚动；Ctrl+C 退出支持；keybinding 标注 (installed)/(remote)
-9. **init 命令增强** — 目录部署检测（`DeploymentAssessment`：Good/Suspicious，只检查末尾路径组件是否含 "sdkm"）；初始化流程透明展示 4 步 + 每个目录用途说明；`suggest_sdkm_path()` 平台建议路径；`--force` 时跳过目录检测；注释改为中文
-
-### list 子命令新格式
-| 命令 | 行为 |
-|---|---|
-| `sdkm list` | 非交互：打印所有已安装 SDK + 当前版本 |
-| `sdkm list java` | 交互式 TUI：本地版本选择器，按 s 切换版本 |
-| `sdkm list java -r` | spinner 加载 → 交互式 TUI：远程版本选择器，按 i 安装、s 切换 |
-| `sdkm list -r` | 报错："Please specify an SDK name" |
-| `sdkm list maven -r` | 报错："Maven does not support remote version listing" |
+### 本次改动（2026-07-02）
+1. **GitHub Actions 发布流程** — 弃用 release-plz，改自定义 tag+release 链式工作流（`.github/workflows/release.yml`）
+   - 不发 crates.io（所有 crate `publish = false`）；发布 = GitHub Release 附跨平台二进制（linux/macOS/windows）
+   - 单 run 链式：master push → `tag` job 按版本号打 tag（输出 `tag_created`/`version`）→ `build` job（`if: tag_created=='true'`）三平台构建 → `upload-release` 发版。原因：默认 `GITHUB_TOKEN` 推 tag 不触发其他 workflow run（GitHub 防递归），故不依赖 tag-push 事件
+   - bump 触发：只改根 `Cargo.toml` 的 `[workspace.package] version` 一行 + push 即发版（子 crate `version.workspace = true` 继承；内部 path 依赖 path-only 无 version 约束）。版本号不变则 tag job 跳过 build/release——**不是每次提交都发版**
+   - 详见下方「发布流程」章节
+2. **changelog 自动生成** — `.github/scripts/gen_changelog.sh` 解析「上个 tag..HEAD」的 conventional commits，按 feat/fix/refactor/docs/ci/... 分组（emoji 标题 + per-commit 链接），经 `body_path` 写入 release body。upload-release 前置 `gh release delete` 清旧 release（softprops 不覆盖已存在 release 的 body，只重传 assets）
+3. **ExitCode 重构** (`7932c89`) — `main()` / `cli.run()` 直接返回 `std::process::ExitCode`（不再 i32 + `as u8`）；agent 可凭退出码判断 sdkm 操作结果（0 成功 / 1 失败）
+4. **skills/SKILL.md** (`7f28532`) — 给 Claude Code/Codex 等 agent 参考的 sdkm 使用说明 skill（自包含，含退出码判断章节）
+5. **unix PATH 过滤器类型修复** (`28b2c43`) — `env/unix.rs` PATH 移除过滤器改 `|&p|` 解构，修 `&&str` vs `String` 类型不匹配（cfg(unix)，Windows 上编译不到所以之前没暴露）
+6. **清理 stale CHANGELOG.md** (`1a77a6f`) — 删除根 + 三 crate 的 release-please 残留 CHANGELOG.md（release body 现由脚本现生成，不再维护仓库内 changelog 文件）
 
 ## 已知问题与注意事项
 
@@ -238,6 +151,22 @@ bin_dir = "bin"
 - **原子写入**：`atomic_write_to_disk()` 使用写入-重命名模式，替代 `fs::write()` 直接写入
 - **快照回滚**：set/delete/add-sdk/remove-sdk 操作失败时自动回滚（`ConfigSnapshot` + 内存级恢复 + 磁盘级原始内容恢复）
 - **内置 SDK 保护**：内置 SDK（java/node/python/maven）不可 delete 任何字段，不可 remove-sdk，只能通过 set 修改
+
+## 发布流程
+
+工作流 `.github/workflows/release.yml` 在每次 push 到 master 时跑 tag job，但**只有版本号 bump 才会真正发版**——版本号对应 tag 已存在则跳过 build/release。所以不是每次提交都发版。
+
+### 发版三步
+1. 改根 `Cargo.toml` 的 `[workspace.package] version` 一行（patch `0.2.0→0.2.1` / minor `→0.3.0` / major `→1.0.0`）
+2. 本地 `cargo build` 刷新 `Cargo.lock`（CI 用 `--locked`，Cargo.lock 必须与版本号同步，否则构建失败）
+3. 单独 commit bump（`chore: release vX.Y.Z`）+ push 到 master → 工作流自动打 tag、三平台构建、创建 release
+
+### 要点
+- **changelog 自动生成**：来自「上个 tag..HEAD」的 conventional commits，按 `feat`/`fix`/`refactor`/`docs`/`ci` 等前缀分类（`.github/scripts/gen_changelog.sh`）。保持约定式 commit message 才好看
+- **版本号只能递增、不可复用**：已发版本 tag 已存在，再 push 同版本会被跳过
+- **重发同一版本**：先删对应 tag+release 再 push；或直接 bump 到下一版本（推荐，更干净）
+- **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上的三平台二进制
+- **本地 origin 指向 gitee，GitHub remote 叫 `github`**：查 GitHub 状态用 API 或 `git fetch github --tags`
 
 ## 提交规范
 
