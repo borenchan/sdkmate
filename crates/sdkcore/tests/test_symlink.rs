@@ -2,19 +2,28 @@ use sdkcore::link::symlink;
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
 
     #[test]
-    fn test_create_symlink() {
-        let original = r"D:\develop\project\rust-project\sdkmate\target\release";
-        let link = "D:\\tmp\\link_test";
-        // Create the symlink
-        // symlink::create_symlink(&original, &link).unwrap();
-        symlink::create_symlink(&Path::new(original), &Path::new(link)).unwrap();
+    fn test_create_and_remove_symlink() {
+        let temp = std::env::temp_dir().join(format!("sdkm_test_{}", std::process::id()));
+        std::fs::create_dir_all(&temp).unwrap();
 
-        // Check that the symlink was created
-        assert!(Path::new(link).exists());
+        let original = temp.join("original");
+        std::fs::create_dir_all(&original).unwrap();
+
+        let link = temp.join("link_test");
+
+        // Create the symlink
+        symlink::create_symlink(&original, &link).unwrap();
+        assert!(link.exists());
+        assert!(link.is_symlink());
+
+        // Remove the symlink
+        symlink::remove_symlink(&link).unwrap();
+        assert!(!link.exists());
+
+        // Cleanup temp dir
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

@@ -7,4 +7,5 @@ fn test_windows_env() {
     let string = window.get_path().unwrap();
     println!("Path:{}", string);
     window.add_sdk_path(sdk_path).unwrap();
+    window.remove_sdk_path(sdk_path).unwrap();
 }
