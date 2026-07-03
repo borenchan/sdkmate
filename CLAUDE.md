@@ -113,16 +113,28 @@ bin_dir = "bin"
 ## 当前开发进度（2026-07-02）
 
 ### 本次改动（2026-07-02）
-1. **GitHub Actions 发布流程** — 弃用 release-plz，改自定义 tag+release 链式工作流（`.github/workflows/release.yml`）
+1. **发布二进制体积优化**（6.34 MB → 2.74 MB，降 56%）——三管齐下，零功能影响：
+   - **zip 裁剪默认特性**：`zip = { version = "2", default-features = false, features = ["deflate"] }`。默认特性会拉入 `zstd-sys`/`lzma-sys`/`bzip2-sys`/`aes`+`hmac`+`pbkdf2`+`sha1` 加密套件等 C 库死重量；sdkm 解压的 SDK zip 均为标准 deflate+无密码，只留 `deflate` 足够。**最大头**
+   - **reqwest 裁剪默认特性**：`default-features = false, features = ["json","gzip","stream","default-tls"]`。去掉默认的 `http2`（省 `h2`+`tokio-util`+`tracing`+`indexmap`+`hashbrown`）和 `charset`（省 `encoding_rs`）；`default-tls` 在 Windows 用系统 schannel 不增体积；sdkm 全程 HTTP/1.1 下载。顺带移除未使用的 `blocking`/`multipart` feature
+   - **`[profile.release]` 体积优化**：`opt-level=3`（保持性能）+ `lto=true`（跨 crate 去重）+ `codegen-units=1`（最大化 LTO）+ `panic="abort"`（去 unwind landing pads，项目无 catch_unwind/Drop 终端守卫故无影响）+ `strip="symbols"`（剥符号，PDB 独立保留）
+2. **移除 futures-util 直接依赖** — downloader 用 `resp.chunk().await`（reqwest 原生方法，返回 `Option<Bytes>`）替代 `bytes_stream()` + `StreamExt::next()`，顺带去掉 reqwest 的 `stream` feature。代码更简洁；体积无变化（futures-util 仍被 hyper-util/tower 传递依赖拉入，但不再作为直接依赖声明）
+3. **GitHub Actions 发布流程** — 弃用 release-plz，改自定义 tag+release 链式工作流（`.github/workflows/release.yml`）
    - 不发 crates.io（所有 crate `publish = false`）；发布 = GitHub Release 附跨平台二进制（linux/macOS/windows）
    - 单 run 链式：master push → `tag` job 按版本号打 tag（输出 `tag_created`/`version`）→ `build` job（`if: tag_created=='true'`）三平台构建 → `upload-release` 发版。原因：默认 `GITHUB_TOKEN` 推 tag 不触发其他 workflow run（GitHub 防递归），故不依赖 tag-push 事件
    - bump 触发：只改根 `Cargo.toml` 的 `[workspace.package] version` 一行 + push 即发版（子 crate `version.workspace = true` 继承；内部 path 依赖 path-only 无 version 约束）。版本号不变则 tag job 跳过 build/release——**不是每次提交都发版**
    - 详见下方「发布流程」章节
-2. **changelog 自动生成** — `.github/scripts/gen_changelog.sh` 解析「上个 tag..HEAD」的 conventional commits，按 feat/fix/refactor/docs/ci/... 分组（emoji 标题 + per-commit 链接），经 `body_path` 写入 release body。upload-release 前置 `gh release delete` 清旧 release（softprops 不覆盖已存在 release 的 body，只重传 assets）
-3. **ExitCode 重构** (`7932c89`) — `main()` / `cli.run()` 直接返回 `std::process::ExitCode`（不再 i32 + `as u8`）；agent 可凭退出码判断 sdkm 操作结果（0 成功 / 1 失败）
-4. **skills/SKILL.md** (`7f28532`) — 给 Claude Code/Codex 等 agent 参考的 sdkm 使用说明 skill（自包含，含退出码判断章节）
-5. **unix PATH 过滤器类型修复** (`28b2c43`) — `env/unix.rs` PATH 移除过滤器改 `|&p|` 解构，修 `&&str` vs `String` 类型不匹配（cfg(unix)，Windows 上编译不到所以之前没暴露）
-6. **清理 stale CHANGELOG.md** (`1a77a6f`) — 删除根 + 三 crate 的 release-please 残留 CHANGELOG.md（release body 现由脚本现生成，不再维护仓库内 changelog 文件）
+
+### 本次改动（2026-07-03）
+1. **下载写盘加 128KB BufWriter** — `download_with_progress` 用 `tokio::io::BufWriter::with_capacity(128*1024, file)` 包裹文件句柄，攒满再 flush，减少写盘系统调用次数（reqwest chunk 通常 8-16KB，原本每块一次 syscall）。零依赖、零风险，对大文件下载有边际收益。去 stream feature 不影响流式（`chunk()` 是 `Response` 基础方法，不依赖 stream feature）
+2. **downloader 集成测试** — `crates/sdkcore/tests/install.rs`，用 `std::net::TcpListener` 起本地 HTTP server（零外部依赖），验证 `download_with_progress` 在小 body（1B）与 >128KB body（触发 BufWriter 多次 flush 的边界）下文件内容完整。按 Rust 规范：集成测试（测公共 API、起 server 端到端）放 `tests/`，单元测试（测私有函数如 fuzzy）留源码内 `#[cfg(test)]`
+3. **整理 sdkcore `tests/` 目录** — 按模块名重命名（保留 git 历史）：`test_toml.rs→config.rs`、`test_env.rs→env.rs`、`test_symlink.rs→link.rs`、新增 `install.rs`。每个 `.rs` 是独立测试 binary（Rust 默认）。集成测试所需 reqwest/tokio/indicatif 声明在 `sdkcore/Cargo.toml [dev-dependencies]`（dev-only，不进发布二进制）
+4. **体积优化后二进制 ~3MB** — 历经 zip/reqwest feature 裁剪 + release profile（LTO/codegen-units=1/panic=abort/strip）后，release 二进制 6.34MB→2.74MB（降 56%）。README 核心优势更新为四格（纯绿色轻量 / 即时切换全局生效 / 透明可回滚 / AI Agent 友好），~3MB 用 `<strong>` 加亮；同步 `README-en.md`
+5. **CI 发版后追加根 `CHANGELOG.md`** — `release.yml` 的 upload-release job 在 softprops 发版后，把本次版本正文（去掉 gen_changelog 的 `## 🚀 What Changed` 标题）包上 `## v{VERSION} - {DATE}` 版本头，prepend 到根 `CHANGELOG.md`（保留 `# Changelog` 标题，最新版本在上），commit + push 回 master。GITHUB_TOKEN push 不触发 workflow 递归（与 tag push 同理）。此前 `1a77a6f` 删过 release-please 残留 CHANGELOG.md，现重新由 CI 维护
+6. **changelog 自动生成** — `.github/scripts/gen_changelog.sh` 解析「上个 tag..HEAD」的 conventional commits，按 feat/fix/refactor/docs/ci/... 分组（emoji 标题 + per-commit 链接），经 `body_path` 写入 release body。upload-release 前置 `gh release delete` 清旧 release（softprops 不覆盖已存在 release 的 body，只重传 assets）
+7. **ExitCode 重构** (`7932c89`) — `main()` / `cli.run()` 直接返回 `std::process::ExitCode`（不再 i32 + `as u8`）；agent 可凭退出码判断 sdkm 操作结果（0 成功 / 1 失败）
+8. **skills/SKILL.md** (`7f28532`) — 给 Claude Code/Codex 等 agent 参考的 sdkm 使用说明 skill（自包含，含退出码判断章节）
+9. **unix PATH 过滤器类型修复** (`28b2c43`) — `env/unix.rs` PATH 移除过滤器改 `|&p|` 解构，修 `&&str` vs `String` 类型不匹配（cfg(unix)，Windows 上编译不到所以之前没暴露）
+10. **清理 stale CHANGELOG.md** (`1a77a6f`) — 删除根 + 三 crate 的 release-please 残留 CHANGELOG.md（release body 现由脚本现生成，不再维护仓库内 changelog 文件）。注：2026-07-03 起 CI 重新维护根 `CHANGELOG.md`（见上条 5）
 
 ## 已知问题与注意事项
 
@@ -133,6 +145,9 @@ bin_dir = "bin"
 - 现有集成测试使用硬编码的 Windows 绝对路径——不可移植，无单元测试（`#[cfg(test)]` 模块）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有此限制，主源 uv metadata 无此问题）
 - Rust 工具链通过 `rust-toolchain.toml` 固定为 1.92.0（edition 2024）
+- **zip 仅启用 `deflate` 特性**（体积优化）：若日后解压非 deflate 压缩（bzip2/lzma/zstd/deflate64）或密码保护的 zip 会失败，按需在 `Cargo.toml` 加回对应 feature（`bzip2`/`lzma`/`zstd`/`deflate64`/`aes-crypto`）
+- **reqwest 禁用 `http2`/`charset` 特性**（体积优化）：sdkm 全程 HTTP/1.1 下载 + JSON ASCII 响应，无影响；若日后对接强制 HTTP/2 或需非 UTF-8 charset 解码的服务器，需加回对应 feature
+- **BugReport 标记只用于真正不可由用户修复的错误**：`install_sdk` 入口不要用 `try_bug!` 整体包裹（曾导致用户取消 `bail!("Installation cancelled by user")`、网络/版本解析失败被误报为 bug，触发 "This might be a bug in sdkm" 提示）。入口用 `?` 传播，真正的 bug（解压/校验失败、内置配置缺失等）已在 `install_sdk_async` 内部用 `try_bug!`/`bail_bug!` 精确标记 `BugReportError`，CLI 层 `needs_bug_report` 靠 `downcast_ref` 检测。switch 同理：`try_step!` 只在回滚后的中间步骤失败时标 BugReport，用户取消是普通 `bail!`
 
 ### config 命令架构
 
@@ -163,6 +178,7 @@ bin_dir = "bin"
 
 ### 要点
 - **changelog 自动生成**：来自「上个 tag..HEAD」的 conventional commits，按 `feat`/`fix`/`refactor`/`docs`/`ci` 等前缀分类（`.github/scripts/gen_changelog.sh`）。保持约定式 commit message 才好看
+- **根 `CHANGELOG.md` 由 CI 维护**：发版后 upload-release job 把本次版本正文 prepend 到根 `CHANGELOG.md`（`## v{VERSION} - {DATE}` 版本头，最新在上）并 commit 回 master。**本地不要手改**——会被下次发版覆盖；GITHUB_TOKEN push 不触发 workflow 递归
 - **版本号只能递增、不可复用**：已发版本 tag 已存在，再 push 同版本会被跳过
 - **重发同一版本**：先删对应 tag+release 再 push；或直接 bump 到下一版本（推荐，更干净）
 - **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上的三平台二进制
