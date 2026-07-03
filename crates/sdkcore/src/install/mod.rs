@@ -105,6 +105,9 @@ impl SdkManager {
             }
         };
 
+        // resolve 已完成,先停止 spinner,避免其 steady_tick 的 \r 覆盖后续交互提示
+        resolve_pb.finish_with_message(format!("✅ Resolved: {} → {}", version_input, resolved.full_version));
+
         // ── 模糊匹配交互确认 ────────────────────────────────────
         if resolved.fuzzy_matched {
             let confirmed = prompt_confirm(&format!(
@@ -115,8 +118,6 @@ impl SdkManager {
                 bail!("Installation cancelled by user");
             }
         }
-
-        resolve_pb.finish_with_message(format!("✅ Resolved: {} → {}", version_input, resolved.full_version));
 
         let full_version = &resolved.full_version;
 
