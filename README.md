@@ -49,17 +49,21 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
 <div align="center">
   <table>
     <tr>
-      <td width="33%" align="center">
-        <h3>🟢 纯绿色 · 可移植</h3>
-        <p>单二进制 · 零运行时依赖<br>拷到 U 盘即用 · 配置和 SDK 一并带走<br>已有 JDK/Node 放进目录就托管</p>
+      <td width="25%" align="center">
+        <h3>🟢 纯绿色 · 轻量</h3>
+        <p>单二进制 · 零运行时依赖 · <strong>~3MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
       </td>
-      <td width="33%" align="center">
-        <h3>⚡ 即时切换 · 不开新终端</h3>
-        <p>符号链接 + PATH 注入 + 广播<br>毫秒级切换 · 已开进程也感知<br>Rust 原生二进制，非 bash 脚本</p>
+      <td width="25%" align="center">
+        <h3>⚡ 即时切换 · 全局生效</h3>
+        <p>符号链接 + PATH + 广播<br>已开进程也感知 · 一次切换全局持久</p>
       </td>
-      <td width="33%" align="center">
-        <h3>🛡️ 透明可回滚 · 出错不翻车</h3>
-        <p>每步操作逐步打印<br>switch 失败自动恢复<br>config 原子写入 + 快照回滚</p>
+      <td width="25%" align="center">
+        <h3>🛡️ 透明可回滚</h3>
+        <p>每步打印 · 任一步失败自动恢复<br>模糊匹配 21→21.x · 相近版本建议</p>
+      </td>
+      <td width="25%" align="center">
+        <h3>🤖 AI Agent 友好</h3>
+        <p>自带 skill 文档 · 退出码语义清晰<br>全局生效 + 失败回滚 · 放心调用</p>
       </td>
     </tr>
   </table>

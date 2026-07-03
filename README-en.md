@@ -49,17 +49,21 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
 <div align="center">
   <table>
     <tr>
-      <td width="33%" align="center">
-        <h3>🟢 Portable · Green</h3>
-        <p>Single binary · zero runtime deps<br>Copy to USB and run — config & SDKs come along<br>Drop existing JDK/Node in, it manages them</p>
+      <td width="25%" align="center">
+        <h3>🟢 Portable · Lightweight</h3>
+        <p>Single binary · zero runtime deps · <strong>~3MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
       </td>
-      <td width="33%" align="center">
-        <h3>⚡ Instant · No new terminal</h3>
-        <p>Symlink + PATH injection + broadcast<br>Millisecond switching · already-open processes pick it up<br>Native Rust binary, not bash</p>
+      <td width="25%" align="center">
+        <h3>⚡ Instant · Global</h3>
+        <p>Symlink + PATH + broadcast<br>Open processes notice · one switch, system-wide</p>
       </td>
-      <td width="33%" align="center">
+      <td width="25%" align="center">
         <h3>🛡️ Transparent · Rollback-safe</h3>
-        <p>Every step printed aloud<br>switch auto-recovers on failure<br>Atomic config writes + snapshot rollback</p>
+        <p>Every step printed · auto-recover on failure<br>Fuzzy match 21→21.x · suggests closest</p>
+      </td>
+      <td width="25%" align="center">
+        <h3>🤖 AI Agent Friendly</h3>
+        <p>Bundled skill doc · clear exit codes<br>System-wide + rollback-safe · safe to call</p>
       </td>
     </tr>
   </table>
