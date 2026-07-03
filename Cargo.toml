@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "Apache-2.0"
 authors = ["boren1007@qq.com"]
@@ -18,25 +18,22 @@ members = [
 
 # 公共依赖版本管理（统一版本，避免冲突）
 [workspace.dependencies]
-#cli parser
+# CLI 参数解析（derive 派生命令，color 彩色 help/错误）
 clap = { version = "4.5.17", features = ["derive","color"] }
-#  网络请求
-reqwest = { version = "0.12.7", features = [
-    "blocking",
+# 异步 HTTP 客户端（json/gzip 响应解码；default-tls=Windows schannel 系统库；禁用 http2/charset/stream 省 h2/encoding_rs/futures-util，sdkm 全程 HTTP/1.1 + 下载用 resp.chunk()）
+reqwest = { version = "0.12.7", default-features = false, features = [
     "json",
     "gzip",
-    "multipart",
-    "stream"
+    "default-tls"
 ] }
 tokio = {version = "1", features = ["fs", "io-util", "rt-multi-thread"]}
 
 # 进度条
 indicatif = { version = "0.17" }
-# 解压
-zip = { version = "2" }
+# 解压：zip 仅 deflate（禁默认的 zstd/lzma/bzip2/aes 套件）；flate2 解 gzip 流；tar 解归档
+zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1" }
 tar = { version = "0.4" }
-futures-util = { version = "0.3" }
 
 serde = { version = "1",features = ["derive"]}
 serde_json = { version = "1"}
@@ -44,9 +41,9 @@ serde_json = { version = "1"}
 crossterm = { version = "0.28.1" }
 # 配置文件解析
 toml = "0.8"
-# 错误处理
+# 错误处理（带 backtrace）
 anyhow = { version = "1",features = ["backtrace"] }
-# win api
+# Windows 注册表/消息广播 API
 winreg  = {version = "0.52"}
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -55,8 +52,7 @@ windows-sys = { version = "0.61", features = [
 unicode-width = {version = "0.2"}
 url = { version = "2" }
 regex-lite = { version = "0.1" }
-# 内部 crate 依赖（path-only：不发布到 crates.io，无需 version 约束；
-# 各 crate 用 workspace=true 继承，bump [workspace.package].version 即全工作区统一升版）
+# 内部 crate 依赖（path-only，无 version 约束；子 crate version.workspace=true 继承，bump 根版本即全工作区升版）
 cli = { path = "crates/cli" }
 sdkcore = { path = "crates/sdkcore" }
 util = { path = "crates/util" }
@@ -94,3 +90,10 @@ path = "main.rs"
 cli = { workspace = true }
 clap = {workspace = true}
 
+# 发布构建体积优化（不影响功能：sdkm 为 IO 密集型 CLI，CPU 计算极少）
+[profile.release]
+opt-level = 3        # 保持最高优化等级（性能优先）
+lto = true           # 跨 crate 链接时优化，去重内联代码
+codegen-units = 1    # 单代码生成单元，配合 LTO 最大化去重
+panic = "abort"      # 移除 unwind landing pads（项目无 catch_unwind/Drop 终端守卫，无影响）
+strip = "symbols"    # 剥离符号信息（PDB 独立保留供调试）
