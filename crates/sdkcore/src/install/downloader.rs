@@ -39,7 +39,7 @@ pub fn build_reqwest_client(network: &NetworkConfig) -> Result<Client> {
 
 /// 异步下载文件到指定路径，支持 streaming + 进度条
 pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path, pb: &ProgressBar) -> Result<()> {
-    let resp = client
+    let mut resp = client
         .get(url)
         .send()
         .await
@@ -61,22 +61,21 @@ pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path
         .await
         .context("Failed to create download destination directory")?;
 
-    let mut file = tokio::fs::File::create(dest_path)
+    let file = tokio::fs::File::create(dest_path)
         .await
         .context("Failed to create download file")?;
+    // 128KB 写缓冲：攒满再 flush，减少写盘系统调用次数（reqwest chunk 通常 8-16KB，否则每块一次 syscall）
+    let mut writer = tokio::io::BufWriter::with_capacity(128 * 1024, file);
 
-    use futures_util::StreamExt;
-    let mut stream = resp.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.context("Error reading download stream")?;
+    // 用 reqwest 的 chunk() 逐块读取（无需 StreamExt，省去 futures-util 依赖）
+    while let Some(chunk) = resp.chunk().await.context("Error reading download stream")? {
         pb.inc(chunk.len() as u64);
-        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+        tokio::io::AsyncWriteExt::write_all(&mut writer, &chunk)
             .await
             .context("Error writing download chunk to file")?;
     }
 
-    tokio::io::AsyncWriteExt::flush(&mut file)
+    tokio::io::AsyncWriteExt::flush(&mut writer)
         .await
         .context("Error flushing download file")?;
 

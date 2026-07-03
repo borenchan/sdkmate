@@ -21,9 +21,15 @@ indicatif = { workspace = true }
 zip = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }
-futures-util = { workspace = true }
 url = { workspace = true }
 regex-lite = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 winreg = { workspace = true}
 windows-sys = { workspace = true}
+
+# 集成测试（tests/）所需：tests/ 是独立 crate，需直接声明测试用依赖（dev-only，不进发布二进制）
+[dev-dependencies]
+reqwest = { workspace = true }
+tokio = { workspace = true }
+indicatif = { workspace = true }
+
