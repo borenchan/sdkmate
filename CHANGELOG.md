@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.3 - 2026-07-03
+
+
+### 🐛 Bug Fixes
+
+- stop resolve spinner before prompt to prevent terminal output overlap — [`5df6925`](https://github.com/borenchan/sdkmate/commit/5df6925)
+
+### 📝 Documentation
+
+- update for v0.2.2 — [`020fe29`](https://github.com/borenchan/sdkmate/commit/020fe29)
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.2...v0.2.3
+
+
+
 ## v0.2.2 - 2026-07-03
 
 
