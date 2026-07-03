@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.2 - 2026-07-03
+
+
+### 🐛 Bug Fixes
+
+- prompt users to restart terminal after init for PATH to take effect — [`2a35d0a`](https://github.com/borenchan/sdkmate/commit/2a35d0a)
+
+### 📝 Documentation
+
+- update for v0.2.1 — [`3651e56`](https://github.com/borenchan/sdkmate/commit/3651e56)
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.1...v0.2.2
+
+
+
 ## v0.2.1 - 2026-07-03
 
 
