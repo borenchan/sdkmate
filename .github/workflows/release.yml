@@ -155,3 +155,40 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.zip
+
+      - name: Append to root CHANGELOG.md and commit back
+        env:
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          set -e
+          DATE=$(date -u +%Y-%m-%d)
+          # 版本块：版本头 + changelog 正文（去掉 gen_changelog 输出的 "## 🚀 What Changed" 标题行，保留 ### 分组）
+          {
+            echo "## v${VERSION} - ${DATE}"
+            echo ""
+            tail -n +2 changelog.md
+            echo ""
+          } > /tmp/block.md
+
+          # 合并到 CHANGELOG.md：保留 "# Changelog" 标题，新版本块插在标题后（最新在上），旧内容跟后
+          {
+            if [ -f CHANGELOG.md ]; then
+              head -n 1 CHANGELOG.md
+              echo ""
+              cat /tmp/block.md
+              echo ""
+              tail -n +2 CHANGELOG.md
+            else
+              echo "# Changelog"
+              echo ""
+              cat /tmp/block.md
+            fi
+          } > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+
+          # commit 回 master（GITHUB_TOKEN push 不触发 workflow 递归，与 tag push 同理）
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update for v${VERSION}"
+          git push
