@@ -88,7 +88,7 @@ impl SdkManager {
 
         divider!();
         success!("Congratulations! sdkm initialized successfully!");
-        success!("Run `sdkm install java 21` to start using it");
+        success!("Run `sdkm install java 21` to start using it. Restart your terminal for `sdkm` to take effect in PATH.");
         Ok(())
     }
 
