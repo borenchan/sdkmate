@@ -27,7 +27,9 @@ impl SdkManager {
     /// 安装 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）
     pub fn install_sdk(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
         let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        let _ = try_bug!(rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch)));
+        // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
+        // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
+        rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch))?;
         Ok(())
     }
 
