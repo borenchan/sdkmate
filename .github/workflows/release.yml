@@ -95,12 +95,14 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          mkdir -p dist
-          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" dist/
+          # 压缩包内用 .sdkm/ 目录包裹二进制：解压后得 .sdkm/sdkm，
+          # sdkm 的 home = 可执行文件父目录（.sdkm），init 直接在里头建 store/ 即可工作
+          mkdir -p dist .sdkm
+          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" .sdkm/
           if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
-            tar -czf "dist/${{ matrix.asset_name }}.tar.gz" -C dist "${{ matrix.artifact_name }}"
+            tar -czf "dist/${{ matrix.asset_name }}.tar.gz" .sdkm
           else
-            7z a -tzip "dist/${{ matrix.asset_name }}.zip" "dist/${{ matrix.artifact_name }}"
+            7z a -tzip "dist/${{ matrix.asset_name }}.zip" .sdkm
           fi
 
       - uses: actions/upload-artifact@v4
