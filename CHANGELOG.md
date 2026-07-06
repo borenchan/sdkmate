@@ -1,20 +1,5 @@
 # Changelog
 
-## v0.2.4 - 2026-07-06
-
-
-### ✨ Features
-
-- show sdkm home in current command; skip unregistered store dirs — [`6920d83`](https://github.com/borenchan/sdkmate/commit/6920d83)
-
-### 📝 Documentation
-
-- update for v0.2.3 — [`0aaa645`](https://github.com/borenchan/sdkmate/commit/0aaa645)
-
-**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.3...v0.2.4
-
-
-
 ## v0.2.3 - 2026-07-03
 
 
