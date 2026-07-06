@@ -15,7 +15,9 @@ else
 fi
 
 # 拿到 短SHA + subject（每行一个）
-mapfile -t COMMITS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%h %s" 2>/dev/null || true)
+# --invert-grep --grep：排除 CI 回写 CHANGELOG.md 的提交（docs(changelog): update for vX.Y.Z），
+# 否则每次发版的 changelog 都会带上一次发版回写 CHANGELOG.md 的噪音提交，形成循环
+mapfile -t COMMITS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%h %s" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
 if [ "${#COMMITS[@]}" -eq 0 ]; then
   echo "（无提交记录）"; exit 0
 fi
