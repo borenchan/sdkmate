@@ -1,6 +1,7 @@
 use sdkcore::env::{EnvOperation, OsEnvOperation};
 
 #[test]
+#[cfg(target_os = "windows")]
 fn test_windows_env() {
     let window = OsEnvOperation {};
     let sdk_path = "D:\\tmp\\link_test";

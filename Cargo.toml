@@ -21,7 +21,7 @@ members = [
 # CLI 参数解析（derive 派生命令，color 彩色 help/错误）
 clap = { version = "4.5.17", features = ["derive","color"] }
 # 异步 HTTP 客户端（json/gzip 响应解码；default-tls=Windows schannel 系统库；禁用 http2/charset/stream 省 h2/encoding_rs/futures-util，sdkm 全程 HTTP/1.1 + 下载用 resp.chunk()）
-reqwest = { version = "0.12.7", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
     "json",
     "gzip",
     "default-tls"
