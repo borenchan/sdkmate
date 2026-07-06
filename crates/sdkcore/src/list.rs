@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use unicode_width::UnicodeWidthStr;
 use util::consts::STATUS_ACTIVE;
-use util::path::get_installed_sdks_dir;
+use util::path::{get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::find_builtin_sdk_config;
 use util::{divider, info, success, try_bug, warning};
@@ -99,8 +99,17 @@ impl SdkManager {
             info!("{} {}", sdk, conf.current_version.clone().unwrap_or("N/A".to_string()));
             return Ok(());
         }
+        info!("sdkm home: {}", get_sdkm_home()?.display());
         for entry in get_installed_sdks_dir()?.read_dir()?.filter_map(|e| e.ok()) {
-            let sdk = self.match_valid_sdk(&entry.file_name().to_string_lossy())?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            // store 目录可能含未在 config 注册的子目录(如手动放入或遗留),跳过而非中断整体列表
+            let sdk = match self.match_valid_sdk(&name) {
+                Ok(s) => s,
+                Err(e) => {
+                    warning!("skip unregistered SDK directory `{}`: {}", name, e);
+                    continue;
+                }
+            };
             let sdk_conf = self.config.find_sdk_ok(&sdk)?;
             divider!();
             success!(
