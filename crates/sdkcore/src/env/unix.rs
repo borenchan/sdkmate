@@ -201,7 +201,7 @@ impl EnvOperation for UnixEnvOperation {
                 .trim_matches('"');
             let paths: Vec<String> = current_value
                 .split(PATH_SEPARATOR)
-                .filter(|p| p != expanded_target.as_str() && p != target)
+                .filter(|&p| p != expanded_target.as_str() && p != target)
                 .map(String::from)
                 .collect();
             lines[idx] = format!("{}\"{}\"", PATH_EXPORT_PREFIX, paths.join(PATH_SEPARATOR));
