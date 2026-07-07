@@ -85,7 +85,7 @@ impl SdkManager {
             "local not found `{sdk}` version `{target_version}`, please check store dir or install the version!"
         ))?;
 
-        let symlink_root_dir = self.config.symlink_dir.clone();
+        let symlink_root_dir = self.config.resolved_symlink_dir()?;
         let sdk_symlink_dir = PathBuf::from(symlink_root_dir).join(sdk.to_string());
         let sdk_symlink_bin_dir = sdk_symlink_dir.join(sdk_conf.bin_dir.as_deref().unwrap_or(""));
         let sdk_symlink_bin_cow = sdk_symlink_bin_dir.to_string_lossy();
@@ -201,7 +201,7 @@ impl SdkManager {
             Sdk::Custom(_) => return Ok(Vec::new()),
         };
 
-        let symlink_root = &self.config.symlink_dir;
+        let symlink_root = self.config.resolved_symlink_dir()?;
         let entries = split_path_entries(path);
         let executables = builtin.primary_executables();
 
@@ -211,7 +211,7 @@ impl SdkManager {
         let mut conflicts = Vec::new();
         for entry in &entries {
             // 跳过 sdkm 管理的路径
-            if entry.starts_with(symlink_root) {
+            if entry.starts_with(&symlink_root) {
                 continue;
             }
 

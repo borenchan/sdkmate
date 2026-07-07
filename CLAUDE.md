@@ -110,7 +110,27 @@ bin_dir = "bin"
 
 **拆分要点**：原 `SdkInstallStrategy` trait 拆为 `VersionDiscovery`（只含 parse，公共）+ install 侧自由函数 `build_download_url`（按 SDK 分发，各 SDK os/arch 风格集中）；`get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy`（带 os_style/arch_style 字段）→ `ConfigBasedDiscovery`（单元结构体，custom SDK 下载 URL 风格改由 `build_download_url` 的 Custom 分支用 `OsStyle::Default`/`ArchStyle::Default` 表达，与原 `ConfigBasedStrategy::default()` 行为一致）。
 
-## 当前开发进度（2026-07-02）
+## 当前开发进度（2026-07-07）
+
+### 本次改动（2026-07-07）—— Linux 可用性修复 + reqwest 升级 rustls
+
+WSL/Ubuntu 22.04 实测暴露的 Linux 下 init/switch 缺陷集中修复，核心是**让 symlink_dir 跟随 sdkm home**（消除权限墙、跨平台一致、绿色便携）。
+
+1. **reqwest 0.12.7 → 0.13.4（default-tls 改 rustls）** — 根 `Cargo.toml:24` 仅改 version + 注释，features 仍 `["json","gzip","default-tls"]`。0.13 起 `default-tls = rustls`（aws-lc-rs + rustls-platform-verifier），**消除系统 OpenSSL 依赖**：Linux 编译只需 `cmake`（aws-lc-rs 编 C），运行时需 `ca-certificates`。sdkmate 用到的 API 在 0.13 全稳定，零 breaking（`query`/`form` 变默认禁用 feature 但本项目没用）。体积影响待实测（aws-lc-rs 静态链入，对比旧 2.74MB）
+2. **symlink_dir 重设计为 `Option<String>`**（`crates/util/src/consts.rs` + `path.rs` + `config/mod.rs`）— 删 `SDKM_SYMLINK_DIR` 平台绝对路径常量（Win `C:\Program Files\sdkm` / Unix `/usr/local/sdkm`，普通用户不可写）和死字段 `home_dir`（无人读、语义会过期）。`symlink_dir: Option<String>` + `#[serde(skip_serializing_if = "Option::is_none")]`：**None = 跟随 home**（运行时 `resolved_symlink_dir()` resolve 成 `<home>/links`），**Some = 用户自定义**。`switch.rs`/`init.rs` 改用 `resolved_symlink_dir()`；`config get/list` 显示 resolved 实际生效路径；`config set` 空值→None、非空→Some；`config delete symlink_dir` 恢复 None（deletable 改 true）；`validation.rs` 的 `default_desc` 用动态 `get_default_symlink_dir()`。exe 移到哪 links 就在哪，真正绿色便携
+3. **init 流程重构**（`crates/sdkcore/src/init.rs`）— 三处改动：
+   - **非 force 模式不覆盖现有 config**：config.toml 已存在时只补建缺失目录，不再 `return` 跳过。修复「改了 symlink_dir 后重跑 init 仍报 already initialized、symlink 不补建」的死循环
+   - **force 模式才写默认 config**：用户明确重置时覆盖，其余情况保留用户配置
+   - **第 4 步 symlink_dir 不可写时 `bail!` 给清晰提示**：指向 `sdkm config set symlink_dir <可写目录>`，不报裸 `Permission denied`。属用户环境问题用 `bail!` 不用 `try_bug!`
+4. **bug #2：PATH 新建行追加 `:$PATH`**（`crates/sdkcore/src/env/unix.rs::add_path_entry`）— `.bashrc` 无原有 `export PATH` 行时，新建行从 `export PATH="<dir>"` 改为 `export PATH="<dir>":$PATH`。原写法 source 后会把 PATH 冲成只有 sdkm 目录，`ls`/`grep` 等系统命令全废
+5. **bug #4：node bin_dir 平台分支**（`crates/util/src/sdk.rs::get_sdk_bin_dir`）— Node 从全平台 `""`（根目录）改为 `if cfg!(target_os="windows") { "" } else { "bin" }`，与 Python 同款。Linux/macOS 上 node tar.gz 解压后 `node`/`npm` 在 `bin/` 子目录，原配置导致 switch 加 PATH 指向根目录、`node` 命令找不到
+6. **unix.rs 重构**（`crates/sdkcore/src/env/unix.rs`）— 提常量（`PATH_SEPARATOR`/`PROFILE_BASHRC`/`PROFILE_ZSHRC`/`EXPORT_PREFIX`/`PATH_EXPORT_PREFIX`/`PATH_BACKREF`）+ 抽 helper（`read_profile`/`write_profile`/`find_path_export_line`），消除 5+ 处读/写/找行重复。清掉 unused import（`BufReader`/`OpenOptions`/`Write`）；`add_path_entry` 两层冗余存在检查简化成单层条目检查；`unsafe set_var` 加注释说明为何不彻底修。行为不变
+7. **init tree 显示 symlink**（`crates/sdkcore/src/init.rs` + `consts.rs::DIR_DESC_LINKS`）— 初始化成功时的目录树加 `links/` 行：在 home 下用相对名，自定义到 home 外用绝对路径 + `(custom)` 标注
+8. **文档同步**（`docs/configuration.md` + `skills/SKILL.md`）— 删旧 symlink_dir 默认值（`C:\Program Files\sdkm` / `/usr/local/sdkm`），改成"默认 `<home>/links` 跟随 home、`delete` 可恢复、`set` 可自定义"；`configuration.md` 的 `bin_dir` 说明补充 Node/Python 平台预设；`ssl_verify` 补 rustls 走系统 CA bundle
+
+未改的技术债：`env/unix.rs` `unsafe { env::set_var()`（2024 edition UB，功能生效，彻底修复需 shim 模式重构）；`tests/env.rs` 硬编码 Windows 路径已有 `#[cfg(windows)]` 守卫不污染 Linux。
+
+### 历史改动（2026-07-02）
 
 ### 本次改动（2026-07-02）
 1. **发布二进制体积优化**（6.34 MB → 2.74 MB，降 56%）——三管齐下，零功能影响：
@@ -141,13 +161,12 @@ bin_dir = "bin"
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
 - Rust 完全缺失内置源配置条目
 - Windows 环境变量操作写入 `HKEY_LOCAL_MACHINE`（需要管理员权限），非 `HKEY_CURRENT_USER`
-- Unix 环境变量操作使用 `unsafe { env::set_var() }`，在 Rust 2024 edition 中属于 UB
-- 现有集成测试使用硬编码的 Windows 绝对路径——不可移植，无单元测试（`#[cfg(test)]` 模块）
+- Unix 环境变量操作使用 `unsafe { env::set_var() }`，在 Rust 2024 edition 中属于 UB（`source_profile` 起子 shell source 后写回当前进程 PATH，功能上生效但有 UB 风险；彻底修复需重构为 shim 模式或让用户手动 source）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有此限制，主源 uv metadata 无此问题）
 - Rust 工具链通过 `rust-toolchain.toml` 固定为 1.92.0（edition 2024）
 - **zip 仅启用 `deflate` 特性**（体积优化）：若日后解压非 deflate 压缩（bzip2/lzma/zstd/deflate64）或密码保护的 zip 会失败，按需在 `Cargo.toml` 加回对应 feature（`bzip2`/`lzma`/`zstd`/`deflate64`/`aes-crypto`）
-- **reqwest 禁用 `http2`/`charset` 特性**（体积优化）：sdkm 全程 HTTP/1.1 下载 + JSON ASCII 响应，无影响；若日后对接强制 HTTP/2 或需非 UTF-8 charset 解码的服务器，需加回对应 feature
-- **BugReport 标记只用于真正不可由用户修复的错误**：`install_sdk` 入口不要用 `try_bug!` 整体包裹（曾导致用户取消 `bail!("Installation cancelled by user")`、网络/版本解析失败被误报为 bug，触发 "This might be a bug in sdkm" 提示）。入口用 `?` 传播，真正的 bug（解压/校验失败、内置配置缺失等）已在 `install_sdk_async` 内部用 `try_bug!`/`bail_bug!` 精确标记 `BugReportError`，CLI 层 `needs_bug_report` 靠 `downcast_ref` 检测。switch 同理：`try_step!` 只在回滚后的中间步骤失败时标 BugReport，用户取消是普通 `bail!`
+- **reqwest 0.13.4 + rustls**（2026-07-07 升级）：`default-features = false, features = ["json","gzip","default-tls"]`。0.13 起 `default-tls = rustls`（aws-lc-rs 作 crypto provider + rustls-platform-verifier 走系统 CA bundle），**不再依赖系统 OpenSSL**——Linux 编译只需 `cmake`（aws-lc-rs 编 C），运行时需 `ca-certificates`。仍禁 `http2`/`charset`/`query`/`form`（sdkm 全程 HTTP/1.1 + JSON ASCII + token 走 `default_headers` 不用 form）。aws-lc-rs 静态链入，release 体积待实测（对比旧 2.74MB）
+- **BugReport 标记只用于真正不可由用户修复的错误**：`install_sdk` 入口不要用 `try_bug!` 整体包裹（曾导致用户取消 `bail!("Installation cancelled by user")`、网络/版本解析失败被误报为 bug，触发 "This might be a bug in sdkm" 提示）。入口用 `?` 传播，真正的 bug（解压/校验失败、内置配置缺失等）已在 `install_sdk_async` 内部用 `try_bug!`/`bail_bug!` 精确标记 `BugReportError`，CLI 层 `needs_bug_report` 靠 `downcast_ref` 检测。switch 同理：`try_step!` 只在回滚后的中间步骤失败时标 BugReport，用户取消是普通 `bail!`。**init 第 4 步 symlink_dir 不可写属用户环境问题，用 `bail!` 不用 `try_bug!`**
 
 ### config 命令架构
 

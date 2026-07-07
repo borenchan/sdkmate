@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result, bail};
 use regex_lite::Regex;
-use util::consts::SDKM_SYMLINK_DIR;
+use util::path::get_default_symlink_dir;
 
 use super::keys::{ConfigKey, SdkField};
 
@@ -129,9 +129,11 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
 
     match key {
         ConfigKey::SymlinkDir => KeyMeta {
-            deletable: false,
+            deletable: true,
             value_type: ValueType::Path,
-            default_desc: SDKM_SYMLINK_DIR.to_string(),
+            default_desc: get_default_symlink_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "<home>/links".to_string()),
         },
         ConfigKey::NetworkProxy => KeyMeta {
             deletable: true,

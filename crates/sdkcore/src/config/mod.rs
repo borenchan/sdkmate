@@ -10,8 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use util::config_helper::{
     PLACEHOLDER_SDK_DIR, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
 };
-use util::consts::{CONFIG_FILE_NAME, ENV_JAVA_HOME, SDKM_SYMLINK_DIR};
-use util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
+use util::consts::{CONFIG_FILE_NAME, ENV_JAVA_HOME};
+use util::path::{get_default_symlink_dir, get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::BUILTIN_SDK_CONFIG;
 
@@ -29,12 +29,9 @@ pub use validation::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)] //ignore unknown fields
 pub struct SdkmConfig {
-    //sdkm self home dir readonly
-    #[serde(default)]
-    pub home_dir: Option<String>,
-    //sdkm symlink dir
-    #[serde(default)]
-    pub symlink_dir: String,
+    //sdkm symlink dir：None = 跟随 home（<home>/links），Some = 用户自定义路径
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symlink_dir: Option<String>,
     //network
     #[serde(default)]
     pub network: NetworkConfig,
@@ -145,8 +142,8 @@ impl SdkConfig {
 impl Default for SdkmConfig {
     fn default() -> SdkmConfig {
         SdkmConfig {
-            home_dir: None,
-            symlink_dir: SDKM_SYMLINK_DIR.to_string(),
+            // None = 跟随 home（运行时 resolve 成 <home>/links）；exe 移动后自动跟随
+            symlink_dir: None,
             network: NetworkConfig::default(),
             sdks: Self::get_default_builtin_sdks(),
         }
@@ -197,6 +194,17 @@ impl SdkmConfig {
             return Ok(config);
         }
         anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir")
+    }
+
+    /// 解析 symlink_dir 实际路径：None → 跟随 home（`<home>/links`）；Some → 用户自定义值。
+    ///
+    /// 让 symlink_dir 默认跟随 sdkm home：exe 移到哪 links 就在哪，跨平台一致、
+    /// 用户级可写、绿色便携。用户显式 `config set` 才脱离跟随。
+    pub fn resolved_symlink_dir(&self) -> Result<String> {
+        match self.symlink_dir {
+            Some(ref s) if !s.is_empty() => Ok(s.clone()),
+            _ => Ok(get_default_symlink_dir()?.to_string_lossy().into_owned()),
+        }
     }
 
     /// 将配置写入磁盘（兼容旧调用，内部使用原子写入）
@@ -271,7 +279,7 @@ impl SdkmConfig {
     /// 获取配置键的原始值（不脱敏）
     fn get_raw_value(&self, key: &ConfigKey) -> Result<String> {
         match key {
-            ConfigKey::SymlinkDir => Ok(self.symlink_dir.clone()),
+            ConfigKey::SymlinkDir => self.resolved_symlink_dir(),
             ConfigKey::NetworkProxy => Ok(self.network.proxy.clone().unwrap_or_default()),
             ConfigKey::NetworkSslVerify => Ok(self.network.ssl_verify.to_string()),
             ConfigKey::NetworkConnectTimeout => Ok(self.network.connect_timeout.to_string()),
@@ -325,7 +333,7 @@ impl SdkmConfig {
     fn apply_set_value(&mut self, key: &ConfigKey, validated: ValidatedValue) {
         let value = validated.into_string();
         match key {
-            ConfigKey::SymlinkDir => self.symlink_dir = value,
+            ConfigKey::SymlinkDir => self.symlink_dir = if value.is_empty() { None } else { Some(value) },
             ConfigKey::NetworkProxy => self.network.proxy = Some(value),
             ConfigKey::NetworkSslVerify => self.network.ssl_verify = value == "true",
             ConfigKey::NetworkConnectTimeout => self.network.connect_timeout = value.parse().unwrap_or(30),
@@ -393,6 +401,7 @@ impl SdkmConfig {
     /// 将 delete 操作应用到内存中的配置（恢复为默认值/None）
     fn apply_delete_value(&mut self, key: &ConfigKey, _meta: &KeyMeta) {
         match key {
+            ConfigKey::SymlinkDir => self.symlink_dir = None,
             ConfigKey::NetworkProxy => self.network.proxy = None,
             ConfigKey::NetworkGithubToken => self.network.github_token = None,
             ConfigKey::Sdk { name, field } => {
@@ -421,8 +430,7 @@ impl SdkmConfig {
                 }
             }
             // 不可删除的顶层键不应到达此处
-            ConfigKey::SymlinkDir
-            | ConfigKey::NetworkSslVerify
+            ConfigKey::NetworkSslVerify
             | ConfigKey::NetworkConnectTimeout
             | ConfigKey::NetworkCacheTtlSecs => {}
         }
@@ -443,8 +451,8 @@ impl SdkmConfig {
     pub fn list_all_values(&self) -> Vec<(String, String)> {
         let mut entries = Vec::new();
 
-        // 顶层键
-        entries.push(("symlink_dir".to_string(), self.symlink_dir.clone()));
+        // 顶层键（symlink_dir 显示 resolved 实际生效路径）
+        entries.push(("symlink_dir".to_string(), self.resolved_symlink_dir().unwrap_or_default()));
 
         // network 子表
         entries.push((

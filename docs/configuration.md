@@ -8,12 +8,12 @@ sdkm 的配置文件位于可执行文件同目录下的 `config.toml`（home �
 
 ```toml
 # 顶层：符号链接目录（切换后的 SDK 入口）
-symlink_dir = "C:\\Program Files\\sdkm"   # Windows 默认
-# symlink_dir = "/usr/local/sdkm"          # Unix 默认
+# 默认不写此行 = 跟随 sdkm home（<sdkm_home>/links）；显式设置则用自定义路径
+# symlink_dir = "/home/user/.sdkm/links"
 
 [network]
 proxy = ""                  # HTTP/HTTPS/SOCKS5 代理 URL，空 = 不使用代理
-ssl_verify = true           # 是否校验 SSL 证书
+ssl_verify = true           # 是否校验 SSL 证书（TLS 后端为 rustls，走系统 CA bundle）
 connect_timeout = 30        # 连接超时（秒）
 cache_ttl_secs = 3600       # 版本接口缓存 TTL（秒），0 = 每次都拉取
 github_token = ""           # GitHub PAT，提升 API 限速（60/hr → 5000/hr）
@@ -35,7 +35,7 @@ extra_paths = []
 
 | 键 | 类型 | 可删除 | 默认 | 说明 |
 |:---|:---|:---:|:---|:---|
-| `symlink_dir` | Path | 否 | Win: `C:\Program Files\sdkm` / Unix: `/usr/local/sdkm` | 符号链接目录，切换 SDK 后各 SDK 的激活入口都在此目录下 |
+| `symlink_dir` | Path | 是 | `<sdkm_home>/links`（跟随 home） | 符号链接目录，切换 SDK 后各 SDK 的激活入口都在此目录下。**省略/删除 = 跟随 sdkm home**（exe 移到哪 links 就在哪，跨平台一致、用户级可写、绿色便携）；显式设置则用自定义路径（如多用户共享 `/opt/sdkm/links`） |
 
 ### `[network]` 网络配置
 
@@ -61,7 +61,7 @@ extra_paths = []
 | `download_url` | UrlTemplate | **否（任何 SDK）** | 下载主源 URL 模板，支持 `{version}` 等占位符，必填 |
 | `download_fallback_url` | UrlTemplate | 内置否/自定义是 | 下载备源 URL 模板，主源失败时回退 |
 | `current_version` | NonEmptyString | 同上 | 当前激活版本（由 `switch` 自动维护，一般不手动改） |
-| `bin_dir` | FreeString | **否（任何 SDK）** | 二进制所在子目录名；**空字符串 = 二进制在 SDK 根目录**（如 Node.js、Windows 下的 Python）；必填 |
+| `bin_dir` | FreeString | **否（任何 SDK）** | 二进制所在子目录名；**空值/省略 = 二进制在 SDK 根目录**（如 Windows 下的 Node.js / Python）；内置 SDK 已按平台预设（Linux/macOS 的 Node 与 Python 为 `bin`，Java/Maven 全平台为 `bin`）；必填 |
 | `extra_vars` | NonEmptyString | 同上 | 额外环境变量键值表，值支持模板渲染（如 `JAVA_HOME = "{sdk_dir}"`） |
 | `extra_paths` | Path | 同上 | 额外 PATH 条目（相对符号链接目录，可多条） |
 

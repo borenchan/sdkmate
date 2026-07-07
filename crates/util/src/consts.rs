@@ -27,6 +27,7 @@ pub const DIR_DESC_STORE: &str = "SDK versions storage";
 pub const DIR_DESC_TMP: &str = "download temp (created on install)";
 pub const DIR_DESC_CACHE: &str = "version API cache (created on install)";
 pub const DIR_DESC_CONFIG: &str = "global config";
+pub const DIR_DESC_LINKS: &str = "active SDK symlinks";
 
 /// Visual divider line for terminal output (50 box-drawing chars)
 pub const DIVIDER: &str = "──────────────────────────────────────────────────";
@@ -54,12 +55,8 @@ pub const TUI_TIPS: &[&str] = &[
     "✅ active  📦 installed — installed rows highlighted in green",
 ];
 
-// default symlink dir
-#[cfg(windows)]
-pub const SDKM_SYMLINK_DIR: &str = "C:\\Program Files\\sdkm";
-
-#[cfg(unix)]
-pub const SDKM_SYMLINK_DIR: &str = "/usr/local/sdkm";
+/// 默认符号链接目录名（位于 sdkm home 下，运行时拼成 <home>/links）
+pub const SDKM_LINKS_DIR: &str = "links";
 
 /// GitHub issue URL（用于 bug report 提示）
 pub const GITHUB_ISSUES_URL: &str = "https://github.com/borenchan/sdkmate/issues/new";

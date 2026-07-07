@@ -1,4 +1,4 @@
-use crate::consts::{CONFIG_FILE_NAME, SDKM_STORE_DIR};
+use crate::consts::{CONFIG_FILE_NAME, SDKM_LINKS_DIR, SDKM_STORE_DIR};
 use anyhow::{Context, Result};
 use std::{
     env,
@@ -27,6 +27,14 @@ pub fn get_sdkm_home() -> Result<PathBuf> {
 pub fn get_installed_sdks_dir() -> Result<PathBuf> {
     let sdkm_home = get_sdkm_home()?;
     Ok(sdkm_home.join(SDKM_STORE_DIR))
+}
+
+/// 获取默认符号链接目录（<sdkm_home>/links）
+///
+/// 跟随 sdkm home：exe 放哪 links 就在哪，跨平台一致、用户级可写。
+pub fn get_default_symlink_dir() -> Result<PathBuf> {
+    let sdkm_home = get_sdkm_home()?;
+    Ok(sdkm_home.join(SDKM_LINKS_DIR))
 }
 
 /// 获取 sdkm 配置文件路径

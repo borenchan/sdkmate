@@ -20,7 +20,7 @@ sdkm 的 **home = 运行中可执行文件的父目录**（`current_exe()`），
 - 可执行文件：`<home>/sdkm(.exe)`
 - SDK 安装根：`<home>/store/<sdk>/<version>/`（如 `store/java/21/`）
 - 配置文件：`<home>/config.toml`（TOML 格式）
-- 符号链接目录：`config.toml` 的 `symlink_dir`（Windows 默认 `C:\Program Files\sdkm`，Unix 默认 `/usr/local/sdkm`），切换后的激活入口都在此目录下。
+- 符号链接目录：`config.toml` 的 `symlink_dir`（默认 `<home>/links`，跟随 sdkm home；省略/`delete` 即跟随，`set` 可自定义），切换后的激活入口都在此目录下。
 
 不确定 home 在哪时，`sdkm current` 或 `sdkm init` 的输出会打印各路径。
 
@@ -112,7 +112,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 
 ### 配置项含义
 
-顶层 `symlink_dir`（符号链接目录；Win 默认 `C:\Program Files\sdkm`，Unix 默认 `/usr/local/sdkm`，不可删）。
+顶层 `symlink_dir`（符号链接目录；默认 `<home>/links` 跟随 home，`delete` 可恢复跟随，`set` 可自定义）。
 
 `[network]` 段：
 

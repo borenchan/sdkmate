@@ -66,11 +66,16 @@ impl Display for BuiltinSdk {
 }
 impl BuiltinSdk {
     /// get sdk bin directory
-    /// For Python install_only: after double-lift normalization,
-    /// Windows has python.exe at root, Unix has python3 in bin/
+    /// - Java/Maven：解压后可执行文件在 bin/ 子目录（全平台一致）
+    /// - Node：Windows zip 解压后 node.exe 在根目录；Linux/macOS tar.gz 解压后 node/npm 在 bin/ 子目录
+    /// - Python install_only: after double-lift normalization,
+    ///   Windows has python.exe at root, Unix has python3 in bin/
     pub fn get_sdk_bin_dir(&self) -> &str {
         match self {
-            BuiltinSdk::Node => "",
+            BuiltinSdk::Node => {
+                // Windows zip 解压后扁平（node.exe 在根）；Unix tar.gz 解压后 node/npm 在 bin/
+                if cfg!(target_os = "windows") { "" } else { "bin" }
+            }
             BuiltinSdk::Python => {
                 // install_only 二次提升后：Windows 扁平结构，Unix bin/ 子目录
                 if cfg!(target_os = "windows") { "" } else { "bin" }
