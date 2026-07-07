@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.2.5 - 2026-07-07
+
+
+### 🐛 Bug Fixes
+
+- use |&p| pattern in filter closure to destructure &&str — [`ced01ea`](https://github.com/borenchan/sdkmate/commit/ced01ea)
+- fix remove_sdk_path filter type mismatch — [`28c777d`](https://github.com/borenchan/sdkmate/commit/28c777d)
+- make symlink_dir follow sdkm home and fix unix env bugs — [`6c1fa8b`](https://github.com/borenchan/sdkmate/commit/6c1fa8b)
+
+### ⚡ Performance
+
+- update reqwest version — [`9b84587`](https://github.com/borenchan/sdkmate/commit/9b84587)
+
+### 🧰 Chore
+
+- release v0.2.5 — [`2c516f3`](https://github.com/borenchan/sdkmate/commit/2c516f3)
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.4...v0.2.5
+
+
+
 ## v0.2.4 - 2026-07-06
 
 
