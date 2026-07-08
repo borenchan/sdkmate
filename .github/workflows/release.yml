@@ -56,16 +56,34 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Linux gnu：glibc 2.35（ubuntu-22.04 编译），兼容 Ubuntu 22.04+/Debian 12+/Fedora 37+
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact_name: sdkm
-            asset_name: sdkmate-linux-x86_64
+            asset_name: sdkmate-linux-x86_64-gnu
             archive_format: tar.gz
-          - os: macos-latest
+          # Linux musl：全静态，无 glibc 依赖，任意 Linux 通吃（Alpine/CentOS 7/容器）
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            artifact_name: sdkm
+            asset_name: sdkmate-linux-x86_64-musl
+            archive_format: tar.gz
+            apt_packages: musl-tools cmake perl
+          # macOS ARM（M1+）：deployment target 11.0 覆盖 Big Sur+，避免绑 runner SDK 版本
+          - os: macos-14
             target: aarch64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-aarch64
             archive_format: tar.gz
+            macos_deployment_target: "11.0"
+          # macOS Intel：覆盖 x86_64 Mac
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact_name: sdkm
+            asset_name: sdkmate-macos-x86_64
+            archive_format: tar.gz
+            macos_deployment_target: "11.0"
+          # Windows：向后兼容性好，保持 latest
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: sdkm.exe
@@ -77,6 +95,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install native build deps (Linux musl)
+        if: matrix.apt_packages
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt_packages }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -86,6 +108,9 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
+        env:
+          # macOS：固定最低部署版本，避免编出的二进制绑 runner SDK 版本（老 macOS 跑不了，同 glibc 坑）
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target }}
         run: cargo build --release --target ${{ matrix.target }} --locked
 
       - name: Strip binary (Linux/macOS)
