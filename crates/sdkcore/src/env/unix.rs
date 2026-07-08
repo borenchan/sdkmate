@@ -69,7 +69,7 @@ impl UnixEnvOperation {
             if line.starts_with(PATH_EXPORT_PREFIX) {
                 return line
                     .trim_start_matches(PATH_EXPORT_PREFIX)
-                    .trim_matches('"')
+                    .replace('"', "")
                     .to_string();
             }
         }
@@ -113,18 +113,18 @@ impl UnixEnvOperation {
 
         let mut lines: Vec<String> = content.lines().map(String::from).collect();
         if let Some(idx) = Self::find_path_export_line(&lines) {
-            // 前置插入到已有 export PATH 行
+            // 前置插入到已有 export PATH 行；整体引号包裹值，replace 去引号解析兼容历史部分引号格式
             let current_value = lines[idx]
                 .trim_start_matches(PATH_EXPORT_PREFIX)
-                .trim_matches('"');
+                .replace('"', "");
             lines[idx] = format!(
-                "{}\"{}\"{}{}",
+                "{}\"{}{}{}\"",
                 PATH_EXPORT_PREFIX, expanded_path, PATH_SEPARATOR, current_value
             );
         } else {
-            // 无 export PATH 行：新建，追加 :$PATH 引用避免冲掉系统 PATH
+            // 无 export PATH 行：新建，整体引号包裹 <dir>:$PATH（$PATH 在双引号内会展开，避免冲掉系统 PATH）
             lines.push(format!(
-                "{}\"{}\"{}{}",
+                "{}\"{}{}{}\"",
                 PATH_EXPORT_PREFIX, expanded_path, PATH_SEPARATOR, PATH_BACKREF
             ));
         }
@@ -198,13 +198,21 @@ impl EnvOperation for UnixEnvOperation {
         if let Some(idx) = Self::find_path_export_line(&lines) {
             let current_value = lines[idx]
                 .trim_start_matches(PATH_EXPORT_PREFIX)
-                .trim_matches('"');
+                .replace('"', "");
             let paths: Vec<String> = current_value
                 .split(PATH_SEPARATOR)
                 .filter(|&p| p != expanded_target.as_str() && p != target)
                 .map(String::from)
                 .collect();
-            lines[idx] = format!("{}\"{}\"", PATH_EXPORT_PREFIX, paths.join(PATH_SEPARATOR));
+            // 保留 :$PATH 引用（整体引号包裹），否则 export PATH="<paths>" 会冲掉系统 PATH
+            if paths.is_empty() {
+                lines.remove(idx);
+            } else {
+                lines[idx] = format!(
+                    "{}\"{}{}{}\"",
+                    PATH_EXPORT_PREFIX, paths.join(PATH_SEPARATOR), PATH_SEPARATOR, PATH_BACKREF
+                );
+            }
         }
 
         Self::write_profile(&profile_path, &lines)?;
