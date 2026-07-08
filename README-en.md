@@ -51,7 +51,7 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
     <tr>
       <td width="25%" align="center">
         <h3>🟢 Portable · Lightweight</h3>
-        <p>Single binary · zero runtime deps · <strong>~3MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
+        <p>Single binary · zero runtime deps · <strong>~4MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
       </td>
       <td width="25%" align="center">
         <h3>⚡ Instant · Global</h3>

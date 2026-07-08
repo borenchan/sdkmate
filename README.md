@@ -51,7 +51,7 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
     <tr>
       <td width="25%" align="center">
         <h3>🟢 纯绿色 · 轻量</h3>
-        <p>单二进制 · 零运行时依赖 · <strong>~3MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
+        <p>单二进制 · 零运行时依赖 · <strong>~4MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
       </td>
       <td width="25%" align="center">
         <h3>⚡ 即时切换 · 全局生效</h3>
