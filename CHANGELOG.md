@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.7 - 2026-07-08
+
+
+### 🐛 Bug Fixes
+
+- correct PATH export quoting that broke shell profile source — [`0c53f96`](https://github.com/borenchan/sdkmate/commit/0c53f96)
+
+### 📝 Documentation
+
+- update CLAUDE.md with v0.2.6 release postmortem — [`394a98d`](https://github.com/borenchan/sdkmate/commit/394a98d)
+
+### 🧰 Chore
+
+- release v0.2.7 — [`196731d`](https://github.com/borenchan/sdkmate/commit/196731d)
+
+### 🙌 Contributors
+
+- borenchan
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.6...v0.2.7
+
+
+
 ## v0.2.6 - 2026-07-08
 
 
