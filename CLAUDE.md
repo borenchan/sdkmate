@@ -120,12 +120,18 @@ v0.2.5 在 WSL/Ubuntu 22.04 实测暴露 `GLIBC_2.38/2.39 not found`（`ubuntu-l
    - Linux gnu：`ubuntu-latest`→`ubuntu-22.04`（glibc 2.35，兼容 22.04+/Debian 12+/Fedora 37+），asset 改名 `sdkmate-linux-x86_64-gnu`
    - Linux musl：**新增** `ubuntu-22.04` + `x86_64-unknown-linux-musl`，全静态无 glibc 依赖，通吃 Alpine/CentOS 7/容器；额外装 `musl-tools cmake perl`（aws-lc-rs 编 C/asm），asset `sdkmate-linux-x86_64-musl`
    - macOS ARM：`macos-latest`→`macos-14` + `aarch64-apple-darwin`，asset `sdkmate-macos-aarch64`
-   - macOS Intel：**新增** `macos-13` + `x86_64-apple-darwin`（Intel runner，覆盖 x86_64 Mac），asset `sdkmate-macos-x86_64`
+   - macOS Intel：**新增** `macos-14` + `x86_64-apple-darwin`（在 ARM runner 上交叉编译，避开 macos-13 Intel runner 严重排队），asset `sdkmate-macos-x86_64`
    - Windows：`windows-latest` 不变
 2. **`MACOSX_DEPLOYMENT_TARGET=11.0`**（build 步骤 env，两个 macos entry 都设）— macOS 的 glibc 同款坑：runner SDK 版本升高会编出绑新 `libSystem` 符号的二进制，老 macOS 跑不了。显式设 11.0（Big Sur+）让 rustc 弱链接，macOS 11+ 都能跑。**`macos-latest` 随时间 14→15 升级会持续抬高默认 deployment target，必须显式钉**
 3. **README 体积 `~3MB`→`~4MB`**（`README.md` + `README-en.md`）— rustls+aws-lc-rs 静态链入后实测 Win 4.5MB / Linux 6MB，标称取 Windows 数 ~4MB
 4. **changelog 加 Contributors 栏目**（`.github/scripts/gen_changelog.sh`）— 脚本末尾 Other 段后、Full Changelog 前，输出本版本区间提交作者（按 email 去重，过滤 `[bot]` 与 `docs(changelog):` 回写提交）。`noreply.github.com` 邮箱正则提取 username 生成 profile 链接，否则纯文本名。本地 `VERSION=0.2.5 bash .github/scripts/gen_changelog.sh` 验证通过
 5. **TLS 后端评估结论：保持 rustls+aws-lc-rs 不变** — 评估了 ring（`rustls-no-provider`+代码手动 `install_default()`，省 ~2MB 但 provider 注入对 reqwest 内部 hyper-rustls/tokio-rustls 是否生效需实测，有风险）、native-tls（Win schannel 小但 Linux 需 `libssl3`+`ca-certificates` 破坏"纯绿色"招牌，违背 07-07 消除 OpenSSL 依赖的决策）。用户选择不引入风险。Windows 旧版 2.6MB 是借系统 SChannel 白嫖，0.13 升级后全平台静态 aws-lc-rs 不再特殊
+6. **v0.2.6 首次 build 三连失败 + 修复**（发版实测暴露，三问题根因不同）：
+   - **Linux gnu `undefined symbol: __isoc23_sscanf/__isoc23_strtol`**：`__isoc23_*` 是 glibc 2.38+ 的 C23 符号，22.04（glibc 2.35）没有。根因不是 22.04 编译失败，而是 **Swatinem/rust-cache 缓存污染**——key 只 `${{ matrix.target }}` 不含 OS 版本，之前 ubuntu-latest(24.04, glibc 2.38) 编的 aws-lc-sys `.o` 被 22.04 命中直接链接 → 24.04 的 `.o` 找 22.04 glibc 要 `__isoc23_` → 失败。22.04 gcc 11 + glibc 2.35 头文件根本编不出 `__isoc23_` 引用，所以 `.o` 只能来自 24.04 缓存。修复：cache key 改 `${{ matrix.target }}-${{ matrix.os }}`，强制 22.04 重编
+   - **Linux musl `can't find crate for core / target not installed`**：项目 `rust-toolchain.toml` 固定 1.92.0，但 `dtolnay/rust-toolchain@stable` 装 stable 并把 target 加到 **stable**，cargo 用 1.92.0 → 非默认 target（musl）在 1.92.0 找不到（gnu 是 host target 默认带所以能编到链接阶段）。修复：dtolnay 显式 `toolchain: 1.92.0`，target 装到 1.92.0
+   - **macOS Intel `queued 1h10m+`**：macos-13（Intel）runner 严重短缺（GitHub 已知）。修复：改 macos-14（ARM）交叉编译 `x86_64-apple-darwin`（macOS clang 原生支持交叉），不等 Intel runner
+7. **v0.2.7 误 bump 回退教训** — v0.2.6 build 失败后，我错误地 bump 0.2.7 重发（以为 v0.2.6 tag 已存在不能复用）。用户纠正：**CI 修复不是代码变化，不该升版本号**；应删 v0.2.6 tag 重发同版本（见「发布流程」重发同一版本）。处理：删 v0.2.6+v0.2.7 tag（`git push github :refs/tags/<tag>`，git 操作 Claude 可做）+ 删 v0.2.7 release（DELETE release API 需 token，Claude 无 API 写权限，用户手动删）+ 回退 Cargo.toml 0.2.7→0.2.6 + rebase（v0.2.7 run 跑完回写了 CHANGELOG.md）+ push 重发。**原则：纯 CI/文档修复复用原版本号删 tag 重发，patch/minor bump 只留给代码变化**
+8. **v0.2.6 最终发布成功**（2026-07-08）— 五产物 tar.gz 体积：linux gnu 2.6MB / linux musl 2.68MB / macos ARM 2.27MB / macos Intel 2.54MB / windows 2.13MB。解压二进制 linux ~6MB / windows ~4.5MB（rustls+aws-lc-rs 静态，与 v0.2.5 一致，未换 ring 故未降）。README `~4MB` 标称取 Windows 数，linux 实际 ~6MB 偏高，待用户定夺是否改 `~5MB`
 
 ### 本次改动（2026-07-07）—— Linux 可用性修复 + reqwest 升级 rustls
 
