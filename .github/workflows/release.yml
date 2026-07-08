@@ -76,8 +76,8 @@ jobs:
             asset_name: sdkmate-macos-aarch64
             archive_format: tar.gz
             macos_deployment_target: "11.0"
-          # macOS Intel：覆盖 x86_64 Mac
-          - os: macos-13
+          # macOS Intel：在 ARM runner(macos-14) 上交叉编译 x86_64，避开 macos-13 Intel runner 长排队
+          - os: macos-14
             target: x86_64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkmate-macos-x86_64
@@ -101,11 +101,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # 显式 1.92.0 与 rust-toolchain.toml 一致：targets 才会装到 1.92.0（非默认 target 如 musl 才找得到）
+          toolchain: 1.92.0
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          # key 含 OS 版本：避免 24.04 编的 aws-lc-sys 产物被 22.04 命中（__isoc23_ 缓存污染）
+          key: ${{ matrix.target }}-${{ matrix.os }}
 
       - name: Build
         env:
