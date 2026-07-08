@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.2.8 - 2026-07-08
+
+
+### ✨ Features
+
+- support download resume via HTTP Range requests — [`09b190a`](https://github.com/borenchan/sdkmate/commit/09b190a)
+
+### 🧰 Chore
+
+- release v0.2.8 — [`957139b`](https://github.com/borenchan/sdkmate/commit/957139b)
+
+### 🙌 Contributors
+
+- borenchan
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.7...v0.2.8
+
+
+
 ## v0.2.7 - 2026-07-08
 
 
