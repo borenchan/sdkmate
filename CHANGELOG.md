@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.2.6 - 2026-07-08
+
+
+### 📝 Documentation
+
+- update CLAUDE.md for v0.2.6 cross-platform CI changes — [`4e7db26`](https://github.com/borenchan/sdkmate/commit/4e7db26)
+- update binary size to ~4MB — [`52ba8fc`](https://github.com/borenchan/sdkmate/commit/52ba8fc)
+
+### 👷 CI / Build
+
+- fix linux cache pollution and musl target; cross-compile macos x86_64 — [`93b87ca`](https://github.com/borenchan/sdkmate/commit/93b87ca)
+- add Contributors section to generated changelog — [`5546d7f`](https://github.com/borenchan/sdkmate/commit/5546d7f)
+- add linux musl/gnu dual builds and pin macos deployment target — [`0ddbafd`](https://github.com/borenchan/sdkmate/commit/0ddbafd)
+
+### 🧰 Chore
+
+- release v0.2.6 — [`1914bf9`](https://github.com/borenchan/sdkmate/commit/1914bf9)
+- release v0.2.7 — [`8c91d77`](https://github.com/borenchan/sdkmate/commit/8c91d77)
+- release v0.2.6 — [`30ae5c0`](https://github.com/borenchan/sdkmate/commit/30ae5c0)
+
+### 🙌 Contributors
+
+- borenchan
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.5...v0.2.6
+
+
+
 ## v0.2.7 - 2026-07-08
 
 
