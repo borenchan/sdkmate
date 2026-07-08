@@ -110,7 +110,22 @@ bin_dir = "bin"
 
 **拆分要点**：原 `SdkInstallStrategy` trait 拆为 `VersionDiscovery`（只含 parse，公共）+ install 侧自由函数 `build_download_url`（按 SDK 分发，各 SDK os/arch 风格集中）；`get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy`（带 os_style/arch_style 字段）→ `ConfigBasedDiscovery`（单元结构体，custom SDK 下载 URL 风格改由 `build_download_url` 的 Custom 分支用 `OsStyle::Default`/`ArchStyle::Default` 表达，与原 `ConfigBasedStrategy::default()` 行为一致）。
 
-## 当前开发进度（2026-07-07）
+## 当前开发进度（2026-07-08）
+
+### 本次改动（2026-07-08）—— CI 跨平台兼容性修复（glibc/macOS deployment target）+ 双产物 + changelog Contributors
+
+v0.2.5 在 WSL/Ubuntu 22.04 实测暴露 `GLIBC_2.38/2.39 not found`（`ubuntu-latest`=24.04 编译，glibc 2.39，老系统跑不起来），同时 Windows 实测 4.5MB / Linux 6MB（rustls+aws-lc-rs 静态链入）。本次**不碰代码**，只改 CI + 文档，发布 v0.2.6。
+
+1. **release.yml matrix 三产物 → 五产物**（`.github/workflows/release.yml`）：
+   - Linux gnu：`ubuntu-latest`→`ubuntu-22.04`（glibc 2.35，兼容 22.04+/Debian 12+/Fedora 37+），asset 改名 `sdkmate-linux-x86_64-gnu`
+   - Linux musl：**新增** `ubuntu-22.04` + `x86_64-unknown-linux-musl`，全静态无 glibc 依赖，通吃 Alpine/CentOS 7/容器；额外装 `musl-tools cmake perl`（aws-lc-rs 编 C/asm），asset `sdkmate-linux-x86_64-musl`
+   - macOS ARM：`macos-latest`→`macos-14` + `aarch64-apple-darwin`，asset `sdkmate-macos-aarch64`
+   - macOS Intel：**新增** `macos-13` + `x86_64-apple-darwin`（Intel runner，覆盖 x86_64 Mac），asset `sdkmate-macos-x86_64`
+   - Windows：`windows-latest` 不变
+2. **`MACOSX_DEPLOYMENT_TARGET=11.0`**（build 步骤 env，两个 macos entry 都设）— macOS 的 glibc 同款坑：runner SDK 版本升高会编出绑新 `libSystem` 符号的二进制，老 macOS 跑不了。显式设 11.0（Big Sur+）让 rustc 弱链接，macOS 11+ 都能跑。**`macos-latest` 随时间 14→15 升级会持续抬高默认 deployment target，必须显式钉**
+3. **README 体积 `~3MB`→`~4MB`**（`README.md` + `README-en.md`）— rustls+aws-lc-rs 静态链入后实测 Win 4.5MB / Linux 6MB，标称取 Windows 数 ~4MB
+4. **changelog 加 Contributors 栏目**（`.github/scripts/gen_changelog.sh`）— 脚本末尾 Other 段后、Full Changelog 前，输出本版本区间提交作者（按 email 去重，过滤 `[bot]` 与 `docs(changelog):` 回写提交）。`noreply.github.com` 邮箱正则提取 username 生成 profile 链接，否则纯文本名。本地 `VERSION=0.2.5 bash .github/scripts/gen_changelog.sh` 验证通过
+5. **TLS 后端评估结论：保持 rustls+aws-lc-rs 不变** — 评估了 ring（`rustls-no-provider`+代码手动 `install_default()`，省 ~2MB 但 provider 注入对 reqwest 内部 hyper-rustls/tokio-rustls 是否生效需实测，有风险）、native-tls（Win schannel 小但 Linux 需 `libssl3`+`ca-certificates` 破坏"纯绿色"招牌，违背 07-07 消除 OpenSSL 依赖的决策）。用户选择不引入风险。Windows 旧版 2.6MB 是借系统 SChannel 白嫖，0.13 升级后全平台静态 aws-lc-rs 不再特殊
 
 ### 本次改动（2026-07-07）—— Linux 可用性修复 + reqwest 升级 rustls
 
@@ -195,14 +210,15 @@ WSL/Ubuntu 22.04 实测暴露的 Linux 下 init/switch 缺陷集中修复，核�
 ### 发版三步
 1. 改根 `Cargo.toml` 的 `[workspace.package] version` 一行（patch `0.2.0→0.2.1` / minor `→0.3.0` / major `→1.0.0`）
 2. 本地 `cargo build` 刷新 `Cargo.lock`（CI 用 `--locked`，Cargo.lock 必须与版本号同步，否则构建失败）
-3. 单独 commit bump（`chore: release vX.Y.Z`）+ push 到 master → 工作流自动打 tag、三平台构建、创建 release
+3. 单独 commit bump（`chore: release vX.Y.Z`）+ push 到 master → 工作流自动打 tag、五产物构建、创建 release
 
 ### 要点
 - **changelog 自动生成**：来自「上个 tag..HEAD」的 conventional commits，按 `feat`/`fix`/`refactor`/`docs`/`ci` 等前缀分类（`.github/scripts/gen_changelog.sh`）。保持约定式 commit message 才好看
 - **根 `CHANGELOG.md` 由 CI 维护**：发版后 upload-release job 把本次版本正文 prepend 到根 `CHANGELOG.md`（`## v{VERSION} - {DATE}` 版本头，最新在上）并 commit 回 master。**本地不要手改**——会被下次发版覆盖；GITHUB_TOKEN push 不触发 workflow 递归
 - **版本号只能递增、不可复用**：已发版本 tag 已存在，再 push 同版本会被跳过
 - **重发同一版本**：先删对应 tag+release 再 push；或直接 bump 到下一版本（推荐，更干净）
-- **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上的三平台二进制
+- **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上的五产物二进制（Linux gnu/musl、macOS ARM/Intel、Windows）
+- **五产物矩阵**（`release.yml` build job）：`ubuntu-22.04`×{gnu,musl} + `macos-14`/aarch64 + `macos-13`/x86_64 + `windows-latest`。Linux gnu 用 22.04（glibc 2.35）避开 24.04 的 `GLIBC_2.39` 墙；musl 全静态通吃老系统/Alpine；macOS 必须设 `MACOSX_DEPLOYMENT_TARGET=11.0`（否则 runner SDK 升高会编出老 macOS 跑不了的二进制，同 glibc 坑）；Windows 向后兼容性好保持 latest
 - **本地 origin 指向 gitee，GitHub remote 叫 `github`**：查 GitHub 状态用 API 或 `git fetch github --tags`
 
 ## 提交规范
