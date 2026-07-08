@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.7 - 2026-07-08
+
+
+### 📝 Documentation
+
+- update CLAUDE.md for v0.2.6 cross-platform CI changes — [`4e7db26`](https://github.com/borenchan/sdkmate/commit/4e7db26)
+
+### 👷 CI / Build
+
+- fix linux cache pollution and musl target; cross-compile macos x86_64 — [`93b87ca`](https://github.com/borenchan/sdkmate/commit/93b87ca)
+
+### 🧰 Chore
+
+- release v0.2.7 — [`8c91d77`](https://github.com/borenchan/sdkmate/commit/8c91d77)
+
+### 🙌 Contributors
+
+- borenchan
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.6...v0.2.7
+
+
+
 ## v0.2.5 - 2026-07-07
 
 
