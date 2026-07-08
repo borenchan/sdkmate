@@ -61,6 +61,24 @@ for line in "${COMMITS[@]}"; do
   fi
 done
 
+# Contributors：本版本区间的提交作者（去重，过滤 bot 与 changelog 回写提交）
+printf '\n### 🙌 Contributors\n\n'
+mapfile -t _AUTHORS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%an|%ae" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
+declare -A _seen=()
+for _entry in "${_AUTHORS[@]}"; do
+  _name="${_entry%%|*}"
+  _email="${_entry##*|}"
+  [[ "$_email" == *"[bot]"* ]] && continue
+  [ -n "${_seen[$_email]:-}" ] && continue
+  _seen[$_email]=1
+  # noreply.github.com 邮箱 → 提取 GitHub username 生成 profile 链接，否则纯文本
+  if [[ "$_email" =~ ^([0-9]+\+)?([^@]+)@users\.noreply\.github\.com$ ]]; then
+    printf -- '- [%s](https://github.com/%s)\n' "$_name" "${BASH_REMATCH[2]}"
+  else
+    printf -- '- %s\n' "$_name"
+  fi
+done
+
 if [ -n "$RANGE_DESC" ]; then
   printf '\n**Full Changelog**: https://github.com/%s/compare/%s\n' "$REPO_FULL" "$RANGE_DESC"
 fi
