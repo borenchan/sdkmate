@@ -62,18 +62,33 @@ for line in "${COMMITS[@]}"; do
 done
 
 # Contributors：本版本区间的提交作者（去重，过滤 bot 与 changelog 回写提交）
+# 优先用 GitHub commits API 拿 author login + avatar_url；无 token/失败则 fallback noreply email 提取或纯文字
 printf '\n### 🙌 Contributors\n\n'
-mapfile -t _AUTHORS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%an|%ae" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
+mapfile -t _AUTHORS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%h|%an|%ae" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
 declare -A _seen=()
 for _entry in "${_AUTHORS[@]}"; do
-  _name="${_entry%%|*}"
-  _email="${_entry##*|}"
+  _sha="${_entry%%|*}"
+  _rest="${_entry#*|}"
+  _name="${_rest%%|*}"
+  _email="${_rest##*|}"
   [[ "$_email" == *"[bot]"* ]] && continue
   [ -n "${_seen[$_email]:-}" ] && continue
   _seen[$_email]=1
-  # noreply.github.com 邮箱 → 提取 GitHub username 生成 profile 链接，否则纯文本
-  if [[ "$_email" =~ ^([0-9]+\+)?([^@]+)@users\.noreply\.github\.com$ ]]; then
-    printf -- '- [%s](https://github.com/%s)\n' "$_name" "${BASH_REMATCH[2]}"
+  _login=""
+  _avatar_url=""
+  # 优先：GitHub commits API 拿 author login + avatar_url（CI 上 GITHUB_TOKEN 可用）
+  if [ -n "${GITHUB_TOKEN:-}" ] && command -v jq >/dev/null 2>&1; then
+    _info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO_FULL}/commits/${_sha}" 2>/dev/null || echo '{}')
+    _login=$(printf '%s' "$_info" | jq -r '.author.login // empty' 2>/dev/null)
+    _avatar_url=$(printf '%s' "$_info" | jq -r '.author.avatar_url // empty' 2>/dev/null)
+  fi
+  # fallback：noreply email 提取 login（本地无 token 时）
+  if [ -z "$_login" ] && [[ "$_email" =~ ^([0-9]+\+)?([^@]+)@users\.noreply\.github\.com$ ]]; then
+    _login="${BASH_REMATCH[2]}"
+    _avatar_url="https://avatars.githubusercontent.com/${_login}?s=64"
+  fi
+  if [ -n "$_login" ] && [ -n "$_avatar_url" ]; then
+    printf -- '- <a href="https://github.com/%s"><img src="%s" width="32" height="32" alt="%s" /> %s</a>\n' "$_login" "$_avatar_url" "$_login" "$_name"
   else
     printf -- '- %s\n' "$_name"
   fi

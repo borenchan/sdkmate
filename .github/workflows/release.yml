@@ -156,6 +156,7 @@ jobs:
       - name: Generate changelog
         env:
           VERSION: ${{ needs.tag.outputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           bash .github/scripts/gen_changelog.sh > changelog.md
           echo "===== generated changelog ====="
