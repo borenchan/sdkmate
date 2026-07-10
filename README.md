@@ -130,7 +130,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 ### 📥 下载预编译二进制
 
-前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包，解压后可将 `sdkm` 可执行文件放到任意工作目录中。
+前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包，解压到任意目录即可（保留 `.sdkm/` 目录结构），进入 `.sdkm/` 目录即可开始使用。
 
 ---
 

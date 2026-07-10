@@ -130,7 +130,7 @@ Switching between Java, Node.js, Python, Maven and other SDK versions is the nor
 
 ### 📥 Pre-built binaries
 
-Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page, unzip and place `sdkm` (`sdkm.exe` on Windows) in any working directory.
+Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page, extract it anywhere (preserve the `.sdkm/` directory structure), then cd into `.sdkm/` to get started.
 
 ---
 
