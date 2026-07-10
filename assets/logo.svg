@@ -64,8 +64,8 @@
   <!-- 底部文字背景 -->
   <rect x="80" y="315" width="240" height="50" rx="10" ry="10" fill="url(#logoGradient)" opacity="0.1"/>
 
-  <!-- sdkmate 文字 -->
-  <text x="200" y="350" font-family="'Segoe UI', 'Arial', sans-serif" font-size="36" font-weight="bold" fill="url(#logoGradient)" text-anchor="middle" letter-spacing="4">SDKMATE</text>
+  <!-- sdkm 文字 -->
+  <text x="200" y="350" font-family="'Segoe UI', 'Arial', sans-serif" font-size="36" font-weight="bold" fill="url(#logoGradient)" text-anchor="middle" letter-spacing="4">SDKM</text>
 
   <!-- 装饰性圆点 -->
   <circle cx="60" cy="60" r="6" fill="#00d4ff" opacity="0.8"/>

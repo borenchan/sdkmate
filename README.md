@@ -1,7 +1,7 @@
 <div align="center">
 
   <h1 align="center">
-    <img src="./assets/logo.svg" alt="sdkmate" width="200"/>
+    <img src="./assets/logo.png" alt="sdkm" width="200"/>
   </h1>
 
   <p>
@@ -278,5 +278,11 @@ cargo clippy --all-targets --all-features              # 代码检查
 **如果这个项目对你有帮助，请点个 ⭐ 支持一下！**
 
 Made with ❤️ by the sdkm team
+
+</div>
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?borenchan/sdkmate&type=Date)](https://star-history.com/#borenchan/sdkmate&Date)
 
 </div>

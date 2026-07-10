@@ -1,7 +1,7 @@
 <div align="center">
 
   <h1 align="center">
-    <img src="./assets/logo.svg" alt="sdkmate" width="200"/>
+    <img src="./assets/logo.png" alt="sdkm" width="200"/>
   </h1>
 
   <p>
@@ -277,6 +277,12 @@ This project is open-sourced under the [Apache-2.0](./LICENSE) license.
 
 **If this project helps you, please give it a ⭐!**
 
-Made with ❤️ by the sdkmate team
+Made with ❤️ by the sdkm team
+
+</div>
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?borenchan/sdkmate&type=Date)](https://star-history.com/#borenchan/sdkmate&Date)
 
 </div>
