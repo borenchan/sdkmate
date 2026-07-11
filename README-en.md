@@ -283,6 +283,6 @@ Made with ❤️ by the sdkm team
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?borenchan/sdkmate&type=Date)](https://star-history.com/#borenchan/sdkmate&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=borenchan/sdkmate&type=Date)](https://star-history.com/#borenchan/sdkmate&Date)
 
 </div>
