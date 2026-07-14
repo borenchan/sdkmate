@@ -15,7 +15,16 @@ pub fn is_sdkm_dedicated_dir(sdkm_home: &Path) -> bool {
 }
 
 /// 获取 sdkm home 目录
+///
+/// 优先读 `SDKM_HOME` 环境变量（参考 rustup 的 `RUSTUP_HOME` 模式）：
+/// 既支持便携部署时自定义 home 位置，也便于测试注入临时目录做端到端集成测试。
+/// 未设置或为空时回退到「运行中可执行文件的父目录」，保持绿色便携语义不变。
 pub fn get_sdkm_home() -> Result<PathBuf> {
+    if let Ok(home) = env::var("SDKM_HOME") {
+        if !home.is_empty() {
+            return Ok(PathBuf::from(home));
+        }
+    }
     let exe_path = env::current_exe().context("cannot locate sdkm executable")?;
     exe_path
         .parent()

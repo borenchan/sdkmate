@@ -1,13 +1,14 @@
+use crate::impls::config::ConfigHandler;
 use crate::impls::current::CurrentHandler;
 use crate::impls::init::InitHandler;
 use crate::impls::install::InstallHandler;
 use crate::impls::list::ListHandler;
 use crate::impls::switch::SwitchHandler;
-use crate::impls::config::ConfigHandler;
+use crate::impls::uninstall::UninstallHandler;
 use clap::builder::styling;
 use clap::{ColorChoice, Parser, Subcommand};
-use std::process::ExitCode;
 use crossterm::style::Stylize;
+use std::process::ExitCode;
 use util::consts::{ABOUT, BANNER, BugReportError};
 use util::error;
 use util::terminal::suggest_bug_report;
@@ -43,6 +44,9 @@ pub enum Commands {
 
     #[command(name = "config", about = "View or edit sdkm configuration")]
     Config(ConfigHandler),
+
+    #[command(name = "uninstall", visible_aliases = ["rm", "un"], about = "Uninstall an SDK version from local store")]
+    Uninstall(UninstallHandler),
 }
 
 impl SdkMateCli {
@@ -71,6 +75,7 @@ impl Commands {
             Commands::Switch(handler) => handler.run(),
             Commands::Current(handler) => handler.run(),
             Commands::Config(handler) => handler.run(),
+            Commands::Uninstall(handler) => handler.run(),
         };
         match res {
             Ok(()) => ExitCode::SUCCESS,

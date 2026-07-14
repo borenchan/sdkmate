@@ -82,6 +82,7 @@ bin_dir = "bin"
 |------|------|---------|------|
 | `sdkm init` | — | cli/InitHandler | 已实现（目录部署检测 + 项目目录识别 + 平台建议路径） |
 | `sdkm install <SDK> <VERSION>` | `i` | cli/InstallHandler | 已实现（模块拆分为 download_url/downloader/extractor/progress，版本解析提取到 `version/` 公共模块，12阶段异步流程） |
+| `sdkm uninstall <SDK> <VERSION>` | `rm`, `un` | cli/UninstallHandler | 已实现（复用 switch_sdk_to_version 业务编排卸载当前版本 + active 唯一版本环境清理 + `--yes` 跳过确认 + SDKM_HOME 注入解锁集成测试） |
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler | 已实现（交互式 TUI 选择器 + 远程版本 + 安装/切换动作触发） |
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制** + **版本模糊匹配（与 install 共用核心）**） |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler | 已实现 |
@@ -110,7 +111,24 @@ bin_dir = "bin"
 
 **拆分要点**：原 `SdkInstallStrategy` trait 拆为 `VersionDiscovery`（只含 parse，公共）+ install 侧自由函数 `build_download_url`（按 SDK 分发，各 SDK os/arch 风格集中）；`get_install_strategy` → `get_version_discovery`；`ConfigBasedStrategy`（带 os_style/arch_style 字段）→ `ConfigBasedDiscovery`（单元结构体，custom SDK 下载 URL 风格改由 `build_download_url` 的 Custom 分支用 `OsStyle::Default`/`ArchStyle::Default` 表达，与原 `ConfigBasedStrategy::default()` 行为一致）。
 
-## 当前开发进度（2026-07-08）
+## 当前开发进度（2026-07-14）
+
+### 本次改动（2026-07-14）—— uninstall 命令
+
+新增 `sdkm uninstall <SDK> <VERSION>`（别名 `rm`/`un`），从本地 store 卸载已装 SDK 版本并完整清理激活态。**复用优先、跨模块只调已 pub API、不动 switch 私有函数**：
+
+1. **卸载流程**（`crates/sdkcore/src/uninstall.rs`，`SdkManager::uninstall_sdk(&mut self, sdk, version_input, yes)`）：复用 `list_local_sdk_versions` + `fuzzy_match_version_core`（与 install/switch 同源）解析目标版本。三分支：
+   - 非 active：仅删 `store/<sdk>/<version>` 目录（symlink 指向 current，非 current 不受影响）
+   - active 且有其他已装版本：取 `others[0]`（不做"最新"计算，提示告知具体版本，用户可取消后手动 switch），调 `switch_sdk_to_version` 切过去（业务编排，symlink 重建指向新版本，PATH 加的是 symlink 路径非实路径，删旧目录安全无残留），再删目标目录
+   - active 且仅此一版：`cleanup_sdk_environment` 清理 symlink/PATH/env/current 后删目录
+2. **`cleanup_sdk_environment`（新增私有方法，尽力而为 + config 层回滚）**：删 symlink + `remove_sdk_path`(主 bin + 遍历 `extra_paths`) + 遍历 `extra_vars.keys()` 调 `unset_sdk_env`（**不需渲染 value，故不动 switch 私有 `get_sdk_extra_envs`**）+ `current_version=None` 复用 `take_config_snapshot`/`rollback_config` 回滚（仅 config 写失败 bail，避免幽灵 current）。不照搬 switch 的 SwitchSnapshot 全套回滚（目录删不可逆，环境清理 warning 尽力而为）
+3. **`--yes`/`-y` 跳过卸载前的一次性确认**（文案说明 sdkm 将如何处理：直接删目录 / active+有其他版本自动切换另一版本再删 / active 唯一版本清理环境再删），用户取消用普通 `bail!("... cancelled by user")`（对齐 install.rs，不标 BugReport）
+4. **跨模块复用决策**：uninstall 复用的全是已 pub 公共 API（`switch_sdk_to_version` 是 switch 的 pub 业务方法，属业务流程编排非"抽私有辅助复用"，不抽走）；`cleanup_sdk_environment` 与 switch 的 `rollback_*` 语义不同（彻底清除 vs 恢复旧状态），不混淆合并
+5. **SDKM_HOME 环境变量注入**（`crates/util/src/path.rs::get_sdkm_home`，参考 rustup `RUSTUP_HOME`）：优先读 `SDKM_HOME` env，未设回退 `current_exe().parent()`，**兼容改动**（不设 env 行为不变）。解锁 in-process 集成测试——见已知问题条
+6. **集成测试**（`crates/sdkcore/tests/uninstall.rs`，参考 rustup 粒度）：SDKM_HOME 注入临时 home + `MockEnv` impl `EnvOperation` 记录调用 + 模块级 `Mutex` 串行（避免 `set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录。4 测例覆盖：非 active（仅删目录）/active+其他（switch 再删）/active+唯一（清理 env+symlink+current+空目录）/不存在版本（fuzzy bail）。全 workspace 测试 0 failed
+7. **透明输出 + 删目录容错**（实测调整）：卸载全程输出关键操作（`uninstalling...`/`removing version directory`/`cleaning up environment`），避免静默删大目录（node 几千文件 + 杀毒扫描可达数秒）无提示，遵守透明原则。`remove_version_dir` 重试 3 次（300ms 间隔，应对 Windows 杀毒/索引/进程短暂锁定）+ 删失败**不 abort**（switch/环境清理已完成，残留目录仅占磁盘）→ `warning` 告知具体 io 原因 + 手动删指引 + 整体 `warning` 提示 partially complete。删目录失败常见根因：node.exe 被进程映射（用户关进程后手动删）/ 杀毒扫描锁定
+
+**未发版**：纯功能新增，待用户 bump 版本号触发 CI（见「发布流程」）。CLI 命令结构表已加 uninstall 行。
 
 ### 本次改动（2026-07-08）—— CI 跨平台兼容性修复（glibc/macOS deployment target）+ 双产物 + changelog Contributors
 
@@ -197,6 +215,8 @@ WSL/Ubuntu 22.04 实测暴露的 Linux 下 init/switch 缺陷集中修复，核�
 - **reqwest 0.13.4 + rustls**（2026-07-07 升级）：`default-features = false, features = ["json","gzip","default-tls"]`。0.13 起 `default-tls = rustls`（aws-lc-rs 作 crypto provider + rustls-platform-verifier 走系统 CA bundle），**不再依赖系统 OpenSSL**——Linux 编译只需 `cmake`（aws-lc-rs 编 C），运行时需 `ca-certificates`。仍禁 `http2`/`charset`/`query`/`form`（sdkm 全程 HTTP/1.1 + JSON ASCII + token 走 `default_headers` 不用 form）。aws-lc-rs 静态链入，release 体积待实测（对比旧 2.74MB）
 - **BugReport 标记只用于真正不可由用户修复的错误**：`install_sdk` 入口不要用 `try_bug!` 整体包裹（曾导致用户取消 `bail!("Installation cancelled by user")`、网络/版本解析失败被误报为 bug，触发 "This might be a bug in sdkm" 提示）。入口用 `?` 传播，真正的 bug（解压/校验失败、内置配置缺失等）已在 `install_sdk_async` 内部用 `try_bug!`/`bail_bug!` 精确标记 `BugReportError`，CLI 层 `needs_bug_report` 靠 `downcast_ref` 检测。switch 同理：`try_step!` 只在回滚后的中间步骤失败时标 BugReport，用户取消是普通 `bail!`。**init 第 4 步 symlink_dir 不可写属用户环境问题，用 `bail!` 不用 `try_bug!`**
 - **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`，Windows 上 `cargo build`/`clippy` 完全跳过，类型不匹配在 WSL/Linux 编译时才报。改 `unix.rs` 后**必须**验证类型——Windows 上的验证方法：临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use`，避免和 windows 的 `OsEnvOperation` 冲突），跑 `cargo check -p sdkcore`，unix.rs 会被强制编译暴露类型错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行——aws-lc-rs（reqwest 0.13 rustls）的 build.rs 会因找不到 `x86_64-linux-gnu-gcc` 失败，sdkcore 根本不会被检查。或直接在 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用），不是 `Self::Item`**——`split()` 的 item 是 `&str`，filter 闭包的 `p` 是 `&&str`（双层引用），必须用 `|&p|` 解构成 `&str` 才能跟 `&str` 比较。错误线索：`note: required for &&str to implement PartialEq<&str>` 看到 `&&str` 就说明闭包参数是双层引用。`&String` 比较用 `.as_str()` 转 `&str`。2026-07-07 重构 `remove_sdk_path` 踩过两次：`|p| p != &expanded_target` 和 `|p| p != expanded_target.as_str()` 都报 `&str == str`，根因都是丢了 `|&p|` 的 `&`（原版 `28b2c43` 用 `|&p|` 是对的，因为 item 是 `&&str` 从 `Vec.iter()` 来；`split()` 直接 filter item 也是 `&str`，闭包参数同样 `&&str`，也要 `|&p|`）
+
+- **SDKM_HOME 环境变量可覆盖 home**（2026-07-14 引入，参考 rustup `RUSTUP_HOME`）：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME` 环境变量，未设或空则回退 `current_exe().parent()`，行为兼容（不设 env 时与原逻辑完全一致）。`env::var` 在 2024 edition 安全，仅 `set_var`/`remove_var` 需 `unsafe`。主要用于解锁 in-process 集成测试——`SdkManager::new()`/`list_local_sdk_versions`/`resolved_symlink_dir`/`write_to_disk` 路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入，端到端测试会污染 test binary 目录），注入后测试可全部指向临时目录。`tests/uninstall.rs` 即用此机制：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录。顺带支持便携部署自定义 home
 
 ### config 命令架构
 
