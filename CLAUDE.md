@@ -143,6 +143,16 @@ bin_dir = "bin"
 
 **未发版**：同 uninstall，待 bump。
 
+### 本次改动（2026-07-14 续2）—— self_uninstall 打磨
+
+实测 `sdkm self uninstall` 后打磨（修正续章节第 3/4 条 + cache 清理 bug + 日志样式）：
+
+1. **`.cache` 清理 bug**（`consts.rs`）：`SDKM_CACHE_DIR` 常量是 `"cache"`（无点），但 `version/cache.rs:33` 实际用裸字符串 `.join(".cache")`（带点），常量与实际目录名不一致——self_uninstall 删 `cache` 删不到实际的 `.cache`，残留。修正：常量改 `".cache"`，`cache.rs` 改用常量消除裸字符串魔值
+2. **sdkm PATH 自动清理**（`self_uninstall.rs`，修正续章节第 3 条）：删 home 后拿 `current_exe().parent()` 调 `remove_sdk_path` 自动移除 sdkm 目录的 PATH 条目（binary 仍保留提示手动删，Windows 锁不可靠自删）。**`WindowsEnvOperation::remove_sdk_path` 幂等化**：PATH 无该条目则静默 Ok（不重复写注册表、不打印误导性 `removed`），原实现无论有无都 set_value+打印
+3. **`uninstall_self` 去 yes**（修正续章节第 4 条）：core 的 `yes` 参数去掉，**交互确认移到 CLI 层**（`SelfUninstallHandler.run()` 先 `prompt_confirm` 再调 `uninstall_self()`），core 纯业务便于测试直接调用（测试不再需 `yes=true` 逃生口）。CLI 仍强制确认无 `-y`。`uninstall_sdk` 保持原样（yes+确认在 core），两处模式不一致已接受
+4. **日志样式层级**（`symlink.rs`/`env/windows.rs`/`env/unix.rs`）：底层明细 API（`remove_symlink`/`remove_sdk_path`/`unset_sdk_env` 成功打印）的 `info!`（蓝色粗体 ℹ️）→ `detail!`（灰色 3 空格缩进），与标题 `info!`（如 `cleaning up \`java\` environment...`）形成层级。`prompt_confirm` 改换行模式：文案 `println!` 整段打印后换行，`[yes/No]` 另起一行；`self_uninstall` 文案用 `concat!` 拆多行
+5. **commit `d59de3d`**，9 文件 +51/-32，未发版。cfg(unix) 改动（unix.rs info→detail）仅宏名替换无类型变化，已用临时去 `#[cfg(unix)]` 守卫强制编译验证（见「已知问题」cfg(unix) 盲区条方法）
+
 ### 本次改动（2026-07-08）—— CI 跨平台兼容性修复（glibc/macOS deployment target）+ 双产物 + changelog Contributors
 
 v0.2.5 在 WSL/Ubuntu 22.04 实测暴露 `GLIBC_2.38/2.39 not found`（`ubuntu-latest`=24.04 编译，glibc 2.39，老系统跑不起来），同时 Windows 实测 4.5MB / Linux 6MB（rustls+aws-lc-rs 静态链入）。本次**不碰代码**，只改 CI + 文档，发布 v0.2.6。
