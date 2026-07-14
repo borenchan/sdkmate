@@ -87,6 +87,7 @@ bin_dir = "bin"
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制** + **版本模糊匹配（与 install 共用核心）**） |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler | 已实现 |
 | `sdkm config` | — | cli/ConfigHandler | 已实现（set/get/list/delete/edit/add-sdk/remove-sdk 子命令，按类型校验 + 原子写入 + 回滚） |
+| `sdkm self uninstall` | — | cli/self_cmd::SelfUninstallHandler | 已实现（清理所有激活 SDK 环境 + 删 home 目录内容；binary 与 PATH 提示手动删；**强制交互确认不可跳过**） |
 
 每个命令在 `crates/cli/src/impls/` 中有 `CommandHandler` trait 实现，委托给 `crates/sdkcore/src/manager/` 中的 `SdkManager` 方法。
 
@@ -129,6 +130,18 @@ bin_dir = "bin"
 7. **透明输出 + 删目录容错**（实测调整）：卸载全程输出关键操作（`uninstalling...`/`removing version directory`/`cleaning up environment`），避免静默删大目录（node 几千文件 + 杀毒扫描可达数秒）无提示，遵守透明原则。`remove_version_dir` 重试 3 次（300ms 间隔，应对 Windows 杀毒/索引/进程短暂锁定）+ 删失败**不 abort**（switch/环境清理已完成，残留目录仅占磁盘）→ `warning` 告知具体 io 原因 + 手动删指引 + 整体 `warning` 提示 partially complete。删目录失败常见根因：node.exe 被进程映射（用户关进程后手动删）/ 杀毒扫描锁定
 
 **未发版**：纯功能新增，待用户 bump 版本号触发 CI（见「发布流程」）。CLI 命令结构表已加 uninstall 行。
+
+### 本次改动（2026-07-14 续）—— `sdkm self uninstall` 自卸载
+
+新增 `sdkm self uninstall`（`self` 子命令组，rustup `rustup self uninstall` 业界形式，未来可扩展 `self update` 等）。卸载 sdkm 自身，与卸载 SDK 版本不同——清理所有被管理 SDK 的激活环境 + 删 home 目录内容：
+
+1. **复用 `cleanup_sdk_environment`**（提为 `pub(crate)`，语义"清单个 SDK 激活环境"，uninstall 与 self-uninstall 共用）：遍历 `config.sdks` 中所有 `current_version` 非空的 SDK 逐个调它，清 symlink/PATH/env/current
+2. **删 home 内容**：`store/links/.tmp/cache` + `config.toml`，尽力而为 + warning
+3. **binary 不自删**：running exe 跨平台不可靠自删（Windows 锁），`warning` 提示用户手动删 binary + 移除 PATH 条目
+4. **强制交互确认**：破坏性操作，**CLI 不提供 `-y` 跳过**（用户要求）。core `uninstall_self(yes)` 保留 `yes` 参数仅作集成测试逃生口（测试无法应答 stdin），CLI 永远传 `false`
+5. **集成测试**（`tests/self_uninstall.rs`）：多 SDK 激活场景，验证清理所有 env + 删 home 内容
+
+**未发版**：同 uninstall，待 bump。
 
 ### 本次改动（2026-07-08）—— CI 跨平台兼容性修复（glibc/macOS deployment target）+ 双产物 + changelog Contributors
 

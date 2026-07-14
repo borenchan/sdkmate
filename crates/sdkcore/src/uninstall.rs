@@ -116,7 +116,7 @@ impl SdkManager {
     ///
     /// 尽力而为：symlink/PATH/env 清理失败仅 warning 不中断后续步骤；
     /// 仅 config（current_version=None）写入失败时回滚并 bail（避免残留指向已删版本的幽灵 current）。
-    fn cleanup_sdk_environment(&mut self, sdk: &Sdk) -> Result<()> {
+    pub(crate) fn cleanup_sdk_environment(&mut self, sdk: &Sdk) -> Result<()> {
         info!("cleaning up `{}` environment (symlink/PATH/env/current_version)...", sdk);
         let symlink_root = self.config.resolved_symlink_dir()?;
         let sdk_symlink_dir = PathBuf::from(symlink_root).join(sdk.to_string());
@@ -203,10 +203,8 @@ impl SdkManager {
         let sdk_store = get_installed_sdks_dir()?.join(sdk.to_string());
         if sdk_store.exists() {
             let is_empty = std::fs::read_dir(&sdk_store).map(|mut it| it.next().is_none()).unwrap_or(false);
-            if is_empty {
-                if let Err(e) = std::fs::remove_dir(&sdk_store) {
-                    warning!("failed to remove empty store dir `{}`: {}", sdk_store.display(), e);
-                }
+            if is_empty && let Err(e) = std::fs::remove_dir(&sdk_store) {
+                warning!("failed to remove empty store dir `{}`: {}", sdk_store.display(), e);
             }
         }
         Ok(())

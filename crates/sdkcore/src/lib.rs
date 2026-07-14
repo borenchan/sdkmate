@@ -5,6 +5,7 @@ pub mod install;
 pub mod link;
 pub mod list;
 pub mod manager;
+pub mod self_uninstall;
 pub mod switch;
 pub mod uninstall;
 pub mod version;

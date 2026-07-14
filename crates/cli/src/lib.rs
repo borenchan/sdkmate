@@ -3,6 +3,7 @@ use crate::impls::current::CurrentHandler;
 use crate::impls::init::InitHandler;
 use crate::impls::install::InstallHandler;
 use crate::impls::list::ListHandler;
+use crate::impls::self_cmd::SelfHandler;
 use crate::impls::switch::SwitchHandler;
 use crate::impls::uninstall::UninstallHandler;
 use clap::builder::styling;
@@ -33,6 +34,9 @@ pub enum Commands {
     #[command(name = "install", visible_alias = "i", about = "Install an SDK version from remote")]
     Install(InstallHandler),
 
+    #[command(name = "uninstall", visible_aliases = ["rm", "un"], about = "Uninstall an SDK version from local store")]
+    Uninstall(UninstallHandler),
+
     #[command(name = "list", visible_aliases = ["ls", "l"], about = "List installed or remote SDK versions")]
     List(ListHandler),
 
@@ -45,8 +49,8 @@ pub enum Commands {
     #[command(name = "config", about = "View or edit sdkm configuration")]
     Config(ConfigHandler),
 
-    #[command(name = "uninstall", visible_aliases = ["rm", "un"], about = "Uninstall an SDK version from local store")]
-    Uninstall(UninstallHandler),
+    #[command(name = "self", about = "Manage sdkm itself")]
+    Self_(SelfHandler),
 }
 
 impl SdkMateCli {
@@ -76,6 +80,7 @@ impl Commands {
             Commands::Current(handler) => handler.run(),
             Commands::Config(handler) => handler.run(),
             Commands::Uninstall(handler) => handler.run(),
+            Commands::Self_(handler) => handler.run(),
         };
         match res {
             Ok(()) => ExitCode::SUCCESS,
