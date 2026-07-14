@@ -60,7 +60,9 @@ pub fn banner(message: &str) {
 }
 
 pub fn prompt_confirm(prompt: &str) -> Result<bool> {
-    print!("{} {}", prompt.dark_blue(), "[yes/No]".dark_blue());
+    // 文案整段打印后换行，[yes/No] 提示另起一行，用户紧随输入；长文案可含 \n 多行显示
+    println!("{}", prompt.dark_blue());
+    print!("{}", "[yes/No] ".dark_blue());
     io::stdout().flush()?;
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;

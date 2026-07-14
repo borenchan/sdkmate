@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use util::info;
+use util::{detail, info};
 
 /// 读取符号链接目标路径，用于回滚备份
 /// 返回 Ok(None) 表示路径不存在或不是符号链接
@@ -31,7 +31,7 @@ pub fn remove_symlink<P: AsRef<Path>>(link_path: &P) -> Result<()> {
     } else {
         fs::remove_file(path)?;
     }
-    info!("removed symlink at {}", path.display());
+    detail!("removed symlink at {}", path.display());
     Ok(())
 }
 

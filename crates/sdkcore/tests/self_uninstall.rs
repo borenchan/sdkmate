@@ -138,7 +138,7 @@ fn self_uninstall_cleans_all_and_removes_home() {
     create_symlink(&maven, &links_maven).unwrap();
 
     let (mut manager, state) = make_manager(config);
-    manager.uninstall_self(true).unwrap();
+    manager.uninstall_self().unwrap();
 
     // home 内容已删
     assert!(!env.temp.join("store").exists(), "store dir should be removed");

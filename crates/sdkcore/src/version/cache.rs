@@ -5,6 +5,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::fs;
 use std::time::Duration;
+use util::consts::SDKM_CACHE_DIR;
 use util::path::get_sdkm_home;
 use util::sdk_resources::SdkSourceConfig;
 use util::warning;
@@ -30,7 +31,7 @@ impl VersionSource {
 
 /// 缓存路径:<sdkm_home>/.cache/api/<sdk_name>.json
 fn cache_path(sdk_name: &str) -> Result<std::path::PathBuf> {
-    let dir = get_sdkm_home()?.join(".cache").join("api");
+    let dir = get_sdkm_home()?.join(SDKM_CACHE_DIR).join("api");
     fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("{}.json", sdk_name)))
 }

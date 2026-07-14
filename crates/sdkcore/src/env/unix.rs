@@ -10,7 +10,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use util::consts::ENV_PATH;
-use util::{info, warning};
+use util::{detail, info, warning};
 
 use crate::env::EnvOperation;
 
@@ -217,7 +217,7 @@ impl EnvOperation for UnixEnvOperation {
 
         Self::write_profile(&profile_path, &lines)?;
         Self::source_profile(&profile_path)?;
-        info!("removed `{target}` from PATH");
+        detail!("removed `{target}` from PATH");
         Ok(())
     }
 
@@ -251,7 +251,7 @@ impl EnvOperation for UnixEnvOperation {
 
         Self::write_profile(&profile_path, &lines)?;
         Self::source_profile(&profile_path)?;
-        info!("removed env `{key}` from shell profile");
+        detail!("removed env `{key}` from shell profile");
         Ok(())
     }
 

@@ -1,6 +1,7 @@
 use crate::CommandHandler;
 use clap::{Parser, Subcommand};
 use sdkcore::manager::SdkManager;
+use util::terminal::prompt_confirm;
 
 /// `sdkm self` 子命令组：管理 sdkm 自身
 #[derive(Debug, Parser)]
@@ -29,15 +30,24 @@ impl CommandHandler for SelfHandler {
 
 /// 自卸载是破坏性操作，必须用户交互确认；CLI 不提供跳过确认的选项。
 ///
-/// 内部调用 `uninstall_self(false)`——core 的 `yes` 参数仅作为集成测试逃生口
-/// （测试无法应答 stdin），CLI 永远传 `false` 强制确认。
+/// 确认逻辑在此层完成，core 的 `uninstall_self` 只做业务（便于测试直接调用）。
 #[derive(Debug, Parser)]
 pub struct SelfUninstallHandler;
 
 impl CommandHandler for SelfUninstallHandler {
     fn run(&self) -> anyhow::Result<()> {
+        // 破坏性操作，强制交互确认，不可跳过
+        let confirmed = prompt_confirm(concat!(
+            "This will clean up ALL managed SDK environments (symlink/PATH/env/current)\n",
+            "and remove the sdkm home directory (store/links/config/cache).\n",
+            "The sdkm binary itself and any PATH entry must be removed manually.\n",
+            "Continue?",
+        ))?;
+        if !confirmed {
+            anyhow::bail!("Self-uninstall cancelled by user");
+        }
         let mut manager = SdkManager::new()?;
-        manager.uninstall_self(false)?;
+        manager.uninstall_self()?;
         Ok(())
     }
 }

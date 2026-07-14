@@ -1,7 +1,7 @@
 use crate::env::EnvOperation;
 use anyhow::Result;
 use std::collections::HashMap;
-use util::{consts::ENV_PATH, info, warning};
+use util::{consts::ENV_PATH, detail, info, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
 use winreg::RegKey;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
@@ -53,9 +53,13 @@ impl EnvOperation for WindowsEnvOperation {
             .collect::<Vec<&str>>()
             .join(";");
 
+        // PATH 中不存在该条目则幂等返回（不重复写注册表、不打印误导性 removed）
+        if new_value == current {
+            return Ok(());
+        }
         key.set_value(ENV_PATH, &new_value)?;
         broadcast_env_change();
-        info!("removed `{target}` from PATH");
+        detail!("removed `{target}` from PATH");
         Ok(())
     }
 
@@ -73,7 +77,7 @@ impl EnvOperation for WindowsEnvOperation {
         // 值不存在时忽略错误（可能已被手动删除）
         let result: std::result::Result<(), _> = reg_key.delete_value(key);
         if result.is_ok() {
-            info!("removed env `{key}`");
+            detail!("removed env `{key}`");
         } else {
             warning!("env `{key}` does not exist, skip unset");
         }

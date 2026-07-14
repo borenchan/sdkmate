@@ -19,7 +19,7 @@ pub const ENV_JAVA_HOME: &str = "JAVA_HOME";
 
 pub const SDKM_STORE_DIR: &str = "store";
 pub const SDKM_TMP_DIR: &str = ".tmp";
-pub const SDKM_CACHE_DIR: &str = "cache";
+pub const SDKM_CACHE_DIR: &str = ".cache";
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 
 /// 目录树中各目录的用途说明
