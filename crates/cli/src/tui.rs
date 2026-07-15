@@ -11,6 +11,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE, STATUS_INSTALLED, TUI_TIPS};
+use util::path::format_bytes;
 use util::try_bug;
 
 /// Action returned by the selector when user triggers a command
@@ -18,6 +19,7 @@ pub enum SelectorAction {
     Quit,
     Install { version: String },
     Switch { version: String },
+    Uninstall { version: String },
 }
 
 // ─── Layout constants ──────────────────────────────────────────────
@@ -40,6 +42,7 @@ pub fn run_local_selector(sdk_name: &str, versions: &[SdkVersionItem]) -> Result
         versions.iter().map(|v| v.is_active).collect(),
         versions.iter().map(|_| true).collect(),  // local = always installed
         versions.iter().map(|_| false).collect(), // no "not installed" in local
+        Some(versions.iter().map(|v| format_bytes(v.size_bytes)).collect()),
     )
 }
 
@@ -74,6 +77,7 @@ pub fn run_remote_selector(
             .map(|i| i.install_status == InstallStatus::Installed || i.install_status == InstallStatus::Active)
             .collect(),
         items.iter().map(|i| i.install_status == InstallStatus::NotInstalled).collect(),
+        None,
     )
 }
 
@@ -84,7 +88,14 @@ fn pad_status(mark: &str) -> String {
     format!("{}{}", mark, " ".repeat(padding))
 }
 
+/// 左对齐补齐到指定显示列宽
+fn pad_right(s: &str, width: usize) -> String {
+    let pad = width.saturating_sub(s.width());
+    format!("{}{}", s, " ".repeat(pad))
+}
+
 /// Core TUI selector loop — fixed-height window with scroll rollover
+#[allow(clippy::too_many_arguments, clippy::collapsible_if)] // TUI 渲染参数多 + event loop 嵌套结构属合理
 fn run_selector_inner(
     sdk_name: &str,
     title: &str,
@@ -94,12 +105,16 @@ fn run_selector_inner(
     is_active: Vec<bool>,
     is_installed: Vec<bool>,
     is_not_installed: Vec<bool>,
+    sizes: Option<Vec<String>>,
 ) -> Result<SelectorAction> {
     let total = versions.len();
     let mut selected = find_default_selection(&is_active);
     let mut scroll_offset = 0;
     let mut tip_idx = 0;
     let visible = MAX_VISIBLE.min(total);
+
+    // 版本列宽度：取所有版本字符串的最大显示宽度，左对齐 pad 保证 size 列对齐
+    let version_col_width = versions.iter().map(|v| v.width()).max().unwrap_or(0);
 
     // Enter TUI mode: raw mode + alternate screen + hide cursor
     try_bug!(crossterm::terminal::enable_raw_mode().context("Failed to enable raw mode"));
@@ -191,8 +206,12 @@ fn run_selector_inner(
             };
             let status_col = pad_status(status_mark);
 
-            // Version text aligned after status column
-            let text = format!("{}{}", status_col, versions[i]);
+            // 版本列左对齐 pad 到 version_col_width；本地列表追加 size 列
+            let version_padded = pad_right(versions[i], version_col_width);
+            let text = match &sizes {
+                Some(sz) => format!("{}{}  {}", status_col, version_padded, sz[i]),
+                None => format!("{}{}", status_col, version_padded),
+            };
 
             queue!(stdout, MoveTo(0, row), Clear(ClearType::CurrentLine))?;
 
@@ -268,7 +287,7 @@ fn run_selector_inner(
             SetForegroundColor(Color::DarkGrey),
             Print("Enter/s:switch(installed)  "),
             SetForegroundColor(Color::Red),
-            Print("q/Ctrl+C:quit"),
+            Print("del/d:uninstall(installed)  q/Ctrl+C:quit"),
             SetForegroundColor(Color::Reset)
         )?;
         row += 1;
@@ -316,6 +335,14 @@ fn run_selector_inner(
                     KeyCode::Char('i') => {
                         if is_not_installed[selected] {
                             break SelectorAction::Install {
+                                version: versions[selected].to_string(),
+                            };
+                        }
+                    }
+                    KeyCode::Delete | KeyCode::Char('d') => {
+                        // 仅已安装版本可卸载（本地列表全部可卸载；远程仅已安装）
+                        if is_installed[selected] || is_active[selected] {
+                            break SelectorAction::Uninstall {
                                 version: versions[selected].to_string(),
                             };
                         }

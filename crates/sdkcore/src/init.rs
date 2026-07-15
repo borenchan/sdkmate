@@ -5,8 +5,8 @@ use anyhow::Result;
 use std::env;
 use std::fs;
 use util::consts::{
-    BANNER, CONFIG_FILE_NAME, DIR_DESC_CACHE, DIR_DESC_CONFIG, DIR_DESC_LINKS, DIR_DESC_STORE,
-    DIR_DESC_TMP, SDKM_CACHE_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR,
+    BANNER, CONFIG_FILE_NAME, DIR_DESC_CACHE, DIR_DESC_CONFIG, DIR_DESC_LINKS, DIR_DESC_STORE, DIR_DESC_TMP,
+    SDKM_CACHE_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR,
 };
 use util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home, is_sdkm_dedicated_dir};
 use util::terminal::{prompt_confirm, suggest_sdkm_path};
@@ -81,7 +81,8 @@ impl SdkManager {
             // 权限/路径不可写时明确引导，不报裸 Permission denied；属用户环境问题，非 bug
             anyhow::bail!(
                 "Failed to create symlink directory '{}': {}\n  Tip: run `sdkm config set symlink_dir <writable_dir>` to use a custom location, then `sdkm init` again.",
-                symlink_dir, e
+                symlink_dir,
+                e
             );
         }
         detail!("{} — active SDK bin links for PATH resolution", symlink_dir);
@@ -112,7 +113,9 @@ impl SdkManager {
 
         divider!();
         success!("Congratulations! sdkm initialized successfully!");
-        success!("Run `sdkm install java 21` to start using it. Restart your terminal for `sdkm` to take effect in PATH.");
+        success!(
+            "Run `sdkm install java 21` to start using it. Restart your terminal for `sdkm` to take effect in PATH."
+        );
         Ok(())
     }
 

@@ -2,8 +2,8 @@ use crate::CommandHandler;
 use crate::tui::{SelectorAction, run_local_selector, run_remote_selector};
 use anyhow::{Result, bail};
 use clap::Parser;
-use sdkcore::manager::SdkManager;
 use sdkcore::list::RemoteVersionResult;
+use sdkcore::manager::SdkManager;
 use util::sdk::Sdk;
 
 #[derive(Debug, Parser)]
@@ -78,6 +78,11 @@ impl ListHandler {
             SelectorAction::Switch { version } => {
                 let mut manager = SdkManager::new()?;
                 manager.switch_sdk_to_version(sdk, &version)
+            }
+            SelectorAction::Uninstall { version } => {
+                let mut manager = SdkManager::new()?;
+                // yes=false：TUI 退出后在正常终端走 uninstall 的二次确认（破坏性操作）
+                manager.uninstall_sdk(sdk, &version, false)
             }
         }
     }

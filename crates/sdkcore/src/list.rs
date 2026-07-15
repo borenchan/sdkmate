@@ -3,15 +3,17 @@ use crate::install::progress::InstallProgress;
 use crate::manager::SdkManager;
 use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
 use anyhow::{Context, Result, bail};
+use crossterm::style::Stylize;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use unicode_width::UnicodeWidthStr;
 use util::consts::STATUS_ACTIVE;
-use util::path::{get_installed_sdks_dir, get_sdkm_home};
+use util::path::{dir_size, format_bytes, get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
 use util::sdk_resources::find_builtin_sdk_config;
-use util::{divider, info, success, try_bug, warning};
+use util::terminal::{ColumnColor, pad_right, print_table};
+use util::{divider, info, try_bug, warning};
 
 // ─── 数据结构 ───────────────────────────────────────────────────
 
@@ -21,16 +23,20 @@ pub struct SdkVersionItem {
     pub sdk_version: String,
     pub sdk_dir: PathBuf,
     pub is_active: bool,
+    /// 版本目录占用大小（字节）
+    pub size_bytes: u64,
 }
 
 impl SdkVersionItem {
     pub fn new(sdk: Sdk, sdk_dir: PathBuf, is_active: bool) -> Self {
         let cow = sdk_dir.file_name().unwrap_or(OsStr::new("(empty dir)")).to_string_lossy();
+        let size_bytes = dir_size(&sdk_dir).unwrap_or(0);
         Self {
             sdk,
             sdk_version: cow.to_string(),
             sdk_dir,
             is_active,
+            size_bytes,
         }
     }
 }
@@ -67,12 +73,16 @@ pub struct RemoteVersionResult {
 
 impl SdkManager {
     /// 打印所有已安装 SDK 及其当前版本(非交互式摘要)
+    ///
+    /// 三层结构样式（标题/列头/条目颜色区分，与 `current` 的表格样式区分）：
+    /// ```text
+    /// ℹ️  installed sdks:
+    ///        sdk     current  size
+    /// ✅  1. java    8.0.492  518.3 MB
+    /// ```
     pub fn show_local_sdk_list(&self) -> Result<()> {
         let sdk_dir = get_installed_sdks_dir()?;
-        let mut i = 1;
-        divider!();
-        info!("Installed SDKs:");
-        divider!();
+        let mut items: Vec<(String, String, String)> = Vec::new();
         for entry in sdk_dir.read_dir()?.filter_map(|e| e.ok()) {
             let path = entry.path();
             if !path.is_dir() {
@@ -85,21 +95,78 @@ impl SdkManager {
                 .and_then(|sdk| self.config.find_sdk_ok(&sdk).ok())
                 .and_then(|conf| conf.current_version.clone())
                 .unwrap_or_else(|| "N/A".to_string());
-            success!("{i:>2}. {:<10} current: {}", sdk_name, current);
-            i += 1;
+            let size = format_bytes(dir_size(&path).unwrap_or(0));
+            items.push((sdk_name, current, size));
+        }
+        divider!();
+        if items.is_empty() {
+            info!("no installed sdks. run `sdkm install <sdk> <version>` to get started.");
+        } else {
+            info!("installed sdks:");
+            let headers = ["sdk", "current", "size"];
+            let active_w = UnicodeWidthStr::width(STATUS_ACTIVE);
+            // 数据行前缀 = `{status} {idx:>2}. `，表头行用同等宽度空格缩进对齐数据列
+            let prefix_w = active_w + 1 + 2 + 2;
+            // 列宽取表头与数据中的最大显示宽度
+            let sdk_w = items
+                .iter()
+                .map(|(s, _, _)| s.as_str().width())
+                .chain(std::iter::once(headers[0].width()))
+                .max()
+                .unwrap_or(0);
+            let ver_w = items
+                .iter()
+                .map(|(_, v, _)| v.as_str().width())
+                .chain(std::iter::once(headers[1].width()))
+                .max()
+                .unwrap_or(0);
+            let size_w = items
+                .iter()
+                .map(|(_, _, z)| z.as_str().width())
+                .chain(std::iter::once(headers[2].width()))
+                .max()
+                .unwrap_or(0);
+            // 表头行（青粗体，缩进对齐数据列起始位置）
+            let header_line = [
+                pad_right(headers[0], sdk_w),
+                pad_right(headers[1], ver_w),
+                pad_right(headers[2], size_w),
+            ]
+            .join("  ");
+            println!("{}{}", " ".repeat(prefix_w), header_line.cyan().bold());
+            // 数据行：status + 序号 + sdk(白粗) + version(绿) + size(灰)
+            for (i, (sdk, cur, size)) in items.iter().enumerate() {
+                let status = if cur == "N/A" {
+                    " ".repeat(active_w)
+                } else {
+                    STATUS_ACTIVE.to_string()
+                };
+                println!(
+                    "{} {:>2}. {}  {}  {}",
+                    status,
+                    i + 1,
+                    pad_right(sdk, sdk_w).bold(),
+                    pad_right(cur, ver_w).green(),
+                    size.as_str().dark_grey(),
+                );
+            }
         }
         divider!();
         Ok(())
     }
 
     /// 显示单个或全部 SDK 的当前版本(供 `sdkm current` 命令使用)
+    ///
+    /// 语义只需当前版本，不带 size 列。多 SDK 用表头表格样式（与 `ls` 的序号样式区分）；单 SDK 单行着色。
     pub fn show_local_sdks_current(&self, sdk: Option<Sdk>) -> Result<()> {
         if let Some(sdk) = sdk {
             let conf = self.config.find_sdk_ok(&sdk)?;
-            info!("{} {}", sdk, conf.current_version.clone().unwrap_or("N/A".to_string()));
+            let current = conf.current_version.clone().unwrap_or_else(|| "N/A".to_string());
+            println!("ℹ️  {} {}", sdk.to_string().bold(), current.green());
             return Ok(());
         }
         info!("sdkm home: {}", get_sdkm_home()?.display());
+        let mut rows: Vec<Vec<String>> = Vec::new();
         for entry in get_installed_sdks_dir()?.read_dir()?.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_string();
             // store 目录可能含未在 config 注册的子目录(如手动放入或遗留),跳过而非中断整体列表
@@ -111,14 +178,16 @@ impl SdkManager {
                 }
             };
             let sdk_conf = self.config.find_sdk_ok(&sdk)?;
-            divider!();
-            success!(
-                "{} current is {}",
-                sdk,
-                &sdk_conf.current_version.clone().unwrap_or("N/A".to_string())
-            );
-            divider!();
+            let current = sdk_conf.current_version.clone().unwrap_or_else(|| "N/A".to_string());
+            rows.push(vec![sdk.to_string(), current]);
         }
+        divider!();
+        if rows.is_empty() {
+            info!("no active sdks.");
+        } else {
+            print_table(&["sdk", "current"], &rows, &[ColumnColor::Bold, ColumnColor::Green]);
+        }
+        divider!();
         Ok(())
     }
 

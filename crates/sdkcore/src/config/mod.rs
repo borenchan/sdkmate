@@ -430,9 +430,7 @@ impl SdkmConfig {
                 }
             }
             // 不可删除的顶层键不应到达此处
-            ConfigKey::NetworkSslVerify
-            | ConfigKey::NetworkConnectTimeout
-            | ConfigKey::NetworkCacheTtlSecs => {}
+            ConfigKey::NetworkSslVerify | ConfigKey::NetworkConnectTimeout | ConfigKey::NetworkCacheTtlSecs => {}
         }
     }
 

@@ -2,6 +2,7 @@ use crate::consts::{DIVIDER, GITHUB_ISSUES_URL};
 use anyhow::Result;
 use crossterm::style::Stylize;
 use std::io::{self, Write};
+use unicode_width::UnicodeWidthStr;
 use url::Url;
 
 // ── Unified color palette ───────────────────────────────────
@@ -57,6 +58,72 @@ pub fn tree(message: &str) {
 /// banner 输出：无缩进、cyan 色，用于 ASCII art 展示
 pub fn banner(message: &str) {
     println!("{}", message.cyan());
+}
+
+/// 表格列着色规则：决定该列数据单元格的颜色（表头始终 cyan 粗体）
+#[derive(Clone, Copy)]
+pub enum ColumnColor {
+    /// 默认色（不着色不粗体）
+    None,
+    /// 默认色粗体——用于 sdk 名（与青色列头区分）
+    Bold,
+    /// 绿色——用于版本号
+    Green,
+    /// 暗灰——用于 size 等次要信息
+    DarkGrey,
+}
+
+/// 按显示宽度左对齐填充到 `width`（右侧补空格），unicode 感知
+pub fn pad_right(s: &str, width: usize) -> String {
+    let w = s.width();
+    format!("{s}{}", " ".repeat(width.saturating_sub(w)))
+}
+
+/// 打印左对齐列表格
+///
+/// 表头 cyan 粗体，数据行按 `colors` 着色（None 则默认色）；统一 2 空格缩进 + 列间 2 空格分隔。
+/// 列宽按各列单元格的显示宽度（unicode 感知）取最大值左对齐。
+pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor]) {
+    // 每列最大显示宽度
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.width()).collect();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            let w = cell.as_str().width();
+            if i >= widths.len() {
+                widths.push(w);
+            } else if w > widths[i] {
+                widths[i] = w;
+            }
+        }
+    }
+    // 对齐单元格（纯文本，padding 后再着色，避免 ANSI 序列干扰宽度计算）
+    let pad_cell = |c: &str, idx: usize| pad_right(c, widths.get(idx).copied().unwrap_or(0));
+    let colorize = |s: String, idx: usize| -> String {
+        match colors.get(idx).copied() {
+            Some(ColumnColor::Bold) => s.as_str().bold().to_string(),
+            Some(ColumnColor::Green) => s.as_str().green().to_string(),
+            Some(ColumnColor::DarkGrey) => s.as_str().dark_grey().to_string(),
+            _ => s,
+        }
+    };
+    // 表头（cyan 粗体）
+    let header_line = headers
+        .iter()
+        .enumerate()
+        .map(|(i, c)| pad_cell(c, i))
+        .collect::<Vec<_>>()
+        .join("  ");
+    println!("  {}", header_line.cyan().bold());
+    // 数据行（按列着色）
+    for row in rows {
+        let line = row
+            .iter()
+            .enumerate()
+            .map(|(i, c)| colorize(pad_cell(c.as_str(), i), i))
+            .collect::<Vec<_>>()
+            .join("  ");
+        println!("  {}", line);
+    }
 }
 
 pub fn prompt_confirm(prompt: &str) -> Result<bool> {

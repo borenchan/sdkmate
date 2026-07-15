@@ -2,8 +2,8 @@ use crate::CommandHandler;
 use anyhow::{Context, Result};
 use clap::Parser;
 use sdkcore::config::{
-    parse_config_key, validate_by_type, field_type, mask_by_type,
-    ConfigKey, SdkConfig, SdkmConfig, ValidatedValue, ValueType,
+    ConfigKey, SdkConfig, SdkmConfig, ValidatedValue, ValueType, field_type, mask_by_type, parse_config_key,
+    validate_by_type,
 };
 use sdkcore::manager::SdkManager;
 use std::collections::HashMap;
@@ -83,7 +83,10 @@ struct AddSdkHandler {
     download_url: String,
 
     /// SDK binary directory name (omit = binaries in SDK root dir, e.g. bin, Scripts)
-    #[arg(long, help = "SDK binary directory name (omit for root-dir binaries, e.g. bin, Scripts)")]
+    #[arg(
+        long,
+        help = "SDK binary directory name (omit for root-dir binaries, e.g. bin, Scripts)"
+    )]
     bin_dir: Option<String>,
 
     /// Version discovery URL (optional)
@@ -136,11 +139,15 @@ impl ConfigSetHandler {
         let key = parse_config_key(&self.key)?;
 
         // 校验 SDK 键名对应的 SDK 是否存在（sdk.xxx 键需要先注册）
-        if let ConfigKey::Sdk { name, .. } | ConfigKey::SdkExtraVar { name, .. } | ConfigKey::SdkExtraPath { name, .. } = &key {
+        if let ConfigKey::Sdk { name, .. }
+        | ConfigKey::SdkExtraVar { name, .. }
+        | ConfigKey::SdkExtraPath { name, .. } = &key
+        {
             if manager.config.find_sdk_by_name(name).is_err() {
                 anyhow::bail!(
                     "SDK '{}' not found in config. Use `sdkm config add-sdk {} --download-url <URL> --bin-dir <DIR>` to register it first.",
-                    name, name
+                    name,
+                    name
                 );
             }
         }
@@ -167,7 +174,10 @@ impl ConfigGetHandler {
         let key = parse_config_key(&self.key)?;
 
         // 校验 SDK 键名对应的 SDK 是否存在
-        if let ConfigKey::Sdk { name, .. } | ConfigKey::SdkExtraVar { name, .. } | ConfigKey::SdkExtraPath { name, .. } = &key {
+        if let ConfigKey::Sdk { name, .. }
+        | ConfigKey::SdkExtraVar { name, .. }
+        | ConfigKey::SdkExtraPath { name, .. } = &key
+        {
             if manager.config.find_sdk_by_name(name).is_err() {
                 anyhow::bail!("SDK '{}' not found in config.", name);
             }
@@ -202,7 +212,10 @@ impl ConfigDeleteHandler {
         let key = parse_config_key(&self.key)?;
 
         // 校验 SDK 键名对应的 SDK 是否存在
-        if let ConfigKey::Sdk { name, .. } | ConfigKey::SdkExtraVar { name, .. } | ConfigKey::SdkExtraPath { name, .. } = &key {
+        if let ConfigKey::Sdk { name, .. }
+        | ConfigKey::SdkExtraVar { name, .. }
+        | ConfigKey::SdkExtraPath { name, .. } = &key
+        {
             if manager.config.find_sdk_by_name(name).is_err() {
                 anyhow::bail!("SDK '{}' not found in config.", name);
             }
@@ -299,7 +312,9 @@ impl AddSdkHandler {
         let bin_dir = match &self.bin_dir {
             Some(dir) => {
                 if dir.is_empty() {
-                    anyhow::bail!("--bin-dir should be omitted (means root dir) or set to a directory name like 'bin'. Passing an empty string is redundant.");
+                    anyhow::bail!(
+                        "--bin-dir should be omitted (means root dir) or set to a directory name like 'bin'. Passing an empty string is redundant."
+                    );
                 }
                 let validated = validate_by_type(dir, &ValueType::FreeString)?;
                 Some(validated.into_string())
@@ -308,20 +323,23 @@ impl AddSdkHandler {
         };
 
         // 校验可选 URL 字段
-        let version_url = self.version_url.as_ref().map(|u| {
-            validate_by_type(u, &ValueType::Url)
-                .map(|v: ValidatedValue| v.into_string())
-        }).transpose()?;
+        let version_url = self
+            .version_url
+            .as_ref()
+            .map(|u| validate_by_type(u, &ValueType::Url).map(|v: ValidatedValue| v.into_string()))
+            .transpose()?;
 
-        let version_fallback_url = self.version_fallback_url.as_ref().map(|u| {
-            validate_by_type(u, &ValueType::Url)
-                .map(|v: ValidatedValue| v.into_string())
-        }).transpose()?;
+        let version_fallback_url = self
+            .version_fallback_url
+            .as_ref()
+            .map(|u| validate_by_type(u, &ValueType::Url).map(|v: ValidatedValue| v.into_string()))
+            .transpose()?;
 
-        let download_fallback_url = self.download_fallback_url.as_ref().map(|u| {
-            validate_by_type(u, &ValueType::UrlTemplate)
-                .map(|v: ValidatedValue| v.into_string())
-        }).transpose()?;
+        let download_fallback_url = self
+            .download_fallback_url
+            .as_ref()
+            .map(|u| validate_by_type(u, &ValueType::UrlTemplate).map(|v: ValidatedValue| v.into_string()))
+            .transpose()?;
 
         // 解析 extra_var KEY=VALUE 格式
         let mut extra_vars = HashMap::new();

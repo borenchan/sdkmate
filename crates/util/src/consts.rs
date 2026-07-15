@@ -52,6 +52,7 @@ pub const TUI_TIPS: &[&str] = &[
     "Press ↑↓ or j/k to navigate, Ctrl+C or q to quit",
     "Press 'i' to install (only available in remote list)",
     "Press Enter or 's' to switch (only installed versions)",
+    "Press del/d to uninstall an installed version (with confirm)",
     "✅ active  📦 installed — installed rows highlighted in green",
 ];
 

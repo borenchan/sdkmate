@@ -67,10 +67,7 @@ impl UnixEnvOperation {
         for line in content.lines() {
             let line = line.trim();
             if line.starts_with(PATH_EXPORT_PREFIX) {
-                return line
-                    .trim_start_matches(PATH_EXPORT_PREFIX)
-                    .replace('"', "")
-                    .to_string();
+                return line.trim_start_matches(PATH_EXPORT_PREFIX).replace('"', "").to_string();
             }
         }
         env::var(ENV_PATH).unwrap_or_default()
@@ -114,13 +111,8 @@ impl UnixEnvOperation {
         let mut lines: Vec<String> = content.lines().map(String::from).collect();
         if let Some(idx) = Self::find_path_export_line(&lines) {
             // 前置插入到已有 export PATH 行；整体引号包裹值，replace 去引号解析兼容历史部分引号格式
-            let current_value = lines[idx]
-                .trim_start_matches(PATH_EXPORT_PREFIX)
-                .replace('"', "");
-            lines[idx] = format!(
-                "{}\"{}{}{}\"",
-                PATH_EXPORT_PREFIX, expanded_path, PATH_SEPARATOR, current_value
-            );
+            let current_value = lines[idx].trim_start_matches(PATH_EXPORT_PREFIX).replace('"', "");
+            lines[idx] = format!("{}\"{}{}{}\"", PATH_EXPORT_PREFIX, expanded_path, PATH_SEPARATOR, current_value);
         } else {
             // 无 export PATH 行：新建，整体引号包裹 <dir>:$PATH（$PATH 在双引号内会展开，避免冲掉系统 PATH）
             lines.push(format!(
@@ -135,10 +127,11 @@ impl UnixEnvOperation {
     fn source_profile(profile_path: &PathBuf) -> Result<()> {
         let shell = env::var("SHELL").unwrap_or_default();
         let is_zsh = shell.contains("zsh");
-        let profile_name = profile_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(if is_zsh { PROFILE_ZSHRC } else { PROFILE_BASHRC });
+        let profile_name = profile_path.file_name().and_then(|n| n.to_str()).unwrap_or(if is_zsh {
+            PROFILE_ZSHRC
+        } else {
+            PROFILE_BASHRC
+        });
 
         let source_cmd = format!("source '{}' 2>/dev/null; echo $PATH", profile_path.display());
         let output = if is_zsh {
@@ -196,9 +189,7 @@ impl EnvOperation for UnixEnvOperation {
 
         let mut lines: Vec<String> = content.lines().map(String::from).collect();
         if let Some(idx) = Self::find_path_export_line(&lines) {
-            let current_value = lines[idx]
-                .trim_start_matches(PATH_EXPORT_PREFIX)
-                .replace('"', "");
+            let current_value = lines[idx].trim_start_matches(PATH_EXPORT_PREFIX).replace('"', "");
             let paths: Vec<String> = current_value
                 .split(PATH_SEPARATOR)
                 .filter(|&p| p != expanded_target.as_str() && p != target)
@@ -210,7 +201,10 @@ impl EnvOperation for UnixEnvOperation {
             } else {
                 lines[idx] = format!(
                     "{}\"{}{}{}\"",
-                    PATH_EXPORT_PREFIX, paths.join(PATH_SEPARATOR), PATH_SEPARATOR, PATH_BACKREF
+                    PATH_EXPORT_PREFIX,
+                    paths.join(PATH_SEPARATOR),
+                    PATH_SEPARATOR,
+                    PATH_BACKREF
                 );
             }
         }

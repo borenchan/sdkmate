@@ -83,7 +83,7 @@ bin_dir = "bin"
 | `sdkm init` | — | cli/InitHandler | 已实现（目录部署检测 + 项目目录识别 + 平台建议路径） |
 | `sdkm install <SDK> <VERSION>` | `i` | cli/InstallHandler | 已实现（模块拆分为 download_url/downloader/extractor/progress，版本解析提取到 `version/` 公共模块，12阶段异步流程） |
 | `sdkm uninstall <SDK> <VERSION>` | `rm`, `un` | cli/UninstallHandler | 已实现（复用 switch_sdk_to_version 业务编排卸载当前版本 + active 唯一版本环境清理 + `--yes` 跳过确认 + SDKM_HOME 注入解锁集成测试） |
-| `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler | 已实现（交互式 TUI 选择器 + 远程版本 + 安装/切换动作触发） |
+| `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler | 已实现（交互式 TUI 选择器 + 远程版本 + 安装/切换/删除动作触发；ls/current 加 size 列） |
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler | 已实现（PATH 冲突检测 + extra_paths 支持 + **备份回滚机制** + **版本模糊匹配（与 install 共用核心）**） |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler | 已实现 |
 | `sdkm config` | — | cli/ConfigHandler | 已实现（set/get/list/delete/edit/add-sdk/remove-sdk 子命令，按类型校验 + 原子写入 + 回滚） |
@@ -152,6 +152,19 @@ bin_dir = "bin"
 3. **`uninstall_self` 去 yes**（修正续章节第 4 条）：core 的 `yes` 参数去掉，**交互确认移到 CLI 层**（`SelfUninstallHandler.run()` 先 `prompt_confirm` 再调 `uninstall_self()`），core 纯业务便于测试直接调用（测试不再需 `yes=true` 逃生口）。CLI 仍强制确认无 `-y`。`uninstall_sdk` 保持原样（yes+确认在 core），两处模式不一致已接受
 4. **日志样式层级**（`symlink.rs`/`env/windows.rs`/`env/unix.rs`）：底层明细 API（`remove_symlink`/`remove_sdk_path`/`unset_sdk_env` 成功打印）的 `info!`（蓝色粗体 ℹ️）→ `detail!`（灰色 3 空格缩进），与标题 `info!`（如 `cleaning up \`java\` environment...`）形成层级。`prompt_confirm` 改换行模式：文案 `println!` 整段打印后换行，`[yes/No]` 另起一行；`self_uninstall` 文案用 `concat!` 拆多行
 5. **commit `d59de3d`**，9 文件 +51/-32，未发版。cfg(unix) 改动（unix.rs info→detail）仅宏名替换无类型变化，已用临时去 `#[cfg(unix)]` 守卫强制编译验证（见「已知问题」cfg(unix) 盲区条方法）
+
+### 本次改动（2026-07-15）—— list/current 列样式 + size 列 + TUI 删除键
+
+`ls`/`current` 加 size 列并重构展示样式，`ls <sdk>` TUI 加 Delete 键卸载。size 计算性能问题暂不动（同步 `dir_size` 对大 SDK 太慢），已记录待新会话实现缓存/异步方案。
+
+1. **size 计算与格式化**（`util/path.rs`）：新增 `dir_size(path)` 递归统计字节（`symlink_metadata` 不跟随符号链接，避免循环；符号链接本身不计入），`format_bytes(bytes)` 1024 进制自动 B/KB/MB/GB/TB（1 位小数）。`SdkVersionItem` 加 `size_bytes: u64` 字段，`new()` 同步算（性能待优化）。`util` 新增 `unicode-width` 依赖（表格对齐按显示宽度）
+2. **`print_table` 着色化**（`util/terminal.rs`）：加 `ColumnColor` 枚举（None/Cyan/Green/DarkGrey）+ `pad_right` 辅助；`print_table(headers, rows, colors)` 表头 cyan 粗体、数据行按列着色（padding 后着色，避免 ANSI 序列干扰宽度计算）
+3. **`ls`（无参）序号样式**（`sdkcore/list.rs::show_local_sdk_list`）：恢复原序号样式与 `current` 差异化——`✅ 1. java current: 8.0.492 1.9 GB` + 标题 `installed sdks:`（小写）。sdk 青粗、`current:` 标签暗灰、version 绿、size 暗灰，各列按 unicode 宽度左对齐。无 current 版本用空格占位 ✅ 宽度 + `N/A`
+4. **`current`（多 SDK）表格样式**（`show_local_sdks_current`）：保持表头表格 `sdk / current / size`（小写表头），单元格按列着色（sdk 青/version 绿/size 灰）。单 SDK current 单行 `ℹ️  <sdk> <version>`（sdk 青粗 version 绿）。与 `ls` 的序号样式形成差异化
+5. **TUI 删除键**（`cli/tui.rs` + `cli/impls/list.rs`）：`SelectorAction` 加 `Uninstall { version }`；`run_selector_inner` 加 `sizes: Option<Vec<String>>` 参数（行尾显示 size），`Delete`/`d` 键对已装版本触发卸载（仅 `is_installed || is_active`）；键位提示页脚加 `del/d:uninstall(installed)`。`execute_action` 复用 `manager.uninstall_sdk(sdk, &version, false)`——`yes=false` 让 TUI 退出后在正常终端走 uninstall 二次确认（破坏性操作不跳过）
+6. **size 性能待优化（未完成）**：同步 `dir_size` 对 node 1.9GB/几千文件明显卡顿。候选方案 A 缓存+并行（install/uninstall/switch 维护 `.cache/size.json`，命中即时）/ B 完全异步 CLI / C 并行无缓存。已记录到用户记忆 `size-perf-pending.md`，新开会话实现
+
+未发版。CLI 命令结构表 list 行状态追加「删除键」。
 
 ### 本次改动（2026-07-08）—— CI 跨平台兼容性修复（glibc/macOS deployment target）+ 双产物 + changelog Contributors
 

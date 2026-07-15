@@ -55,9 +55,7 @@ pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={}-", have));
     }
-    let mut resp = req.send()
-        .await
-        .context(format!("Failed to start download from {}", url))?;
+    let mut resp = req.send().await.context(format!("Failed to start download from {}", url))?;
 
     let status = resp.status();
     // 206 = 服务器支持续传；200 = 不支持 Range 或无部分文件，从头下
@@ -81,14 +79,20 @@ pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path
     // 续传：append 打开（保留已有内容）；从头：create 覆盖
     let file = if resume {
         if have > 0 {
-            pb.suspend(|| { detail!("Resuming download: {} already downloaded", HumanBytes(have)); });
+            pb.suspend(|| {
+                detail!("Resuming download: {} already downloaded", HumanBytes(have));
+            });
         }
-        tokio::fs::OpenOptions::new().append(true).open(dest_path)
+        tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(dest_path)
             .await
             .context("Failed to open partial file for resume")?
     } else {
         if have > 0 {
-            pb.suspend(|| { detail!("Server doesn't support resume, restarting download"); });
+            pb.suspend(|| {
+                detail!("Server doesn't support resume, restarting download");
+            });
         }
         tokio::fs::File::create(dest_path)
             .await

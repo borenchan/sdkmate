@@ -62,7 +62,10 @@ fn serve_range(body: Vec<u8>) -> String {
             let remaining = &body[start..];
             let head = format!(
                 "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\n\r\n",
-                remaining.len(), start, body.len() - 1, body.len()
+                remaining.len(),
+                start,
+                body.len() - 1,
+                body.len()
             );
             let _ = stream.write_all(head.as_bytes());
             let _ = stream.write_all(remaining);
