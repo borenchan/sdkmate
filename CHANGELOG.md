@@ -1,5 +1,54 @@
 # Changelog
 
+## v0.3.0 - 2026-07-16
+
+
+### ✨ Features
+
+- add self update subcommand with backup and rollback — [`c4b7012`](https://github.com/borenchan/sdkmate/commit/c4b7012)
+- make custom sdk download_url optional — [`e24eec5`](https://github.com/borenchan/sdkmate/commit/e24eec5)
+- cache and parallelize sdk size; decouple from switch/uninstall — [`dc7407d`](https://github.com/borenchan/sdkmate/commit/dc7407d)
+- add size column to ls/current and TUI uninstall key — [`d7a1a9d`](https://github.com/borenchan/sdkmate/commit/d7a1a9d)
+- add self uninstall command — [`681696b`](https://github.com/borenchan/sdkmate/commit/681696b)
+- add uninstall command — [`4aba334`](https://github.com/borenchan/sdkmate/commit/4aba334)
+
+### 🐛 Bug Fixes
+
+- clean stale install tmp; clarify java no-arch-build error — [`7802569`](https://github.com/borenchan/sdkmate/commit/7802569)
+- persist size cache orphan prune on hot path — [`6760a34`](https://github.com/borenchan/sdkmate/commit/6760a34)
+
+### ♻️ Refactor
+
+- improve self-uninstall cleanup and confirmation UX — [`d59de3d`](https://github.com/borenchan/sdkmate/commit/d59de3d)
+
+### 📝 Documentation
+
+- codify review-before-deliver rule in CLAUDE.md — [`8067d3d`](https://github.com/borenchan/sdkmate/commit/8067d3d)
+- update for optional download_url and size cache — [`a558629`](https://github.com/borenchan/sdkmate/commit/a558629)
+- trim CLAUDE.md to keep only latest progress and non-obvious rules — [`45f29cf`](https://github.com/borenchan/sdkmate/commit/45f29cf)
+- update CLAUDE.md progress for self-uninstall polish — [`fce5ba3`](https://github.com/borenchan/sdkmate/commit/fce5ba3)
+- fix star-history embed URL (add repos= param) — [`239afde`](https://github.com/borenchan/sdkmate/commit/239afde)
+- clarify extraction instructions to preserve .sdkm directory — [`4915bc6`](https://github.com/borenchan/sdkmate/commit/4915bc6)
+- update CLAUDE.md for v0.2.7/v0.2.8 changes and branding — [`70c10c2`](https://github.com/borenchan/sdkmate/commit/70c10c2)
+- switch logo to png, rename branding to sdkm, add star history chart — [`f9c868a`](https://github.com/borenchan/sdkmate/commit/f9c868a)
+
+### 👷 CI / Build
+
+- rename release artifact prefix from sdkmate to sdkm — [`33bfc37`](https://github.com/borenchan/sdkmate/commit/33bfc37)
+- render contributors with avatars via GitHub commits API — [`459b270`](https://github.com/borenchan/sdkmate/commit/459b270)
+
+### 🧰 Chore
+
+- release v0.3.0 — [`7df8b23`](https://github.com/borenchan/sdkmate/commit/7df8b23)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.2.8...v0.3.0
+
+
+
 ## v0.2.8 - 2026-07-08
 
 
