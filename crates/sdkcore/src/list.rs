@@ -197,7 +197,6 @@ impl SdkManager {
                 let _ = io::stdout().flush();
                 // 计算（resolve 命中即返，未命中 jwalk 并行 + 回写）
                 let sizes: Vec<u64> = rows.iter().map(|(_, _, p)| cache.resolve(p)).collect();
-                cache.save();
                 // 重绘：光标回表头行，清屏向下，打最终表
                 let mut stdout = io::stdout();
                 let _ = execute!(stdout, cursor::MoveToPreviousLine(printed), Clear(ClearType::FromCursorDown),);
@@ -209,7 +208,6 @@ impl SdkManager {
             } else {
                 // 管道/非 TTY：算完再打（无渐进，避免 ANSI 污染管道）
                 let sizes: Vec<u64> = rows.iter().map(|(_, _, p)| cache.resolve(p)).collect();
-                cache.save();
                 rows.iter()
                     .zip(sizes)
                     .map(|((s, c, _), b)| (s.clone(), c.clone(), format_bytes(b)))
@@ -217,6 +215,7 @@ impl SdkManager {
             }
         };
 
+        cache.save();
         print_local_table(&final_items);
         divider!();
         Ok(())
