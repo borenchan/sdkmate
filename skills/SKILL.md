@@ -133,7 +133,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 | `name` | SDK 唯一名称 |
 | `version_url` | 版本发现主源 URL（返回可用版本列表） |
 | `version_fallback_url` | 版本发现备源，主源失败回退 |
-| `download_url` | 下载主源 URL 模板，支持 `{version}` 等占位符，**必填** |
+| `download_url` | 下载主源 URL 模板，支持 `{version}` 等占位符；**自定义 SDK 可省略**（省略 = 本地 switch-only，不远程安装） |
 | `download_fallback_url` | 下载备源 URL 模板 |
 | `current_version` | 当前激活版本（由 `switch` 自动维护） |
 | `bin_dir` | 二进制所在子目录名；**空串 = 二进制在 SDK 根目录**（如 Node.js、Windows Python），**必填** |
@@ -160,7 +160,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 - **原子写入**：所有配置写操作用「临时文件→重命名」，避免写到一半损坏。
 - **快照回滚**：`set`/`delete`/`add-sdk`/`remove-sdk` 失败时自动恢复到操作前（内存级 + 磁盘原始内容级双重恢复）。
 - **TOML 校验**：`edit` 保存后自动重解析，语法错误会提示但不破坏现有文件。
-- **内置 SDK 保护**：内置 SDK（java/node/python/maven）所有字段不可 `delete`、不可 `remove-sdk`，只能 `set` 改。`download_url` 与 `bin_dir` 对任意 SDK 都是必填，不可删。
+- **内置 SDK 保护**：内置 SDK（java/node/python/maven）所有字段不可 `delete`、不可 `remove-sdk`，只能 `set` 改。`bin_dir` 对任意 SDK 必填不可删；`download_url` 内置必填，自定义可省略/可删（省略 = 本地 switch-only SDK，仅切版本不远程安装）。
 
 ## 自定义 SDK
 

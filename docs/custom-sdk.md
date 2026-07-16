@@ -8,7 +8,7 @@ sdkm 内置支持 Java、Node.js、Python、Maven 四个 SDK。除此之外，�
 
 ```bash
 sdkm config add-sdk <NAME> \
-  --download-url <URL_TEMPLATE> \
+  [--download-url <URL_TEMPLATE>] \
   [--bin-dir <DIR>] \
   [--version-url <URL>] \
   [--version-fallback-url <URL>] \
@@ -20,7 +20,7 @@ sdkm config add-sdk <NAME> \
 | 参数 | 必填 | 说明 |
 |:---|:---:|:---|
 | `<NAME>` | 是 | SDK 唯一名称，不可与已有 SDK 重名 |
-| `--download-url` | 是 | 下载主源 URL 模板，支持 `{version}` 等占位符 |
+| `--download-url` | 否 | 下载主源 URL 模板，支持 `{version}` 等占位符。**省略 = 本地 switch-only SDK**（见下节） |
 | `--bin-dir` | 否 | 二进制所在子目录名；**省略 = 二进制在 SDK 根目录**（如 Node.js）。传值则必须是简单目录名（`bin`、`Scripts`），不能含 `/` 或 `\` |
 | `--version-url` | 否 | 版本发现主源 URL；不填则该 SDK 只支持精确版本安装，不支持模糊匹配与 `list -r` |
 | `--version-fallback-url` | 否 | 版本发现备源 URL |
@@ -56,6 +56,18 @@ sdkm config add-sdk groovy \
   --bin-dir bin \
   --extra-var GROOVY_HOME="{sdk_dir}"
 ```
+
+### 本地 switch-only SDK（不远程安装）
+
+只想让 sdkm 托管一个**已经在本地的**工具目录、用 `sdkm switch` 切版本、不通过 sdkm 远程下载安装时，**省略 `--download-url`** 即可：
+
+```bash
+sdkm config add-sdk mylocal --bin-dir bin
+```
+
+注册后手动把各版本目录放到 `store/mylocal/<version>/`（如 `store/mylocal/1.0.0/`、`store/mylocal/2.0.0/`），即可用 `sdkm switch mylocal 1.0.0` / `sdkm current mylocal` / `sdkm list mylocal` 切换与查看。
+
+> 这种 SDK **不能** `sdkm install`（无下载源），尝试会明确报错并提示放置目录或补 `download_url`。若日后需要远程安装，`sdkm config set sdk.mylocal.download_url <url>` 补上即可。
 
 ## 移除自定义 SDK
 

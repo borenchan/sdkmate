@@ -51,7 +51,7 @@ github_token = ""         # GitHub PAT for higher API rate limit
 
 [[sdk]]
 name = "java"
-download_url = "..."
+download_url = "..."   # 自定义 SDK 可省略（= 本地 switch-only，不远程安装）；内置 SDK 必填
 bin_dir = "bin"
 ```
 
@@ -93,20 +93,31 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-07-15）
+## 当前开发进度（2026-07-16）
 
-### 本次改动 —— list/current 列样式 + size 列 + TUI 删除键
+### 本次改动 —— size 缓存/并行/解耦 + 自定义 SDK download_url 可选
 
-`ls`/`current` 加 size 列并重构展示样式，`ls <sdk>` TUI 加 Delete 键卸载。size 计算性能问题暂不动（同步 `dir_size` 对大 SDK 太慢），已记录待新会话实现缓存/异步方案。
+两块：①解决 `ls` size 列慢；②自定义 SDK 注册放开 `download_url`。
 
-1. **size 计算与格式化**（`util/path.rs`）：新增 `dir_size(path)` 递归统计字节（`symlink_metadata` 不跟随符号链接，避免循环；符号链接本身不计入），`format_bytes(bytes)` 1024 进制自动 B/KB/MB/GB/TB（1 位小数）。`SdkVersionItem` 加 `size_bytes: u64` 字段，`new()` 同步算（性能待优化）。`util` 新增 `unicode-width` 依赖（表格对齐按显示宽度）
-2. **`print_table` 着色化**（`util/terminal.rs`）：加 `ColumnColor` 枚举（None/Bold/Green/DarkGrey）+ `pad_right` 辅助；`print_table(headers, rows, colors)` 表头 cyan 粗体、数据行按列着色（padding 后着色，避免 ANSI 序列干扰宽度计算）
-3. **`ls`（无参）序号样式**（`sdkcore/list.rs::show_local_sdk_list`）：`✅ 1. java  8.0.492  1.9 GB` + 标题 `installed sdks:`（小写）。sdk 粗体、version 绿、size 暗灰，各列按 unicode 宽度左对齐。无 current 版本用空格占位 ✅ 宽度 + `N/A`
-4. **`current`（多 SDK）表格样式**（`show_local_sdks_current`）：表头表格 `sdk / current`（小写表头），单元格按列着色（sdk 粗/version 绿）。单 SDK current 单行 `ℹ️  <sdk> <version>`。与 `ls` 的序号样式形成差异化
-5. **TUI 删除键**（`cli/tui.rs` + `cli/impls/list.rs`）：`SelectorAction` 加 `Uninstall { version }`；`run_selector_inner` 加 `sizes: Option<Vec<String>>` 参数（行尾显示 size），`Delete`/`d` 键对已装版本触发卸载（仅 `is_installed || is_active`）；键位提示页脚加 `del/d:uninstall(installed)`。`execute_action` 复用 `manager.uninstall_sdk(sdk, &version, false)`——`yes=false` 让 TUI 退出后在正常终端走 uninstall 二次确认（破坏性操作不跳过）
-6. **size 性能待优化（未完成）**：同步 `dir_size` 对 node 1.9GB/几千文件明显卡顿。候选方案 A 缓存+并行（install/uninstall/switch 维护 `.cache/size.json`，命中即时）/ B 完全异步 CLI / C 并行无缓存。已记录到用户记忆 `size-perf-pending.md`，新开会话实现
+**A. size 缓存 + jwalk 并行 + 解耦 + 冷路径渐进**
+1. **`sdkcore/size_cache.rs`（新模块）**：`SizeCache { load, cached, resolve, prune, save }`。缓存文件 `<home>/.cache/size.json`，`{路径: {bytes, mtime_secs}}`，**mtime 失效**（目录直接子项增删才变 → SDK 版本目录装完即冻结，永久命中；外部手动改目录子项 → mtime 变 → 重算）。**纯 ls 侧自管，install/uninstall/switch 一行不碰（解耦，零回归）**。ls 时 `prune` 清孤儿条目。原子写（tmp+rename），best-effort（读不到/写不进都退化到现场算）
+2. **并行 walk**：`dir_size_parallel`（jwalk + rayon，`follow_links=false`、symlink 不计入，与原单线程 `dir_size` 语义一致）替代同步遍历。`dir_size` 单线程版已删（孤儿）。jwalk 加到 sdkcore 依赖（相对 reqwest/rustls 体积零头）
+3. **解耦**：`SdkVersionItem` 删 `size_bytes` 字段、`new()` 删 `dir_size` 调用 → `switch`/`uninstall`/`fetch_remote_versions_async` 不再被 size 连带拖累
+4. **概览 `ls`（无参）冷路径渐进**（`show_local_sdk_list`）：`SizeCache::load`→`cached()` 判冷热。全命中直接打最终表；冷路径+TTY 先打骨架（size 列 `…` 提示、先展示 sdk/version）→ 算完 `MoveToPreviousLine`+`Clear(FromCursorDown)` 重绘最终表；管道/非 TTY 算完再打（不污染管道）。抽 `print_local_table` 返回行数驱动光标回退。**列头 `size`→`total`**（概览 size = 该 SDK 全部版本总占用，非 current 版本大小，避免与 current 版本号紧邻误读）
+5. **TUI `ls <sdk>` 渐进**（`cli/tui.rs`）：`run_local_selector` 起 `thread::Builder` 后台并行算 size 写入 `Arc<Mutex<Vec<Option<u64>>>>`，TUI 先用 `…` 渲染、算完逐条回填；`run_selector_inner` 参数 `sizes: Option<Vec<String>>`→`live_sizes: Option<Arc<Mutex<Vec<Option<u64>>>>>`，每帧从 live 读、未算显 `…`；`event::poll` 超时按是否还有 pending 动态（120ms 短轮询刷回填 / 全算完回退 3s）。退出前 `handle.join()`（缓存落盘 + 数据完整；panic=abort 下后台线程无 unwrap、锁容错）
 
-未发版。**注：下次更新进度时，删除本条（只保留最新一次会话）。**
+实测（真实 home，node 1.9GB）：冷路径首跑算+写缓存，热路径 `ls` 137ms（命中）。
+
+**B. 自定义 SDK `download_url` 可选 + 未注册 SDK 引导**
+1. **`SdkConfig.download_url: String`→`Option<String>`**（`config/mod.rs`，serde default+skip）。`new()` 内部包 `Some`（签名不变，builtin 调用者不动）；`get_raw_value`/`list_all_values` 的 `.clone()`→`unwrap_or_default()`/`(none)`；`apply_delete_value` 加 `DownloadUrl => None`
+2. **`key_meta`**（`config/validation.rs`）：`DownloadUrl` `deletable:false`→`sdk_deletable`（自定义可删→None，内置仍必填不可删）、`default_desc`→`(none)`
+3. **`add-sdk` CLI**（`cli/impls/config.rs`）：`download_url` 改 `Option`、help 改 "optional; omit for local switch-only SDK"；成功提示分流——有 `download_url`→`sdkm install`，无→"Local switch-only SDK, place version dir at `store/<name>/<ver>` then `sdkm switch`"。usage 因此变 `add-sdk [OPTIONS] <NAME>`（NAME 回到正常位置）
+4. **`install` 清晰 bail**（`install/mod.rs`）：`resolved.download_url` 与 `sdk_conf.download_url` 均 None → bail "`<sdk>` has no download_url, cannot install remotely — place version dir at `store/<sdk>/<ver>` or `sdkm config set sdk.<sdk>.download_url <url>`"（在碰 env/network 之前 Phase 3 bail）
+5. **未注册 SDK 引导**（`manager.rs::match_valid_sdk`）：文案 "please manually register..." → "Register it with: `sdkm config add-sdk <name>` (add --download-url for remote install, or omit for local switch-only)"。所有子命令共用
+
+内置 SDK（java/node/python/maven）`download_url` 仍必填（`sdk_resources.rs` 写死，不受影响）。文档同步更新：`docs/configuration.md`、`docs/custom-sdk.md`（新增"本地 switch-only SDK"章节）、`skills/SKILL.md`、本文件配置示例。测试 `tests/uninstall.rs`/`self_uninstall.rs` 字面量包 `Some`。未发版。
+
+**注：下次更新进度时，删除本条（只保留最新一次会话）。**
 
 ## 已知问题与注意事项
 

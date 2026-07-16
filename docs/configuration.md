@@ -58,14 +58,14 @@ extra_paths = []
 | `name` | — | — | SDK 唯一名称，用于命令行引用 |
 | `version_url` | Url | 内置否/自定义是 | 版本发现主源 URL，返回可用版本列表 |
 | `version_fallback_url` | Url | 同上 | 版本发现备源，主源失败时回退 |
-| `download_url` | UrlTemplate | **否（任何 SDK）** | 下载主源 URL 模板，支持 `{version}` 等占位符，必填 |
+| `download_url` | UrlTemplate | 内置否/自定义是 | 下载主源 URL 模板，支持 `{version}` 等占位符；**可省略** = 本地 switch-only SDK（仅切版本，不远程安装） |
 | `download_fallback_url` | UrlTemplate | 内置否/自定义是 | 下载备源 URL 模板，主源失败时回退 |
 | `current_version` | NonEmptyString | 同上 | 当前激活版本（由 `switch` 自动维护，一般不手动改） |
 | `bin_dir` | FreeString | **否（任何 SDK）** | 二进制所在子目录名；**空值/省略 = 二进制在 SDK 根目录**（如 Windows 下的 Node.js / Python）；内置 SDK 已按平台预设（Linux/macOS 的 Node 与 Python 为 `bin`，Java/Maven 全平台为 `bin`）；必填 |
 | `extra_vars` | NonEmptyString | 同上 | 额外环境变量键值表，值支持模板渲染（如 `JAVA_HOME = "{sdk_dir}"`） |
 | `extra_paths` | Path | 同上 | 额外 PATH 条目（相对符号链接目录，可多条） |
 
-> **内置 SDK 保护**：内置 SDK（java/node/python/maven）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`download_url` 与 `bin_dir` 对任意 SDK 都是必填字段，不可删除。
+> **内置 SDK 保护**：内置 SDK（java/node/python/maven）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**（省略 = 本地 switch-only SDK，不远程安装）。
 
 ## 键名格式（点分隔）
 
