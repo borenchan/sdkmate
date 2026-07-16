@@ -21,7 +21,9 @@ impl SdkManager {
         let sdk = Sdk::from_str(sdk_name)?;
         if !self.config.exist_sdk(&sdk) {
             anyhow::bail!(
-                "Unregistered SDK:`{}` , please manually register it to the SDKM configuration!",
+                "Unregistered SDK `{}`. Register it with: `sdkm config add-sdk {}` \
+                 (add `--download-url <url>` for remote install, or omit for a local switch-only SDK).",
+                sdk,
                 sdk
             )
         }

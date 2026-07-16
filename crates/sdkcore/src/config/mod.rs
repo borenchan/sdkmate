@@ -92,8 +92,9 @@ pub struct SdkConfig {
     //版本发现备源 URL（主源失败时回退）
     #[serde(default)]
     pub version_fallback_url: Option<String>,
-    //下载主源 URL 模板
-    pub download_url: String,
+    //下载主源 URL 模板（可选：None = 本地 switch-only SDK，仅切版本不远程安装）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
     //下载备源 URL 模板（下载主源失败时回退）
     #[serde(default)]
     pub download_fallback_url: Option<String>,
@@ -116,7 +117,7 @@ impl SdkConfig {
             name,
             version_url: Some(version_url),
             version_fallback_url: None,
-            download_url,
+            download_url: Some(download_url),
             download_fallback_url: None,
             bin_dir,
             current_version: None,
@@ -290,7 +291,7 @@ impl SdkmConfig {
                 match field {
                     SdkField::VersionUrl => Ok(sdk.version_url.clone().unwrap_or_default()),
                     SdkField::VersionFallbackUrl => Ok(sdk.version_fallback_url.clone().unwrap_or_default()),
-                    SdkField::DownloadUrl => Ok(sdk.download_url.clone()),
+                    SdkField::DownloadUrl => Ok(sdk.download_url.clone().unwrap_or_default()),
                     SdkField::DownloadFallbackUrl => Ok(sdk.download_fallback_url.clone().unwrap_or_default()),
                     SdkField::CurrentVersion => Ok(sdk.current_version.clone().unwrap_or_default()),
                     SdkField::BinDir => Ok(sdk.bin_dir.clone().unwrap_or_default()),
@@ -344,7 +345,7 @@ impl SdkmConfig {
                     match field {
                         SdkField::VersionUrl => sdk.version_url = Some(value),
                         SdkField::VersionFallbackUrl => sdk.version_fallback_url = Some(value),
-                        SdkField::DownloadUrl => sdk.download_url = value,
+                        SdkField::DownloadUrl => sdk.download_url = Some(value),
                         SdkField::DownloadFallbackUrl => sdk.download_fallback_url = Some(value),
                         SdkField::CurrentVersion => sdk.current_version = Some(value),
                         SdkField::BinDir => sdk.bin_dir = Some(value),
@@ -410,9 +411,10 @@ impl SdkmConfig {
                         SdkField::VersionUrl => sdk.version_url = None,
                         SdkField::VersionFallbackUrl => sdk.version_fallback_url = None,
                         SdkField::DownloadFallbackUrl => sdk.download_fallback_url = None,
+                        SdkField::DownloadUrl => sdk.download_url = None,
                         SdkField::CurrentVersion => sdk.current_version = None,
-                        SdkField::DownloadUrl | SdkField::BinDir => {
-                            // 不可删除字段，不应到达此处（已在 delete_value 中校验）
+                        SdkField::BinDir => {
+                            // bin_dir 不可删除（已在 delete_value 中校验，不应到达）
                         }
                     }
                 }
@@ -480,7 +482,10 @@ impl SdkmConfig {
                 format!("{}.version_fallback_url", prefix),
                 sdk.version_fallback_url.clone().unwrap_or("(none)".to_string()),
             ));
-            entries.push((format!("{}.download_url", prefix), sdk.download_url.clone()));
+            entries.push((
+                format!("{}.download_url", prefix),
+                sdk.download_url.clone().unwrap_or_else(|| "(none)".to_string()),
+            ));
             entries.push((
                 format!("{}.download_fallback_url", prefix),
                 sdk.download_fallback_url.clone().unwrap_or("(none)".to_string()),

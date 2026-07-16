@@ -78,9 +78,12 @@ struct AddSdkHandler {
     #[arg(value_name = "NAME", help = "SDK name (must be unique)")]
     name: String,
 
-    /// Download URL template (required, supports {version} placeholders)
-    #[arg(long, help = "Download URL template (required, supports {version} placeholders)")]
-    download_url: String,
+    /// Download URL template (optional; omit for a local switch-only SDK that won't be installed remotely)
+    #[arg(
+        long,
+        help = "Download URL template (optional; omit for a local switch-only SDK that won't be installed remotely). Supports {version} placeholders"
+    )]
+    download_url: Option<String>,
 
     /// SDK binary directory name (omit = binaries in SDK root dir, e.g. bin, Scripts)
     #[arg(
@@ -304,9 +307,12 @@ impl AddSdkHandler {
             anyhow::bail!("SDK '{}' already exists in config.", self.name);
         }
 
-        // 校验 download_url（UrlTemplate）
-        let download_url_validated = validate_by_type(&self.download_url, &ValueType::UrlTemplate)?;
-        let download_url = download_url_validated.into_string();
+        // 校验 download_url（可选：None = 本地 switch-only SDK，不远程安装）
+        let download_url = self
+            .download_url
+            .as_ref()
+            .map(|u| validate_by_type(u, &ValueType::UrlTemplate).map(|v: ValidatedValue| v.into_string()))
+            .transpose()?;
 
         // 解析 bin_dir：不传 → None（二进制在根目录），传了 → 校验禁止路径分隔符
         let bin_dir = match &self.bin_dir {
@@ -367,7 +373,15 @@ impl AddSdkHandler {
         manager.config.add_sdk(sdk_config)?;
 
         success!("SDK '{}' added to config.", self.name);
-        detail!("Run `sdkm install {} <version>` to start using it.", self.name);
+        if self.download_url.is_some() {
+            detail!("Run `sdkm install {} <version>` to download and install a version.", self.name);
+        } else {
+            detail!(
+                "Local switch-only SDK (no download_url). Place a version dir at `store/{}/<version>`, then run `sdkm switch {} <version>`.",
+                self.name,
+                self.name
+            );
+        }
         Ok(())
     }
 }

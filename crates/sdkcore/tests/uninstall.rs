@@ -98,7 +98,7 @@ fn java_sdk(current: Option<&str>, bin_dir: Option<&str>, extra_vars: &[(&str, &
         name: "java".to_string(),
         version_url: None,
         version_fallback_url: None,
-        download_url: "http://fake/java".to_string(),
+        download_url: Some("http://fake/java".to_string()),
         download_fallback_url: None,
         current_version: current.map(|s| s.to_string()),
         bin_dir: bin_dir.map(|s| s.to_string()),

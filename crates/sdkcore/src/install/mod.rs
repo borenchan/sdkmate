@@ -135,10 +135,23 @@ impl SdkManager {
         info!("{} {} is not installed locally, proceeding...", sdk_name, full_version);
 
         // ── Phase 3: 构建下载 URL（主/备）─────────────────────────
-        let download_url = if resolved.download_url.is_some() {
-            resolved.download_url.clone().unwrap()
+        let download_url = if let Some(direct) = resolved.download_url.clone() {
+            // 版本发现源直接给出下载直链（如部分 GitHub release）
+            direct
         } else {
-            build_download_url(sdk, &sdk_conf.download_url, &resolved)?
+            // 走 download_url 模板渲染；模板缺失 = 本地 switch-only SDK，无法远程安装
+            let template = sdk_conf.download_url.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "`{}` has no download_url configured and cannot be installed remotely. \
+                     This is a local switch-only SDK — place the version dir at `store/{}/{}` manually, \
+                     or set a download_url via `sdkm config set sdk.{}.download_url <url>`.",
+                    sdk_name,
+                    sdk_name,
+                    full_version,
+                    sdk_name
+                )
+            })?;
+            build_download_url(sdk, template, &resolved)?
         };
         detail!("Download URL (primary): {}", download_url);
 

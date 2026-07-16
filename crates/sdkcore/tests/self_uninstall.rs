@@ -94,7 +94,7 @@ fn make_sdk(name: &str, current: &str, bin_dir: &str, extra_vars: &[(&str, &str)
         name: name.to_string(),
         version_url: None,
         version_fallback_url: None,
-        download_url: format!("http://fake/{name}"),
+        download_url: Some(format!("http://fake/{name}")),
         download_fallback_url: None,
         current_version: Some(current.to_string()),
         bin_dir: Some(bin_dir.to_string()),
