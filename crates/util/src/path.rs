@@ -1,7 +1,7 @@
-use crate::consts::{CONFIG_FILE_NAME, SDKM_LINKS_DIR, SDKM_STORE_DIR};
+use crate::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_LINKS_DIR, SDKM_STORE_DIR};
 use anyhow::{Context, Result};
 use std::{
-    env, fs,
+    env,
     path::{Path, PathBuf},
 };
 
@@ -52,24 +52,13 @@ pub fn get_sdkm_config_path() -> Result<PathBuf> {
     Ok(sdkm_home.join(CONFIG_FILE_NAME))
 }
 
-/// 递归计算目录总大小（字节）
+/// 获取 size 缓存文件路径（<sdkm_home>/.cache/size.json）
 ///
-/// 用 `symlink_metadata` 不跟随符号链接，避免循环递归；符号链接本身不计入大小。
-pub fn dir_size(path: &Path) -> Result<u64> {
-    let mut total: u64 = 0;
-    let mut stack: Vec<PathBuf> = vec![path.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))? {
-            let entry = entry?;
-            let meta = fs::symlink_metadata(entry.path())?;
-            if meta.is_dir() {
-                stack.push(entry.path());
-            } else if meta.is_file() {
-                total += meta.len();
-            }
-        }
-    }
-    Ok(total)
+/// 与版本 API 缓存同目录（SDKM_CACHE_DIR）但独立文件。纯 ls 侧读写，
+/// install/uninstall/switch 不碰——解耦，避免子命令间耦合。
+pub fn get_size_cache_path() -> Result<PathBuf> {
+    let sdkm_home = get_sdkm_home()?;
+    Ok(sdkm_home.join(SDKM_CACHE_DIR).join("size.json"))
 }
 
 /// 字节数格式化为人类可读（1024 进制，自动 B/KB/MB/GB/TB，1 位小数）

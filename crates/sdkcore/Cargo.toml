@@ -18,6 +18,7 @@ toml = { workspace = true }
 unicode-width = { workspace = true }
 tokio = { workspace = true }
 indicatif = { workspace = true }
+jwalk = { workspace = true }
 zip = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }

@@ -7,7 +7,11 @@ use crossterm::{
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use sdkcore::list::{InstallStatus, RemoteVersionItem, SdkVersionItem};
+use sdkcore::size_cache::SizeCache;
 use std::io::{self, Write};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE, STATUS_INSTALLED, TUI_TIPS};
@@ -33,7 +37,27 @@ pub fn run_local_selector(sdk_name: &str, versions: &[SdkVersionItem]) -> Result
     if versions.is_empty() {
         return Ok(SelectorAction::Quit);
     }
-    run_selector_inner(
+    // 后台并行算 size：TUI 先用 "…" 渲染、算完逐条回填（缓存命中即返，冷路径 jwalk 并行 + 回写）
+    let n = versions.len();
+    let live: Arc<Mutex<Vec<Option<u64>>>> = Arc::new(Mutex::new(vec![None; n]));
+    let dirs: Vec<PathBuf> = versions.iter().map(|v| v.sdk_dir.clone()).collect();
+    let live_bg = Arc::clone(&live);
+    // panic=abort 下后台线程绝不能 panic：resolve/save 均无 unwrap，锁用容错取值
+    let bg = thread::Builder::new()
+        .name("sdkm-size".into())
+        .spawn(move || {
+            let mut cache = SizeCache::load();
+            for (i, dir) in dirs.iter().enumerate() {
+                let bytes = cache.resolve(dir);
+                if let Ok(mut g) = live_bg.lock() {
+                    g[i] = Some(bytes);
+                }
+            }
+            cache.save();
+        })
+        .ok();
+
+    let action = run_selector_inner(
         sdk_name,
         "Local Versions",
         None,
@@ -42,8 +66,14 @@ pub fn run_local_selector(sdk_name: &str, versions: &[SdkVersionItem]) -> Result
         versions.iter().map(|v| v.is_active).collect(),
         versions.iter().map(|_| true).collect(),  // local = always installed
         versions.iter().map(|_| false).collect(), // no "not installed" in local
-        Some(versions.iter().map(|v| format_bytes(v.size_bytes)).collect()),
-    )
+        Some(live),
+    );
+
+    // 等后台算完再退出：确保缓存落盘 + 数据完整（冷路径最多多等一次 walk，热路径瞬时）
+    if let Some(handle) = bg {
+        let _ = handle.join();
+    }
+    action
 }
 
 /// Run interactive version selector for remote SDK versions
@@ -105,7 +135,7 @@ fn run_selector_inner(
     is_active: Vec<bool>,
     is_installed: Vec<bool>,
     is_not_installed: Vec<bool>,
-    sizes: Option<Vec<String>>,
+    live_sizes: Option<Arc<Mutex<Vec<Option<u64>>>>>,
 ) -> Result<SelectorAction> {
     let total = versions.len();
     let mut selected = find_default_selection(&is_active);
@@ -206,10 +236,10 @@ fn run_selector_inner(
             };
             let status_col = pad_status(status_mark);
 
-            // 版本列左对齐 pad 到 version_col_width；本地列表追加 size 列
+            // 版本列左对齐 pad 到 version_col_width；本地列表追加 size 列（live：算完显值，未算显 "…"）
             let version_padded = pad_right(versions[i], version_col_width);
-            let text = match &sizes {
-                Some(sz) => format!("{}{}  {}", status_col, version_padded, sz[i]),
+            let text = match &live_sizes {
+                Some(ls) => format!("{}{}  {}", status_col, version_padded, live_size_str(ls, i)),
                 None => format!("{}{}", status_col, version_padded),
             };
 
@@ -306,7 +336,17 @@ fn run_selector_inner(
         try_bug!(stdout.flush().context("Failed to flush stdout"));
 
         // ── Event loop ──
-        let ev = try_bug!(event::poll(Duration::from_secs(3)).context("Event poll failed"));
+        // size 尚未算完时短轮询（120ms）让回填尽快刷到屏；全部算完回退 3s（仅 tip 轮换）
+        let pending = live_sizes
+            .as_ref()
+            .and_then(|ls| ls.lock().ok())
+            .is_some_and(|g| g.iter().any(Option::is_none));
+        let poll_timeout = if pending {
+            Duration::from_millis(120)
+        } else {
+            Duration::from_secs(3)
+        };
+        let ev = try_bug!(event::poll(poll_timeout).context("Event poll failed"));
         if ev {
             if let Event::Key(key) = try_bug!(event::read().context("Event read failed")) {
                 if key.kind != KeyEventKind::Press {
@@ -366,6 +406,17 @@ fn run_selector_inner(
 
 fn find_default_selection(is_active: &[bool]) -> usize {
     is_active.iter().position(|a| *a).unwrap_or(0)
+}
+
+/// 从 live size 共享状态读第 i 项的展示串：已算→格式化，未算→"…"
+///
+/// 锁中毒时取内部数据继续（不 panic —— release 下 panic=abort 会终止整个进程）
+fn live_size_str(ls: &Mutex<Vec<Option<u64>>>, i: usize) -> String {
+    let guard = ls.lock().unwrap_or_else(|e| e.into_inner());
+    match guard.get(i).copied().flatten() {
+        Some(b) => format_bytes(b),
+        None => "…".to_string(),
+    }
 }
 
 /// Truncate URL to fit terminal width

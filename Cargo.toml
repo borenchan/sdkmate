@@ -30,6 +30,8 @@ tokio = {version = "1", features = ["fs", "io-util", "rt-multi-thread"]}
 
 # 进度条
 indicatif = { version = "0.17" }
+# 并行目录遍历（ls 的 size 计算；基于 rayon 工作窃取，传递依赖 rayon/crossbeam，相对 reqwest/rustls 体积可忽略）
+jwalk = { version = "0.8" }
 # 解压：zip 仅 deflate（禁默认的 zstd/lzma/bzip2/aes 套件）；flate2 解 gzip 流；tar 解归档
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1" }
