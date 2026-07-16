@@ -255,15 +255,15 @@ fn rollback_to_bak(exe: &Path, bak: &Path, work: &Path, name: &str) {
 /// 当前平台的 release asset 名（编译期确定，与 CI 矩阵一致）
 fn platform_asset_name() -> Result<&'static str> {
     let name = if cfg!(target_os = "windows") && cfg!(target_arch = "x86_64") {
-        "sdkmate-windows-x86_64.zip"
+        "sdkm-windows-x86_64.zip"
     } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
-        "sdkmate-macos-aarch64.tar.gz"
+        "sdkm-macos-aarch64.tar.gz"
     } else if cfg!(target_os = "macos") && cfg!(target_arch = "x86_64") {
-        "sdkmate-macos-x86_64.tar.gz"
+        "sdkm-macos-x86_64.tar.gz"
     } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") && cfg!(target_env = "musl") {
-        "sdkmate-linux-x86_64-musl.tar.gz"
+        "sdkm-linux-x86_64-musl.tar.gz"
     } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") && cfg!(target_env = "gnu") {
-        "sdkmate-linux-x86_64-gnu.tar.gz"
+        "sdkm-linux-x86_64-gnu.tar.gz"
     } else {
         bail!(
             "no prebuilt sdkm asset for this platform; download manually from \

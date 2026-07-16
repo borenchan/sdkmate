@@ -60,34 +60,34 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact_name: sdkm
-            asset_name: sdkmate-linux-x86_64-gnu
+            asset_name: sdkm-linux-x86_64-gnu
             archive_format: tar.gz
           # Linux musl：全静态，无 glibc 依赖，任意 Linux 通吃（Alpine/CentOS 7/容器）
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             artifact_name: sdkm
-            asset_name: sdkmate-linux-x86_64-musl
+            asset_name: sdkm-linux-x86_64-musl
             archive_format: tar.gz
             apt_packages: musl-tools cmake perl
           # macOS ARM（M1+）：deployment target 11.0 覆盖 Big Sur+，避免绑 runner SDK 版本
           - os: macos-14
             target: aarch64-apple-darwin
             artifact_name: sdkm
-            asset_name: sdkmate-macos-aarch64
+            asset_name: sdkm-macos-aarch64
             archive_format: tar.gz
             macos_deployment_target: "11.0"
           # macOS Intel：在 ARM runner(macos-14) 上交叉编译 x86_64，避开 macos-13 Intel runner 长排队
           - os: macos-14
             target: x86_64-apple-darwin
             artifact_name: sdkm
-            asset_name: sdkmate-macos-x86_64
+            asset_name: sdkm-macos-x86_64
             archive_format: tar.gz
             macos_deployment_target: "11.0"
           # Windows：向后兼容性好，保持 latest
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: sdkm.exe
-            asset_name: sdkmate-windows-x86_64
+            asset_name: sdkm-windows-x86_64
             archive_format: zip
 
     steps:
