@@ -124,6 +124,10 @@ bin_dir = "bin"
 
 **实测**（隔离临时 home + SDKM_HOME，不碰真实环境）：构造 0.2.7 旧版 → `--check` 显示 update available ✓；`self update` 下载替换 `--version` 变 0.2.8 ✓（.bak 在 work_dir、exe 目录无残留）；`--rollback` 0.2.8→0.2.7 ✓；无备份 `--rollback` bail"no backup" ✓；别名 `self u -c` ✓；Windows running exe 副本 `.discard` 删不掉 → 留 `<home>/.tmp/self_update/`（exe 目录干净）→ 下次 `clean_leftovers` 清理 ✓（rustup 同款行为）。release 覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），真实 home `--check` already up to date ✓。未发版。
 
+### 后续小修
+- **install 残留自动清理**（`install/mod.rs`）：install 入口先删 `.tmp/<sdk>/`（含所有 version 中断残留）再版本解析，避免旧 `sdk.zip` 断点续传拼坏 + 旧 `extracted/` 混入。不碰 `.tmp/self_update`
+- **java 无 aarch64 包提示**（`version/discovery.rs`）：assets 空（如 jdk8 macOS aarch64 无 Adoptium 包）时 bail 明确"该版本无此架构包，换 17/21 等"
+
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 
 ## 已知问题与注意事项

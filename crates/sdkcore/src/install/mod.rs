@@ -38,6 +38,14 @@ impl SdkManager {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
 
+        // 先清理该 sdk 上次中断的残留，避免旧 sdk.zip/extracted 污染本次
+        let sdk_tmp_root = get_sdkm_home()?.join(SDKM_TMP_DIR).join(&sdk_name);
+        if sdk_tmp_root.exists()
+            && let Err(e) = fs::remove_dir_all(&sdk_tmp_root)
+        {
+            warning!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e);
+        }
+
         // ── Phase 1: 版本解析 ────────────────────────────────────
         let resolve_pb = InstallProgress::new_resolve(&sdk_name, version_input);
         let client = build_reqwest_client(&self.config.network)?;

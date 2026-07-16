@@ -202,8 +202,11 @@ pub async fn resolve_java_version(client: &Client, version_input: &str) -> Resul
         .context("[Java version resolve] failed to parse Adoptium assets data")?;
 
     if assets.is_empty() {
+        // 该版本在此 os/arch 无 Adoptium 包（如 jdk8 macOS 仅 x64，aarch64 无包）
         bail!(
-            "[Java version resolve] no JDK release found for Java {} on {} {}",
+            "[Java version resolve] no JDK release for Java {} on {} {} — Adoptium doesn't ship \
+             this version for this platform/arch (e.g. JDK 8 is x64-only on macOS); try another \
+             version like 17 or 21",
             input_num,
             detect_os_with(OsStyle::Adoptium),
             detect_arch_with(ArchStyle::Adoptium)
