@@ -95,27 +95,34 @@ bin_dir = "bin"
 
 ## 当前开发进度（2026-07-16）
 
-### 本次改动 —— size 缓存/并行/解耦 + 自定义 SDK download_url 可选
+### 本次改动 —— `sdkm self update` 自更新子命令
 
-两块：①解决 `ls` size 列慢；②自定义 SDK 注册放开 `download_url`。
+新增 `sdkm self update`，从 GitHub Release 自检最新版并就地替换 sdkm 二进制，带备份+验证+回滚兜底。路径 `self update`，与 `self uninstall` 对称。
 
-**A. size 缓存 + jwalk 并行 + 解耦 + 冷路径渐进**
-1. **`sdkcore/size_cache.rs`（新模块）**：`SizeCache { load, cached, resolve, prune, save }`。缓存文件 `<home>/.cache/size.json`，`{路径: {bytes, mtime_secs}}`，**mtime 失效**（目录直接子项增删才变 → SDK 版本目录装完即冻结，永久命中；外部手动改目录子项 → mtime 变 → 重算）。**纯 ls 侧自管，install/uninstall/switch 一行不碰（解耦，零回归）**。ls 时 `prune` 清孤儿条目。原子写（tmp+rename），best-effort（读不到/写不进都退化到现场算）
-2. **并行 walk**：`dir_size_parallel`（jwalk + rayon，`follow_links=false`、symlink 不计入，与原单线程 `dir_size` 语义一致）替代同步遍历。`dir_size` 单线程版已删（孤儿）。jwalk 加到 sdkcore 依赖（相对 reqwest/rustls 体积零头）
-3. **解耦**：`SdkVersionItem` 删 `size_bytes` 字段、`new()` 删 `dir_size` 调用 → `switch`/`uninstall`/`fetch_remote_versions_async` 不再被 size 连带拖累
-4. **概览 `ls`（无参）冷路径渐进**（`show_local_sdk_list`）：`SizeCache::load`→`cached()` 判冷热。全命中直接打最终表；冷路径+TTY 先打骨架（size 列 `…` 提示、先展示 sdk/version）→ 算完 `MoveToPreviousLine`+`Clear(FromCursorDown)` 重绘最终表；管道/非 TTY 算完再打（不污染管道）。抽 `print_local_table` 返回行数驱动光标回退。**列头 `size`→`total`**（概览 size = 该 SDK 全部版本总占用，非 current 版本大小，避免与 current 版本号紧邻误读）
-5. **TUI `ls <sdk>` 渐进**（`cli/tui.rs`）：`run_local_selector` 起 `thread::Builder` 后台并行算 size 写入 `Arc<Mutex<Vec<Option<u64>>>>`，TUI 先用 `…` 渲染、算完逐条回填；`run_selector_inner` 参数 `sizes: Option<Vec<String>>`→`live_sizes: Option<Arc<Mutex<Vec<Option<u64>>>>>`，每帧从 live 读、未算显 `…`；`event::poll` 超时按是否还有 pending 动态（120ms 短轮询刷回填 / 全算完回退 3s）。退出前 `handle.join()`（缓存落盘 + 数据完整；panic=abort 下后台线程无 unwrap、锁容错）
+**命令形态**（`cli/impls/self_cmd.rs` 加 `SelfSub::Update` + `SelfUpdateHandler`）：
+- `sdkm self update`（别名 `u`）—— 查 GitHub latest，**只升不降**（远程 ≤ 当前 → "already up to date" 退出，不下载）
+- `sdkm self update --check` / `-c` —— 只打印 current vs latest，不下载（只读）
+- `sdkm self update --rollback` / `-r` —— 把 `.bak` 恢复为当前二进制（本地，不联网）
+- `--check` 与 `--rollback` 互斥（同时给则 bail）。非破坏性，不强制确认（与 uninstall 区别）。`long_about` 详述备份/验证/回滚机制
 
-实测（真实 home，node 1.9GB）：冷路径首跑算+写缓存，热路径 `ls` 137ms（命中）。
+**core 模块**（新 `sdkcore/src/self_update.rs`，与 `self_uninstall.rs` 并列；`lib.rs` 加 `pub mod self_update;`）：
+1. **版本源**：GitHub API `releases/latest`，serde 解析 `tag_name` + `assets[].browser_download_url`（单请求拿版本+URL）。复用 `install::downloader::build_reqwest_client`（proxy/ssl_verify/github_token/timeout 全自动生效）
+2. **平台→asset 映射**：编译期 `cfg!`（= 已发布二进制的 target，非开发机；同 target 产物必能在同 target 二进制环境跑，与 rustup macOS `from_build()` 一致）。5 产物：windows-x86_64.zip / macos-{aarch64,x86_64}.tar.gz / linux-x86_64-{gnu,musl}.tar.gz（`target_env` 分流 gnu/musl）。无产物平台编译期 bail。当前矩阵下无需运行时检测
+3. **版本比较**：手写 `parse_ver` 三段 u64（不加 semver 依赖）。当前版本 `env!("CARGO_PKG_VERSION")`
+4. **备份/临时副本全放 work_dir**（`<home>/.tmp/self_update/`，`work_dir()` helper）：`.bak`/`.discard`/`.bad` 都在此，**exe 同目录保持干净**（不污染 sdkm 安装目录）。exe 父目录只留 sdkm 二进制本身
+5. **替换+回滚**（参考 rustup `self_update`，单二进制折中）：
+   - **权限预检**（仿 `self_update_permitted`）：在 exe 父目录试写，碰网络前挡 `PermissionDenied`
+   - **全程 rename 不 delete**：Windows 允许 rename running exe（MoveFileEx 改目录条目），不允许 delete running exe——self_uninstall 注释的"running exe 自删不可靠"正指 delete，本方案避开。`replace_binary`：`clean_leftovers` → 删旧 .bak → `rename(exe, work/.bak)` → `rename(new_exe, exe)` → spawn `exe --version` 验证 → 失败自动 `rollback_to_bak`
+   - **`--rollback`**：备份不存在 → bail"no backup; run `sdkm self update` first"（不允许回滚）。有备份：`rename(exe, work/.discard)` → `rename(work/.bak, exe)` → spawn 验证；.bak 损坏则用 `work/.bad` 中转恢复原 exe
+   - **Windows 固有限制**：rollback 成功后 `work/.discard`（原 running exe 副本）删不掉（进程仍占用），留 work_dir（不污染 exe 目录）。`clean_leftovers(work, name)` 在每次 update/rollback 开头清上次残留的 `.discard`/`.bad`（rustup "下次运行清理" 范式）。`.bak` 保留供 rollback，不自动删
+   - **跨盘注意**：`work_dir` 在 `<home>/.tmp`，若 SDKM_HOME 与 exe 不同盘，rename running exe 跨盘失败（Windows 跨盘 rename = copy+delete，delete running 失败）→ bail 提示"keep SDKM_HOME on the same drive as sdkm.exe"。默认 home=exe parent 同盘无此问题
+6. 复用 `install::downloader::download_with_retry`（断点续传+重试）+ `install::extractor::extract_archive`（zip/tar.gz）。indicatif 自带进度条（不复用 install 的 SDK 文案模板）。下载/解压临时文件用完即删，`.bak` 留 work_dir
 
-**B. 自定义 SDK `download_url` 可选 + 未注册 SDK 引导**
-1. **`SdkConfig.download_url: String`→`Option<String>`**（`config/mod.rs`，serde default+skip）。`new()` 内部包 `Some`（签名不变，builtin 调用者不动）；`get_raw_value`/`list_all_values` 的 `.clone()`→`unwrap_or_default()`/`(none)`；`apply_delete_value` 加 `DownloadUrl => None`
-2. **`key_meta`**（`config/validation.rs`）：`DownloadUrl` `deletable:false`→`sdk_deletable`（自定义可删→None，内置仍必填不可删）、`default_desc`→`(none)`
-3. **`add-sdk` CLI**（`cli/impls/config.rs`）：`download_url` 改 `Option`、help 改 "optional; omit for local switch-only SDK"；成功提示分流——有 `download_url`→`sdkm install`，无→"Local switch-only SDK, place version dir at `store/<name>/<ver>` then `sdkm switch`"。usage 因此变 `add-sdk [OPTIONS] <NAME>`（NAME 回到正常位置）
-4. **`install` 清晰 bail**（`install/mod.rs`）：`resolved.download_url` 与 `sdk_conf.download_url` 均 None → bail "`<sdk>` has no download_url, cannot install remotely — place version dir at `store/<sdk>/<ver>` or `sdkm config set sdk.<sdk>.download_url <url>`"（在碰 env/network 之前 Phase 3 bail）
-5. **未注册 SDK 引导**（`manager.rs::match_valid_sdk`）：文案 "please manually register..." → "Register it with: `sdkm config add-sdk <name>` (add --download-url for remote install, or omit for local switch-only)"。所有子命令共用
+**错误处理**：全程 `anyhow`+`.context()`；网络/权限/平台/已是最新/无备份/验证失败 → 普通 `bail!`（用户可解决，非 bug），**不用 `BugReportError`**（与 CLAUDE.md「BugReport 只用于不可修复错误」一致）。`--version` 在 clap parse 阶段处理不读 config（`main.rs` 确认），spawn 验证可靠。中文注释。
 
-内置 SDK（java/node/python/maven）`download_url` 仍必填（`sdk_resources.rs` 写死，不受影响）。文档同步更新：`docs/configuration.md`、`docs/custom-sdk.md`（新增"本地 switch-only SDK"章节）、`skills/SKILL.md`、本文件配置示例。测试 `tests/uninstall.rs`/`self_uninstall.rs` 字面量包 `Some`。未发版。
+**解耦**：只新增模块 + self_cmd variant，不碰 install/switch/list/uninstall/size_cache 任一行；不新增依赖/配置；不碰 `main.rs`/`lib.rs`（cli 侧 `Commands::Self_` 已统一转 `SelfHandler::run`）。
+
+**实测**（隔离临时 home + SDKM_HOME，不碰真实环境）：构造 0.2.7 旧版 → `--check` 显示 update available ✓；`self update` 下载替换 `--version` 变 0.2.8 ✓（.bak 在 work_dir、exe 目录无残留）；`--rollback` 0.2.8→0.2.7 ✓；无备份 `--rollback` bail"no backup" ✓；别名 `self u -c` ✓；Windows running exe 副本 `.discard` 删不掉 → 留 `<home>/.tmp/self_update/`（exe 目录干净）→ 下次 `clean_leftovers` 清理 ✓（rustup 同款行为）。release 覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），真实 home `--check` already up to date ✓。未发版。
 
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 

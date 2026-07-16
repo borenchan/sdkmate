@@ -6,6 +6,7 @@ pub mod link;
 pub mod list;
 pub mod manager;
 pub mod self_uninstall;
+pub mod self_update;
 pub mod size_cache;
 pub mod switch;
 pub mod uninstall;
