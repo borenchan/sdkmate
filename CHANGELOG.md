@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.1 - 2026-07-17
+
+
+### 📝 Documentation
+
+- document self update, install tmp cleanup, java aarch64 limit — [`641b866`](https://github.com/borenchan/sdkmate/commit/641b866)
+
+### 🧰 Chore
+
+- release v0.3.1 — [`acf04bb`](https://github.com/borenchan/sdkmate/commit/acf04bb)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.3.0...v0.3.1
+
+
+
 ## v0.3.0 - 2026-07-16
 
 
