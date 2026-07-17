@@ -47,6 +47,7 @@ sdkm current                 # 查看当前激活版本
 | `sdkm switch <SDK> <VERSION>` | `s` | 切到本地已安装版本 | 版本必须已存在于 store/；支持模糊匹配 |
 | `sdkm current [SDK]` | `c` | 查看当前激活版本 | 不带 SDK 名则显示全部 |
 | `sdkm config <sub>` | — | 管理 config.toml | 7 个子命令，见下 |
+| `sdkm self <uninstall\|update>` | — | 管理 sdkm 自身 | `update` 别名 `u`；`--check`/`--rollback`，带备份+回滚 |
 
 别名是真实 clap 别名：`sdkm i java 21`、`sdkm s node 20.11.0`、`sdkm c` 都能用。
 
@@ -65,6 +66,8 @@ sdkm current                 # 查看当前激活版本
 **switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
 
 **current**：无参数显示所有 SDK 当前版本；带 SDK 名仅显示该 SDK。
+
+**self**：管理 sdkm 自身。`self uninstall` 卸载（清理所有 SDK 激活环境 + 删 home 目录内容，破坏性强制确认）。`self update`（别名 `u`）从 GitHub Release 自检最新版就地替换二进制，`--check`/`-c` 只查、`--rollback`/`-r` 回滚到上次备份；只升不降，替换前备份到 `.tmp/self_update/`、替换后 spawn 验证、失败自动回滚。复用 config 网络设置。
 
 ## 版本模糊匹配（重要）
 
@@ -232,6 +235,8 @@ sdkm config add-sdk groovy \
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
 - **内置不含 Rust 工具链**：sdkm 内置 SDK 不含 Rust 条目（如需管理 Rust 用 rustup）。
 - **Unix 环境变量操作**修改 shell profile；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
+- **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
+- **self update 跨改名迁移**：0.3.0 起 release 产物名从 `sdkmate-*` 改为 `sdkm-*`，0.2.x 的 `self update` 无法升级到 0.3.0（asset 名不匹配），需手动下载 0.3.0 覆盖一次，之后正常。
 
 ## 判断命令执行结果（退出码）
 

@@ -6,7 +6,7 @@
 
 | 文档 | 内容 |
 |:---|:---|
-| [commands.md](./commands.md) | 每个子命令的参数、别名、行为与示例（init / install / list / switch / current / config） |
+| [commands.md](./commands.md) | 每个子命令的参数、别名、行为与示例（init / install / list / switch / current / config / self） |
 | [configuration.md](./configuration.md) | `config.toml` 结构、每个配置项含义、类型校验规则、写入安全机制 |
 | [custom-sdk.md](./custom-sdk.md) | 用 `add-sdk` 注册任意工具为自定义 SDK、URL 模板占位符系统 |
 
@@ -86,3 +86,4 @@ sdkm config add-sdk mytool \
 - **Maven 无远程版本发现**：Maven 只有下载模板、没有版本发现接口，因此 `sdkm install maven <version>` 必须给精确版本号（如 `3.9.9`），不支持模糊匹配，`sdkm list maven -r` 会报错。自定义 SDK 不填 `--version-url` 时同理。
 - **Windows 需管理员权限**：Windows 下环境变量与系统 PATH 写入 `HKEY_LOCAL_MACHINE`，运行 `init` / `switch` 需管理员权限。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
+- **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。

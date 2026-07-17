@@ -88,6 +88,7 @@ bin_dir = "bin"
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler |
 | `sdkm config` | — | cli/ConfigHandler |
 | `sdkm self uninstall` | — | cli/self_cmd::SelfUninstallHandler |
+| `sdkm self update`（`--check`/`--rollback`） | `u` | cli/self_cmd::SelfUpdateHandler |
 
 所有命令均已实现。每个命令在 `crates/cli/src/impls/` 中有 `CommandHandler` trait 实现，委托给 `crates/sdkcore/src/manager/` 中的 `SdkManager` 方法。
 

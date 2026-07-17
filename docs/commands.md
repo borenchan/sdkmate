@@ -12,6 +12,7 @@
 | [`sdkm switch`](#sdkm-switch) | `s` | 切换到本地已安装版本 |
 | [`sdkm current`](#sdkm-current) | `c` | 查看当前激活版本 |
 | [`sdkm config`](#sdkm-config) | — | 配置管理（7 个子命令） |
+| [`sdkm self`](#sdkm-self) | — | 管理 sdkm 自身（卸载 / 自更新） |
 
 ---
 
@@ -175,3 +176,31 @@ sdkm config edit                                      # 用编辑器打开 confi
 **写入安全**：`set` / `delete` / `add-sdk` / `remove-sdk` 均采用**原子写入**（写入临时文件再重命名），操作失败时自动**快照回滚**到操作前的配置内容。
 
 **内置 SDK 保护**：内置 SDK（java/node/python/maven）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
+
+---
+
+## sdkm self
+
+管理 sdkm 自身，含两个子命令。
+
+### sdkm self uninstall
+
+卸载 sdkm：清理所有被管理 SDK 的激活环境（符号链接 / PATH / 环境变量 / `current_version`），并删除 home 目录内容（store/links/.tmp/cache/config.toml）。破坏性操作，强制交互确认、不可跳过。sdkm 二进制本身与系统 PATH 条目需手动清理（运行中的 exe 跨平台不可靠自删）。
+
+### sdkm self update
+
+从 GitHub Release 检查最新版并就地替换 sdkm 二进制，带备份 + 验证 + 自动回滚。
+
+```bash
+sdkm self update              # 检查 GitHub 最新版，落后则下载替换（只升不降）
+sdkm self update --check      # 只打印 current vs latest，不下载
+sdkm self update --rollback   # 回滚到上次更新前的备份
+sdkm self u -c                 # 别名 u + 短 flag -c/-r
+```
+
+- 别名 `u`；`--check`/`-c`、`--rollback`/`-r`，二者互斥。
+- **只升不降**：远程 ≤ 当前 → 提示已是最新、不下载。
+- **备份与回滚**：替换前备份当前二进制到 `<home>/.tmp/self_update/`，替换后 spawn `--version` 验证；失败自动回滚到旧版。`--rollback` 从该备份恢复；备份不存在则拒绝回滚。
+- 复用 `config.toml` 的网络设置（`network.proxy` / `ssl_verify` / `github_token` / `connect_timeout` 自动生效）。
+- 产物名格式 `sdkm-<platform>.<ext>`（如 `sdkm-windows-x86_64.zip`），平台在编译期匹配。
+- Windows 上替换运行中的二进制靠 rename（非 delete）；旧副本残留在 `.tmp/self_update/`，下次运行清理，不污染 sdkm 安装目录。
