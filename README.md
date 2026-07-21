@@ -17,7 +17,6 @@
   </p>
 
   <h2>⚡ 专为全栈工程师打造的跨平台 SDK 版本管理器</h2>
-
   <p>
     <a href="./README-en.md">English</a> ·
     <strong>中文</strong>
@@ -96,20 +95,27 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 <div align="center">
 
-| 能力 | sdkm | sdkman | nvm / pyenv / jenv |
-|:---|:---:|:---:|:---:|
-| 多语言统一管理 | ✅ Java/Node/Python/Maven + 自定义 | ⚠️ 以 Java 生态为主 | ❌ 一个工具只管一种语言 |
-| Windows 原生支持 | ✅ 一等公民，注册表 + 广播 | ❌ 需 WSL | ⚠️ 需第三方移植版 |
-| 已开进程感知切换 | ✅ Windows 广播通知已开程序 | ❌ 仅当前 shell | ❌ 仅当前 shell |
-| 切换默认全局持久 | ✅ 符号链接 + 系统 PATH 一次到位 | ⚠️ `sdk use` 临时，需 `default` 持久 | ⚠️ `use`/`shell` 临时，需额外命令持久 |
-| 模糊版本匹配 | ✅ `21` → 最新 21.x + 相近建议 | ❌ 不支持前缀模糊 | ⚠️ 部分支持 |
-| 单文件可移植 | ✅ 二进制 + 配置同目录 | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + shell 钩子 |
-| 操作可回滚 | ✅ 快照自动恢复 | ❌ | ❌ |
-| 内存安全实现 | ⚡ Rust 所有权 + 编译期检查 | 🐌 无类型检查的 bash | 🐌 无类型检查的 shell |
-| AI agent 友好 | ✅ 退出码语义 + 全局生效 + skill 文档 | ⚠️ shell 函数，跨进程受限 | ⚠️ 切换仅当前 shell，跨进程受限 |
-| 实现 | ⚡ Rust 编译二进制 | 🐌 bash 脚本 | 🐌 bash / shell 脚本 |
+| 核心维度 | **sdkm** | **mise** | **sdkman** | **jvms / jenv / nvm / pyenv** |
+| :--- | :---: | :--- | :--- | :--- |
+| **多语言统一管理** | ✅ Java/Node/Python/Maven + 自定义 SDK | ✅ node、python、cmake、terraform 等 [hundreds more](https://github.com/jdx/mise?tab=readme-ov-file#what-does-it-do) | ⚠️ 以 Java/JVM 生态为主 | ❌ 单一语言管理器，一个工具只管一种语言（如 [nvm](https://github.com/nvm-sh/nvm?tab=readme-ov-file#node-version-manager---)、[pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#simple-python-version-management)） |
+| **Windows 原生支持** | ✅ **一等公民**：原生注册表 + 广播通知 | ⚠️ **基础支持**：Windows 下只能用 core/vfox 插件，[可用工具有限](https://mise.jdx.dev/windows.html#windows-support) | ❌ 官方只支持 WSL / Git Bash / Cygwin，[安装文档](https://sdkman.io/install) | ⚠️ Windows 需第三方移植版（如 [nvm-windows](https://github.com/coreybutler/nvm-windows)、[pyenv-win](https://github.com/pyenv-win/pyenv-win)） |
+| **已开进程感知切换** | ✅ Windows 上通过 `WM_SETTINGCHANGE` 广播通知已开程序 | ❌ 已开进程不会重新读取 PATH；shims 也不会触发广播 | ❌ 仅当前 Shell 生效，不影响已开进程 | ❌ 仅当前 Shell 生效 |
+| **全局切换机制** | ✅ **符号链接 + 系统 PATH** 一次修改，全局持久生效。**SDK运行时零开销** | ⚠️ 默认为 **shims 中间层**；或 PATH 激活（仅当前 shell hook）[官方说明](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` 仅当前 Shell；需 `sdk default` 才持久，[使用指南](https://sdkman.io/usage#sdk-use-command) | ⚠️ Shell 变量/钩子；`use`/`shell` 通常临时生效，需额外命令持久 |
+| **路径透明度 (which/IDE)** | ✅ `which java` 直接指向真实 SDK 路径 | ⚠️ shims 下 `which node` 指向 shim；官方承认“打断 `which`”，需 `mise which` 才能看到真实路径，[设计说明](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ✅ 路径透明 | ✅ 路径透明（但在 Shell 内部） |
+| **模糊版本匹配** | ✅ `21` → 最新 21.x，并给出候选列表建议 | ✅ 支持模糊版本（如 `node = "26"`）及就近匹配 | ❌ 不支持前缀模糊；需要精确版本或手动选择 | ⚠️ 部分工具支持前缀匹配，实现不一 |
+| **单文件可移植 / 绿色** | ✅ 单二进制仅**4MB**， 配置目录，可放在 U 盘或任意路径使用 | ⚠️ **100MB+**,需要 shims 目录（`~/.local/share/mise/shims` 或 `%LOCALAPPDATA%\mise\shims`），[安装说明](https://mise.jdx.dev/installing-mise.html#installation) | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + Shell 钩子，依赖 Shell 环境 |
+| **操作可回滚** | ✅ 快照自动恢复（项目特性） | ⚠️ 依赖外部手段（如自己备份配置） | ❌ 不提供自动回滚机制 | ❌ 不提供自动回滚机制 |
+| **实现语言 / 内存安全** | ⚡ Rust 所有权 + 编译期检查 | ⚡ Rust 所有权 + 编译期检查 | 🐌 Bash / Shell 脚本 | 🐌 Shell / Bash 脚本 |
+| **AI agent / 自动化友好** | ✅ 退出码语义清晰；全局生效，子进程自动感知；行为可预测 | ⚠️ 需理解 shims / PATH 模式差异；非交互环境需选择 shims 或 `mise exec`，[使用建议](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ⚠️ Shell 函数，跨进程不自动生效 | ⚠️ 切换仅当前 Shell，跨进程不可见；需额外脚本适配 |
 
 </div>
+
+> **使用建议**
+
+1. 诚实来讲,  sdkm 和 mise 几乎是同类工具，目前生态，功能都不如mise成熟。但sdkm专注于做好一件事："**快速、透明、无侵入的版本切换。**"
+
+2. 另外 如果你已经习惯 mise / sdkman / nvm，并能在现有模式下顺畅工作，完全没必要换工具。
+   sdkm 更适合：‘**全栈工程师  + Windows 原生 + IDE + AI Agent**’ 这一组合场景的用户。”
 
 ### 🔥 专为全栈工程师设计
 
@@ -122,7 +128,6 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 - **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven / Any Sdk，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错——**告别"为每个语言学一套版本管理器"**。
 - **🖥️ 跨平台原生 + 交互式 TUI**：Windows / Linux / macOS 全平台一等公民，统一命令统一体验；`sdkm list <sdk> -r` 进入交互式 TUI，方向键浏览远程版本、一键安装/切换，操作极其友好，Windows也能支持的很好！
 - **🤖 AI agent 友好，让 AI 替你管环境**：自带 [agent skill 文档](./skills/SKILL.md)，Claude Code / Codex/openclaw 等 agent 读一遍即可替你装/切 SDK；CLI进程退出码语义清晰（0 成功 / 1 失败），CLI命令天然适配脚本与 CI，操作失败自动回滚——agent 放心调用。
-
 
 ---
 
@@ -139,7 +144,8 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 ### 1️⃣ 初始化
 
 ```bash
-sdkm init          # 首次使用：创建目录结构、注册环境变量
+.sdkm\sdkm.exe init          # windows;首次使用：创建目录结构、注册sdkm到PATH
+.sdkm/sdkm init              # unix;
 ```
 
 ### 2️⃣ 安装或托管已有 SDK
@@ -182,7 +188,6 @@ sdkm current               # 查看所有 SDK 当前激活版本
 | `sdkm switch` | `s` | 切换 SDK 版本 | `sdkm switch java 21` |
 | `sdkm current` | `c` | 显示当前版本 | `sdkm current java` |
 | `sdkm config` | — | 配置管理 | `sdkm config edit` |
-
 
 ---
 
