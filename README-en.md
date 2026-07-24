@@ -34,7 +34,7 @@
 
 ## 🎯 In One Line
 
-> **sdkmate** is a cross-platform SDK version manager built for full-stack developers. Install and switch between Java, Node.js, Python, Maven and more with one tool — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
+> **sdkmate** is a cross-platform SDK version manager built for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go and more with one tool — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
 
 ```bash
 sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. One line, done.
@@ -99,7 +99,7 @@ what python do I have      → sdkm list
 
 | Capability | sdkm | sdkman | nvm / pyenv / jenv |
 |:---|:---:|:---:|:---:|
-| Multi-language in one tool | ✅ Java/Node/Python/Maven + custom | ⚠️ Java ecosystem mainly | ❌ one tool per language |
+| Multi-language in one tool | ✅ Java/Node/Python/Maven/Go + custom | ⚠️ Java ecosystem mainly | ❌ one tool per language |
 | Native Windows support | ✅ first-class, registry + broadcast | ❌ needs WSL | ⚠️ needs third-party port |
 | Open processes sense the switch | ✅ Windows broadcast notifies them | ❌ current shell only | ❌ current shell only |
 | Switch is global & persistent by default | ✅ symlink + system PATH, one shot | ⚠️ `sdk use` is temp, needs `default` | ⚠️ `use`/`shell` is temp, needs extra cmd |
@@ -114,13 +114,13 @@ what python do I have      → sdkm list
 
 ### 🔥 Designed for full-stack developers
 
-Switching between Java, Node.js, Python, Maven and other SDK versions is the norm for full-stack devs — you used to need nvm, jenv, pyenv, sdkman, multiple script tools, each in its own silo. **sdkm does it all with one Rust binary.**
+Switching between Java, Node.js, Python, Go, Maven and other SDK versions is the norm for full-stack devs — you used to need nvm, jenv, pyenv, sdkman, multiple script tools, each in its own silo. **sdkm does it all with one Rust binary.**
 
 - **🟢 Portable, green**: single binary, no background service. sdkm's `HOME` is the executable's folder — copy it to a USB stick or another machine, config and installed SDKs come along. Drop existing JDK / Node / Python into the `store/` directory and sdkm discovers and manages them.
 - **⚡ Instant switching, global effect**: symlink + PATH injection + env-var broadcast. One `switch` takes effect globally and persistently (symlink, system PATH, `current_version` all updated); on Windows, `WM_SETTINGCHANGE` lets willing already-open processes pick up the new vars.
 - **🛡️ Transparent and rollback-safe**: every step prints what it did and why; `switch` auto-rolls back to the pre-switch state if any step fails; `config` uses atomic write + snapshot rollback — the config file can never be left half-written.
 - **🦀 Rust-driven, type-safe & reliable**: written in Rust — ownership and the type system eliminate whole classes of memory-safety bugs (dangling pointers, buffer overflows, data races) at compile time; compared to unchecked bash scripts, you get a compile-time safety net and won't silently fail on a typo or null. Paired with atomic writes + snapshot rollback, a failed operation never wrecks your environment.
-- **🧩 Extensible, one tool for everything**: Java / Node.js / Python / Maven / any SDK built in; any tool downloadable from a URL can be registered as a custom SDK with one command. Config values are type-validated — bad values error on the spot — **say goodbye to "a version manager for every language".**
+- **🧩 Extensible, one tool for everything**: Java / Node.js / Python / Maven / Go / any SDK built in; any tool downloadable from a URL can be registered as a custom SDK with one command. Config values are type-validated — bad values error on the spot — **say goodbye to "a version manager for every language".**
 - **🖥️ Native cross-platform + interactive TUI**: Windows / Linux / macOS all first-class, same commands, same experience; `sdkm list <sdk> -r` opens an interactive TUI — arrow keys to browse remote versions, one-key install/switch, super friendly to use, and Windows is supported just as well!
 - **🤖 AI-agent friendly, let AI manage your env**: ships with an [agent skill doc](./skills/SKILL.md) — Claude Code / Codex / OpenClaw and other agents read it once and can install/switch SDKs for you; CLI exit-code semantics are clear (0 success / 1 failure), CLI commands fit scripts and CI naturally, and failed operations auto-roll back — agents can call it with confidence.
 
@@ -194,6 +194,7 @@ sdkm current               # Show active versions of all SDKs
 | 🟢 **Node.js** | ✅ Supported | nodejs.org |
 | 🐍 **Python** | ✅ Supported | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ Supported | Apache Maven (dlcdn) |
+| 🔵 **Go** | ✅ Supported | go.dev |
 | ⚙️ **Custom SDK** | ✅ Infinitely extensible | User-configured (any URL) |
 
 ---

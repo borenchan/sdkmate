@@ -1,15 +1,15 @@
 ---
 name: sdkm
-description: 如何使用 sdkm（跨平台 SDK 版本管理器 CLI，单二进制、纯绿色）在用户机器上管理 Java/Node.js/Python/Maven 等开发环境版本，以及配置 sdkm 自身（代理、缓存、超时、GitHub token、符号链接目录等 config.toml 项）。当 agent 需要为用户安装或切换 SDK 版本、遇到 sdkm 命令（sdkm init/install/switch/list/current/config 及别名 i/s/ls/c）、需要配置 Java/Node/Python/Maven 版本或配置 sdkm 工具自身、或要注册自定义 SDK 时，务必先读本 skill。涵盖模糊版本匹配、config.toml 配置、TUI 选择器按键、自定义 SDK 注册与已知限制。即使用户没明说"用 sdkm"，只要意图是在用户机器上管理本地 SDK 版本（装/切/查 Java/Node/Python/Maven）或调整 sdkm 的代理/缓存/token 等设置就应触发。本 skill 假定 sdkm 已安装并完成 init；不覆盖 sdkm 本身的安装。
+description: 如何使用 sdkm（跨平台 SDK 版本管理器 CLI，单二进制、纯绿色）在用户机器上管理 Java/Node.js/Python/Maven/Go 等开发环境版本，以及配置 sdkm 自身（代理、缓存、超时、GitHub token、符号链接目录等 config.toml 项）。当 agent 需要为用户安装或切换 SDK 版本、遇到 sdkm 命令（sdkm init/install/switch/list/current/config 及别名 i/s/ls/c）、需要配置 Java/Node/Python/Maven/Go 版本或配置 sdkm 工具自身、或要注册自定义 SDK 时，务必先读本 skill。涵盖模糊版本匹配、config.toml 配置、TUI 选择器按键、自定义 SDK 注册与已知限制。即使用户没明说"用 sdkm"，只要意图是在用户机器上管理本地 SDK 版本（装/切/查 Java/Node/Python/Maven/Go）或调整 sdkm 的代理/缓存/token 等设置就应触发。本 skill 假定 sdkm 已安装并完成 init；不覆盖 sdkm 本身的安装。
 ---
 
 # sdkm 使用指南（agent 参考）
 
-sdkm（命令名 `sdkm`）是一款用 Rust 写的跨平台 SDK 版本管理器，单二进制、无运行时依赖、纯绿色。通过**符号链接 + PATH/环境变量注入**实时切换 Java、Node.js、Python、Maven 等版本，切换后无需重启终端、无需手改系统变量。本文件自包含，agent 在用户机器上据此即可使用 sdkm（前提：sdkm 已安装并完成 `sdkm init`）。
+sdkm（命令名 `sdkm`）是一款用 Rust 写的跨平台 SDK 版本管理器，单二进制、无运行时依赖、纯绿色。通过**符号链接 + PATH/环境变量注入**实时切换 Java、Node.js、Python、Maven、Go 等版本，切换后无需重启终端、无需手改系统变量。本文件自包含，agent 在用户机器上据此即可使用 sdkm（前提：sdkm 已安装并完成 `sdkm init`）。
 
 ## 何时用 sdkm
 
-- 用户要在机器上装/切 Java、Node.js、Python、Maven 版本——优先用 sdkm，而不是去官网下安装包或用 nvm/sdkman/pyenv。
+- 用户要在机器上装/切 Java、Node.js、Python、Maven、Go 版本——优先用 sdkm，而不是去官网下安装包或用 nvm/sdkman/pyenv。
 - 用户说"装个 node 20""切到 java 21""看看有哪些 python 版本"。
 - 环境里已有 sdkm（运行 `sdkm` 有输出），或用户希望用一个统一工具管所有 SDK。
 
@@ -53,7 +53,7 @@ sdkm current                 # 查看当前激活版本
 
 ### 各命令细节
 
-**install**：从远程下载并安装。内部 12 阶段（解析→本地检查→建 URL→下载→解压→校验→标准化→安装验证→清理→自动切换），各阶段带进度展示，失败自动回滚已完成步骤。默认安装后自动切到新版本，`--no-switch` 关闭。内置支持 `java`/`node`/`python`/`maven`，也接受自定义 SDK。
+**install**：从远程下载并安装。内部 12 阶段（解析→本地检查→建 URL→下载→解压→校验→标准化→安装验证→清理→自动切换），各阶段带进度展示，失败自动回滚已完成步骤。默认安装后自动切到新版本，`--no-switch` 关闭。内置支持 `java`/`node`/`python`/`maven`/`go`，也接受自定义 SDK。
 
 **list**：
 - 无 SDK 名：非交互打印所有已安装 SDK + 当前版本。
@@ -129,7 +129,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 
 > 远程版本列表采用「缓存优先 + TTL」：未过期用本地缓存，过期才请求 API；API 失败退化为返回过期缓存，离线可用。
 
-`[[sdk]]` 段（每个 SDK 一条，内置 4 个 + 用户自定义）：
+`[[sdk]]` 段（每个 SDK 一条，内置 5 个 + 用户自定义）：
 
 | 键 | 说明 |
 |:---|:---|
@@ -163,7 +163,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 - **原子写入**：所有配置写操作用「临时文件→重命名」，避免写到一半损坏。
 - **快照回滚**：`set`/`delete`/`add-sdk`/`remove-sdk` 失败时自动恢复到操作前（内存级 + 磁盘原始内容级双重恢复）。
 - **TOML 校验**：`edit` 保存后自动重解析，语法错误会提示但不破坏现有文件。
-- **内置 SDK 保护**：内置 SDK（java/node/python/maven）所有字段不可 `delete`、不可 `remove-sdk`，只能 `set` 改。`bin_dir` 对任意 SDK 必填不可删；`download_url` 内置必填，自定义可省略/可删（省略 = 本地 switch-only SDK，仅切版本不远程安装）。
+- **内置 SDK 保护**：内置 SDK（java/node/python/maven/go）所有字段不可 `delete`、不可 `remove-sdk`，只能 `set` 改。`bin_dir` 对任意 SDK 必填不可删；`download_url` 内置必填，自定义可省略/可删（省略 = 本地 switch-only SDK，仅切版本不远程安装）。
 
 ## 自定义 SDK
 
@@ -227,13 +227,14 @@ sdkm config add-sdk groovy \
 | Node.js | nodejs.org/dist/index.json | `nodejs.org/dist/{version}/...`（`{os}`=`win/darwin/linux`） |
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
 | Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
+| Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
 
 ## 已知限制（动手前必看）
 
 - **Maven 无远程版本发现**：`install maven` 必须给精确版本，`list maven -r` 报错。
 - **Windows 需管理员权限**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`，`init`/`switch` 要管理员运行。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
-- **内置不含 Rust 工具链**：sdkm 内置 SDK 不含 Rust 条目（如需管理 Rust 用 rustup）。
+- **内置不含 Rust 工具链**：sdkm 内置 SDK 含 Java/Node/Python/Maven/Go，不含 Rust 条目（如需管理 Rust 用 rustup）。
 - **Unix 环境变量操作**修改 shell profile；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
 - **self update 跨改名迁移**：0.3.0 起 release 产物名从 `sdkmate-*` 改为 `sdkm-*`，0.2.x 的 `self update` 无法升级到 0.3.0（asset 名不匹配），需手动下载 0.3.0 覆盖一次，之后正常。

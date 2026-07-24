@@ -67,7 +67,7 @@ sdkm config edit                              # 用编辑器直接改 config.tom
 
 ## 自定义 SDK
 
-内置只覆盖 Java / Node.js / Python / Maven。任何能从 URL 下载解压的工具都能注册：
+内置只覆盖 Java / Node.js / Python / Maven / Go。任何能从 URL 下载解压的工具都能注册：
 
 ```bash
 sdkm config add-sdk mytool \

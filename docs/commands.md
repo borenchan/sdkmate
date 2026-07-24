@@ -39,7 +39,7 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 sdkm install <SDK> <VERSION> [--no-switch]
 ```
 
-- `<SDK>`：SDK 名称。内置支持 `java` / `node` / `python` / `maven`，也接受 [custom-sdk.md](./custom-sdk.md) 中注册的自定义 SDK。
+- `<SDK>`：SDK 名称。内置支持 `java` / `node` / `python` / `maven` / `go`，也接受 [custom-sdk.md](./custom-sdk.md) 中注册的自定义 SDK。
 - `<VERSION>`：目标版本，**支持模糊匹配**。例如 `21` 会解析为最新的 `21.x`，`20.11` 会匹配到 `20.11.x`。
 - `--no-switch`：仅安装，不自动切换到新版本。
 
@@ -175,7 +175,7 @@ sdkm config edit                                      # 用编辑器打开 confi
 
 **写入安全**：`set` / `delete` / `add-sdk` / `remove-sdk` 均采用**原子写入**（写入临时文件再重命名），操作失败时自动**快照回滚**到操作前的配置内容。
 
-**内置 SDK 保护**：内置 SDK（java/node/python/maven）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
+**内置 SDK 保护**：内置 SDK（java/node/python/maven/go）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
 
 ---
 

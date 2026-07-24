@@ -33,7 +33,7 @@
 
 ## 🎯 一句话简介
 
-> **sdkm** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键安装与切换 Java、Node.js、Python、Maven 等开发环境，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
+> **sdkm** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键安装与切换 Java、Node.js、Python、Maven、Go 等开发环境，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
 
 ```bash
 sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换，一行搞定
@@ -97,7 +97,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 | 核心维度 | **sdkm** | **mise** | **sdkman** | **jvms / jenv / nvm / pyenv** |
 | :--- | :---: | :--- | :--- | :--- |
-| **多语言统一管理** | ✅ Java/Node/Python/Maven + 自定义 SDK | ✅ node、python、cmake、terraform 等 [hundreds more](https://github.com/jdx/mise?tab=readme-ov-file#what-does-it-do) | ⚠️ 以 Java/JVM 生态为主 | ❌ 单一语言管理器，一个工具只管一种语言（如 [nvm](https://github.com/nvm-sh/nvm?tab=readme-ov-file#node-version-manager---)、[pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#simple-python-version-management)） |
+| **多语言统一管理** | ✅ Java/Node/Python/Maven/Go + 自定义 SDK | ✅ node、python、cmake、terraform 等 [hundreds more](https://github.com/jdx/mise?tab=readme-ov-file#what-does-it-do) | ⚠️ 以 Java/JVM 生态为主 | ❌ 单一语言管理器，一个工具只管一种语言（如 [nvm](https://github.com/nvm-sh/nvm?tab=readme-ov-file#node-version-manager---)、[pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#simple-python-version-management)） |
 | **Windows 原生支持** | ✅ **一等公民**：原生注册表 + 广播通知 | ⚠️ **基础支持**：Windows 下只能用 core/vfox 插件，[可用工具有限](https://mise.jdx.dev/windows.html#windows-support) | ❌ 官方只支持 WSL / Git Bash / Cygwin，[安装文档](https://sdkman.io/install) | ⚠️ Windows 需第三方移植版（如 [nvm-windows](https://github.com/coreybutler/nvm-windows)、[pyenv-win](https://github.com/pyenv-win/pyenv-win)） |
 | **已开进程感知切换** | ✅ Windows 上通过 `WM_SETTINGCHANGE` 广播通知已开程序 | ❌ 已开进程不会重新读取 PATH；shims 也不会触发广播 | ❌ 仅当前 Shell 生效，不影响已开进程 | ❌ 仅当前 Shell 生效 |
 | **全局切换机制** | ✅ **符号链接 + 系统 PATH** 一次修改，全局持久生效。**SDK运行时零开销** | ⚠️ 默认为 **shims 中间层**；或 PATH 激活（仅当前 shell hook）[官方说明](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` 仅当前 Shell；需 `sdk default` 才持久，[使用指南](https://sdkman.io/usage#sdk-use-command) | ⚠️ Shell 变量/钩子；`use`/`shell` 通常临时生效，需额外命令持久 |
@@ -119,13 +119,13 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 ### 🔥 专为全栈工程师设计
 
-全栈工程师在 Java、Node.js、Python、maven等等sdk版本 之间来回切换是常态——以往要同时装 nvm、jenv、pyenv、sdkman 多套脚本工具，各管一摊、互不通气。**sdkm 用一个 Rust 二进制把这件事做完。**
+全栈工程师在 Java、Node.js、Python、Go、Maven 等 SDK 版本之间来回切换是常态——以往要同时装 nvm、jenv、pyenv、sdkman 多套脚本工具，各管一摊、互不通气。**sdkm 用一个 Rust 二进制把这件事做完。**
 
 - **🟢 纯绿色，可移植**：单二进制就是全部，不装后台服务。sdkm 的「`HOME`」就是可执行文件所在目录——拷到 U 盘、另一台机器，配置和已装 SDK 一并带走。把已有 JDK / Node / Python 直接放进 `store/` 目录，sdkm 自动发现并托管。
 - **⚡ 即时切换，影响全局**：符号链接 + PATH 注入 + 环境变量广播三件套切换版本，一次 `switch` 全局持久生效（符号链接、系统 PATH、`current_version` 同步更新）；Windows 下 `WM_SETTINGCHANGE` 广播，愿意响应的已开程序可感知新变量。
 - **🛡️ 透明可回滚，出错不翻车**：每一步操作都逐步打印做了什么、为什么；`switch` 任一步骤失败自动恢复到切换前状态；`config` 采用原子写入 + 快照回滚，配置文件绝不会写到一半损坏。
 - **🦀 Rust 驱动，类型安全更可靠**：由 Rust 编写，所有权与类型系统在编译期消除悬垂指针、缓冲区溢出、数据竞争等整类内存安全问题；相比无类型检查的 bash 脚本，多一层编译期兜底，不易因拼写或空值静默出错。配合原子写入 + 快照回滚，操作失败也不会把环境搞坏。
-- **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven / Any Sdk，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错——**告别"为每个语言学一套版本管理器"**。
+- **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven / Go / Any Sdk，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错——**告别"为每个语言学一套版本管理器"**。
 - **🖥️ 跨平台原生 + 交互式 TUI**：Windows / Linux / macOS 全平台一等公民，统一命令统一体验；`sdkm list <sdk> -r` 进入交互式 TUI，方向键浏览远程版本、一键安装/切换，操作极其友好，Windows也能支持的很好！
 - **🤖 AI agent 友好，让 AI 替你管环境**：自带 [agent skill 文档](./skills/SKILL.md)，Claude Code / Codex/openclaw 等 agent 读一遍即可替你装/切 SDK；CLI进程退出码语义清晰（0 成功 / 1 失败），CLI命令天然适配脚本与 CI，操作失败自动回滚——agent 放心调用。
 
@@ -199,6 +199,7 @@ sdkm current               # 查看所有 SDK 当前激活版本
 | 🟢 **Node.js** | ✅ 已支持 | nodejs.org |
 | 🐍 **Python** | ✅ 已支持 | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ 已支持 | Apache Maven (dlcdn) |
+| 🔵 **Go** | ✅ 已支持 | go.dev |
 | ⚙️ **自定义 SDK** | ✅ 可无限扩展 | 用户配置（任意 URL） |
 
 ---

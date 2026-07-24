@@ -18,7 +18,7 @@ connect_timeout = 30        # 连接超时（秒）
 cache_ttl_secs = 3600       # 版本接口缓存 TTL（秒），0 = 每次都拉取
 github_token = ""           # GitHub PAT，提升 API 限速（60/hr → 5000/hr）
 
-# 每个 [[sdk]] 是一个 SDK 条目，内置 4 个 + 用户自定义
+# 每个 [[sdk]] 是一个 SDK 条目，内置 5 个 + 用户自定义
 [[sdk]]
 name = "java"
 version_url = "https://api.adoptium.net/v3/info/available_releases"
@@ -51,7 +51,7 @@ extra_paths = []
 
 ### `[[sdk]]` SDK 条目
 
-每个 `[[sdk]]` 描述一个 SDK 的版本发现与下载来源。内置 4 个（java/node/python/maven），用户可通过 `sdkm config add-sdk` 添加自定义条目（见 [custom-sdk.md](./custom-sdk.md)）。
+每个 `[[sdk]]` 描述一个 SDK 的版本发现与下载来源。内置 5 个（java/node/python/maven/go），用户可通过 `sdkm config add-sdk` 添加自定义条目（见 [custom-sdk.md](./custom-sdk.md)）。
 
 | 键 | 类型 | 可删除 | 说明 |
 |:---|:---|:---:|:---|
@@ -65,7 +65,7 @@ extra_paths = []
 | `extra_vars` | NonEmptyString | 同上 | 额外环境变量键值表，值支持模板渲染（如 `JAVA_HOME = "{sdk_dir}"`） |
 | `extra_paths` | Path | 同上 | 额外 PATH 条目（相对符号链接目录，可多条） |
 
-> **内置 SDK 保护**：内置 SDK（java/node/python/maven）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**（省略 = 本地 switch-only SDK，不远程安装）。
+> **内置 SDK 保护**：内置 SDK（java/node/python/maven/go）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**（省略 = 本地 switch-only SDK，不远程安装）。
 
 ## 键名格式（点分隔）
 

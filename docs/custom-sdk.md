@@ -1,6 +1,6 @@
 # 自定义 SDK
 
-sdkm 内置支持 Java、Node.js、Python、Maven 四个 SDK。除此之外，任何「能从 URL 下载、解压后得到带可执行文件的目录」的工具，都可以注册为自定义 SDK，纳入 `sdkm` 统一管理——安装、切换、环境变量一视同仁。
+sdkm 内置支持 Java、Node.js、Python、Maven、Go 五个 SDK。除此之外，任何「能从 URL 下载、解压后得到带可执行文件的目录」的工具，都可以注册为自定义 SDK，纳入 `sdkm` 统一管理——安装、切换、环境变量一视同仁。
 
 本文档讲解如何用 `sdkm config add-sdk` 注册自定义 SDK，以及下载 URL 模板中的占位符系统。配置项完整含义见 [configuration.md](./configuration.md)。
 
@@ -75,7 +75,7 @@ sdkm config add-sdk mylocal --bin-dir bin
 sdkm config remove-sdk <NAME>
 ```
 
-内置 SDK（java/node/python/maven）不可移除。移除只删除 `config.toml` 中的条目，不会删除 `store/` 下已下载的文件。
+内置 SDK（java/node/python/maven/go）不可移除。移除只删除 `config.toml` 中的条目，不会删除 `store/` 下已下载的文件。
 
 ## URL 模板占位符
 
@@ -120,3 +120,4 @@ sdkm config remove-sdk <NAME>
 | Node.js | nodejs.org/dist/index.json | `nodejs.org/dist/{version}/...`（`{os}`=`win/darwin/linux`） |
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
 | Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
+| Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
