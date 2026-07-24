@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.3.2 - 2026-07-24
+
+
+### ✨ Features
+
+- auto-detect and add missing built-in SDKs to config — [`467e580`](https://github.com/borenchan/sdkmate/commit/467e580)
+- add Go as built-in SDK — [`a25489c`](https://github.com/borenchan/sdkmate/commit/a25489c)
+
+### 📝 Documentation
+
+- update readme — [`08a367d`](https://github.com/borenchan/sdkmate/commit/08a367d)
+- update readme — [`6a1577b`](https://github.com/borenchan/sdkmate/commit/6a1577b)
+
+### 🧰 Chore
+
+- release v0.3.2 — [`97a514d`](https://github.com/borenchan/sdkmate/commit/97a514d)
+- ignore .workbuddy directory — [`74aa58f`](https://github.com/borenchan/sdkmate/commit/74aa58f)
+
+### 📌 Other
+
+- Merge branch 'master' of https://github.com/borenchan/sdkmate — [`b8df063`](https://github.com/borenchan/sdkmate/commit/b8df063)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.3.1...v0.3.2
+
+
+
 ## v0.3.1 - 2026-07-17
 
 
