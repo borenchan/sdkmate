@@ -188,10 +188,32 @@ impl SdkmConfig {
             .collect()
     }
 
+    /// 检查并自动补全缺失的内置 SDK 条目（对比编译期 BUILTIN_SDK_CONFIG，开销极小）
+    fn ensure_builtin_sdks(&mut self) -> Result<()> {
+        let builtins = Self::get_default_builtin_sdks();
+        let mut missing = Vec::new();
+        for builtin in &builtins {
+            if !self.sdks.iter().any(|s| s.name == builtin.name) {
+                missing.push(builtin.clone());
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        for sdk in &missing {
+            util::info!("Detected new built-in SDK '{}', auto-updated config.toml", sdk.name);
+        }
+        self.sdks.extend(missing);
+        self.atomic_write_to_disk()?;
+        Ok(())
+    }
+
     pub fn read_from_disk() -> Result<SdkmConfig> {
         if let Ok(config_file) = fs::read_to_string(get_sdkm_config_path()?) {
-            let config = toml::from_str(config_file.as_str())
+            let mut config: SdkmConfig = toml::from_str(config_file.as_str())
                 .context("Failed to parse toml file,please check config.toml syntax!")?;
+            // 二进制升级后自动补全缺失的内置 SDK（如 go）
+            config.ensure_builtin_sdks()?;
             return Ok(config);
         }
         anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir")

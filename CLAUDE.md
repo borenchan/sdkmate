@@ -115,6 +115,17 @@ bin_dir = "bin"
 
 **实测**：`cargo build --release` 通过；`sdkm ls go --remote` 返回 274 个版本（从 1.26.5 到 1.0）；`sdkm config remove-sdk go` 正确拒绝（内置保护）；release 覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），真实 home config 手动加 go 条目后远程列表正常。未发版。
 
+### 本次改动 —— 内置 SDK 自动补全
+
+**问题**：Go SDK 的 `[[sdk]]` 条目只在 `config init` 时被写入 config.toml。自更新后的新二进制缺少新内置 SDK 条目，导致 "Unregistered SDK"。
+
+**方案**：`read_from_disk()` 反序列化完成后调用 `ensure_builtin_sdks()` —— 遍历编译期常量 `BUILTIN_SDK_CONFIG`（5 个条目），逐一对比 config.sdks 已有条目，缺失则补入并 `atomic_write_to_disk` 写回。无缺失时 O(5) 字符串比较后直接返回，无 IO。
+- 不改 init、不加新字段、不设版本戳
+- 天然支持手动替换二进制 + self update 两种���级路径
+- 实测：删除 config.toml 的 go 条目 → 跑 `sdkm config list` → 自动补全 `go` → 二次运行不重复触发
+
+**改动文件**：仅 `crates/sdkcore/src/config/mod.rs`（`read_from_disk` + 新增 `ensure_builtin_sdks` 方法，约 20 行）
+
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 
 ## 已知问题与注意事项
