@@ -4,10 +4,10 @@ use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct CurrentHandler {
-    /// SDK name. Built-in: java, node, python, maven; omit to show all active versions
+    /// SDK name. Built-in: java, node, python, maven, go; omit to show all active versions
     #[arg(
         value_name = "SDK",
-        help = "SDK name. Built-in: java, node, python, maven. Omit to show all active versions"
+        help = "SDK name. Built-in: java, node, python, maven, go. Omit to show all active versions"
     )]
     sdk: Option<String>,
 }

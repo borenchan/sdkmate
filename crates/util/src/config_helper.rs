@@ -38,6 +38,8 @@ pub enum ArchStyle {
     Adoptium,
     /// amd64 / arm64 / win32（Python Windows embed 包）
     Python,
+    /// amd64 / arm64 / 386（Go 官方下载命名）
+    Go,
 }
 
 /// 标准化的 OS 检测函数，按指定风格映射
@@ -62,15 +64,16 @@ pub fn detect_arch_with(style: ArchStyle) -> String {
     match std::env::consts::ARCH {
         "x86_64" => match style {
             ArchStyle::Default | ArchStyle::Adoptium => "x64",
-            ArchStyle::Python => "amd64",
+            ArchStyle::Python | ArchStyle::Go => "amd64",
         },
         "aarch64" => match style {
-            ArchStyle::Default | ArchStyle::Python => "arm64",
+            ArchStyle::Default | ArchStyle::Python | ArchStyle::Go => "arm64",
             ArchStyle::Adoptium => "aarch64",
         },
         "x86" => match style {
             ArchStyle::Default | ArchStyle::Adoptium => "x86",
             ArchStyle::Python => "win32",
+            ArchStyle::Go => "386",
         },
         other => other,
     }

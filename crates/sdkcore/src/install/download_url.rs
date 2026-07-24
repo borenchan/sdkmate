@@ -50,6 +50,13 @@ pub fn build_download_url(sdk: &Sdk, template: &str, resolved: &ResolvedVersion)
             .var(PLACEHOLDER_OS_EXT, detect_ext())
             .var(PLACEHOLDER_VERSION, &resolved.full_version)
             .render(template),
+        // Go：os 用 Default（linux/darwin/windows），arch 用 Go 风格（amd64/arm64/386）
+        Sdk::Built(BuiltinSdk::Go) => TemplateRenderer::new()
+            .var(PLACEHOLDER_OS, detect_os_with(OsStyle::Default))
+            .var(PLACEHOLDER_ARCH, detect_arch_with(ArchStyle::Go))
+            .var(PLACEHOLDER_OS_EXT, detect_ext())
+            .var(PLACEHOLDER_VERSION, &resolved.full_version)
+            .render(template),
         // custom SDK 沿用原 ConfigBasedStrategy::default() 的 Default 风格
         Sdk::Custom(_) => TemplateRenderer::new()
             .var(PLACEHOLDER_OS, detect_os_with(OsStyle::Default))

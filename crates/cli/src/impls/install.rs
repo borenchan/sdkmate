@@ -4,10 +4,10 @@ use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {
-    /// SDK name. Built-in: java, node, python, maven; custom SDKs from config.toml
+    /// SDK name. Built-in: java, node, python, maven, go; custom SDKs from config.toml
     #[arg(
         value_name = "SDK",
-        help = "SDK name. Built-in: java, node, python, maven. Custom SDKs from config.toml also accepted"
+        help = "SDK name. Built-in: java, node, python, maven, go. Custom SDKs from config.toml also accepted"
     )]
     sdk: String,
 

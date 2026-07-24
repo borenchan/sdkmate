@@ -22,6 +22,8 @@ pub enum BuiltinSdk {
     Node,
     /// python programming language
     Python,
+    /// go programming language
+    Go,
 }
 
 impl FromStr for Sdk {
@@ -50,6 +52,7 @@ impl FromStr for BuiltinSdk {
             "maven" => Ok(BuiltinSdk::Maven),
             "node" => Ok(BuiltinSdk::Node),
             "python" => Ok(BuiltinSdk::Python),
+            "go" => Ok(BuiltinSdk::Go),
             _ => Err(anyhow::anyhow!("not builtin sdk")),
         }
     }
@@ -61,6 +64,7 @@ impl Display for BuiltinSdk {
             BuiltinSdk::Maven => write!(f, "maven"),
             BuiltinSdk::Node => write!(f, "node"),
             BuiltinSdk::Python => write!(f, "python"),
+            BuiltinSdk::Go => write!(f, "go"),
         }
     }
 }
@@ -92,6 +96,7 @@ impl BuiltinSdk {
             BuiltinSdk::Node => &["node", "npm"],
             BuiltinSdk::Python => &["python", "python3"],
             BuiltinSdk::Maven => &["mvn"],
+            BuiltinSdk::Go => &["go", "gofmt"],
         }
     }
 }

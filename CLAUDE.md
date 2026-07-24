@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-**sdkmate**（`sdkm`）是一款面向全栈工程师的跨平台 SDK 版本管理器，用 Rust 编写。通过符号链接切换 + 操作系统环境变量操纵，管理 Java、Node.js、Python、Maven、Rust 等开发环境的版本。
+**sdkmate**（`sdkm`）是一款面向全栈工程师的跨平台 SDK 版本管理器，用 Rust 编写。通过符号链接切换 + 操作系统环境变量操纵，管理 Java、Node.js、Python、Maven、Go 等开发环境的版本。
 
 ## 构建与开发命令
 
@@ -94,40 +94,26 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-07-16）
+## 当前开发进度（2026-07-24）
 
-### 本次改动 —— `sdkm self update` 自更新子命令
+### 本次改动 —— 新增 Go 内置 SDK
 
-新增 `sdkm self update`，从 GitHub Release 自检最新版并就地替换 sdkm 二进制，带备份+验证+回滚兜底。路径 `self update`，与 `self uninstall` 对称。
+在现有 java/node/python/maven 四个内置 SDK 基础上新增 `go`，支持远程版本发现 + 下载安装 + 符号链接切换。
 
-**命令形态**（`cli/impls/self_cmd.rs` 加 `SelfSub::Update` + `SelfUpdateHandler`）：
-- `sdkm self update`（别名 `u`）—— 查 GitHub latest，**只升不降**（远程 ≤ 当前 → "already up to date" 退出，不下载）
-- `sdkm self update --check` / `-c` —— 只打印 current vs latest，不下载（只读）
-- `sdkm self update --rollback` / `-r` —— 把 `.bak` 恢复为当前二进制（本地，不联网）
-- `--check` 与 `--rollback` 互斥（同时给则 bail）。非破坏性，不强制确认（与 uninstall 区别）。`long_about` 详述备份/验证/回滚机制
+**版本发现**：`https://go.dev/dl/?mode=json&include=all` — 官方 JSON API，返回所有版本（含归档），每个版本带 `stable` 标记 + `files[]`（含 sha256/size/os/arch/kind）。`GoDiscovery` 过滤 `stable == true`，去掉 `go` 前缀（`go1.26.5` → `1.26.5`），`feature_version` 取 major.minor（如 `1.26`）。
 
-**core 模块**（新 `sdkcore/src/self_update.rs`，与 `self_uninstall.rs` 并列；`lib.rs` 加 `pub mod self_update;`）：
-1. **版本源**：GitHub API `releases/latest`，serde 解析 `tag_name` + `assets[].browser_download_url`（单请求拿版本+URL）。复用 `install::downloader::build_reqwest_client`（proxy/ssl_verify/github_token/timeout 全自动生效）
-2. **平台→asset 映射**：编译期 `cfg!`（= 已发布二进制的 target，非开发机；同 target 产物必能在同 target 二进制环境跑，与 rustup macOS `from_build()` 一致）。5 产物：windows-x86_64.zip / macos-{aarch64,x86_64}.tar.gz / linux-x86_64-{gnu,musl}.tar.gz（`target_env` 分流 gnu/musl）。无产物平台编译期 bail。当前矩阵下无需运行时检测
-3. **版本比较**：手写 `parse_ver` 三段 u64（不加 semver 依赖）。当前版本 `env!("CARGO_PKG_VERSION")`
-4. **备份/临时副本全放 work_dir**（`<home>/.tmp/self_update/`，`work_dir()` helper）：`.bak`/`.discard`/`.bad` 都在此，**exe 同目录保持干净**（不污染 sdkm 安装目录）。exe 父目录只留 sdkm 二进制本身
-5. **替换+回滚**（参考 rustup `self_update`，单二进制折中）：
-   - **权限预检**（仿 `self_update_permitted`）：在 exe 父目录试写，碰网络前挡 `PermissionDenied`
-   - **全程 rename 不 delete**：Windows 允许 rename running exe（MoveFileEx 改目录条目），不允许 delete running exe——self_uninstall 注释的"running exe 自删不可靠"正指 delete，本方案避开。`replace_binary`：`clean_leftovers` → 删旧 .bak → `rename(exe, work/.bak)` → `rename(new_exe, exe)` → spawn `exe --version` 验证 → 失败自动 `rollback_to_bak`
-   - **`--rollback`**：备份不存在 → bail"no backup; run `sdkm self update` first"（不允许回滚）。有备份：`rename(exe, work/.discard)` → `rename(work/.bak, exe)` → spawn 验证；.bak 损坏则用 `work/.bad` 中转恢复原 exe
-   - **Windows 固有限制**：rollback 成功后 `work/.discard`（原 running exe 副本）删不掉（进程仍占用），留 work_dir（不污染 exe 目录）。`clean_leftovers(work, name)` 在每次 update/rollback 开头清上次残留的 `.discard`/`.bad`（rustup "下次运行清理" 范式）。`.bak` 保留供 rollback，不自动删
-   - **跨盘注意**：`work_dir` 在 `<home>/.tmp`，若 SDKM_HOME 与 exe 不同盘，rename running exe 跨盘失败（Windows 跨盘 rename = copy+delete，delete running 失败）→ bail 提示"keep SDKM_HOME on the same drive as sdkm.exe"。默认 home=exe parent 同盘无此问题
-6. 复用 `install::downloader::download_with_retry`（断点续传+重试）+ `install::extractor::extract_archive`（zip/tar.gz）。indicatif 自带进度条（不复用 install 的 SDK 文案模板）。下载/解压临时文件用完即删，`.bak` 留 work_dir
+**下载 URL**：模板 `https://go.dev/dl/go{version}.{os}-{arch}.{ext}`，备源 `https://golang.google.cn/dl/go{version}.{os}-{arch}.{ext}`（Google 中国 CDN）。Go 官方下载命名用 `linux-amd64`/`darwin-arm64`/`windows-amd64.zip`，新增 `ArchStyle::Go`（amd64/arm64/386）映射，OS 用 `OsStyle::Default`（linux/darwin/windows）。
 
-**错误处理**：全程 `anyhow`+`.context()`；网络/权限/平台/已是最新/无备份/验证失败 → 普通 `bail!`（用户可解决，非 bug），**不用 `BugReportError`**（与 CLAUDE.md「BugReport 只用于不可修复错误」一致）。`--version` 在 clap parse 阶段处理不读 config（`main.rs` 确认），spawn 验证可靠。中文注释。
+**改动文件**（12 个，+92/-13）：
+- `util/src/sdk.rs` — `BuiltinSdk` 加 `Go` 变体 + FromStr/Display/primary_executables（`["go", "gofmt"]`）；bin_dir 走默认 `"bin"`
+- `util/src/sdk_resources.rs` — `BUILTIN_SDK_CONFIG` 追加 Go 条目（version_url + download_url + download_fallback_url）
+- `util/src/config_helper.rs` — `ArchStyle` 加 `Go`（amd64/arm64/386）
+- `sdkcore/src/config/mod.rs` — `is_builtin_sdk` 加 `"go"`；`get_default_builtin_sdks` match 走 `_ => {}`（无特殊 env vars，Go 不需要 GOROOT）
+- `sdkcore/src/version/discovery.rs` — 新增 `GoDiscovery` struct + impl + 工厂分支
+- `sdkcore/src/install/download_url.rs` — `build_download_url` 加 Go 分支
+- `cli/src/impls/{install,uninstall,switch,list,current}.rs` — help 文本加 "go"
 
-**解耦**：只新增模块 + self_cmd variant，不碰 install/switch/list/uninstall/size_cache 任一行；不新增依赖/配置；不碰 `main.rs`/`lib.rs`（cli 侧 `Commands::Self_` 已统一转 `SelfHandler::run`）。
-
-**实测**（隔离临时 home + SDKM_HOME，不碰真实环境）：构造 0.2.7 旧版 → `--check` 显示 update available ✓；`self update` 下载替换 `--version` 变 0.2.8 ✓（.bak 在 work_dir、exe 目录无残留）；`--rollback` 0.2.8→0.2.7 ✓；无备份 `--rollback` bail"no backup" ✓；别名 `self u -c` ✓；Windows running exe 副本 `.discard` 删不掉 → 留 `<home>/.tmp/self_update/`（exe 目录干净）→ 下次 `clean_leftovers` 清理 ✓（rustup 同款行为）。release 覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），真实 home `--check` already up to date ✓。未发版。
-
-### 后续小修
-- **install 残留自动清理**（`install/mod.rs`）：install 入口先删 `.tmp/<sdk>/`（含所有 version 中断残留）再版本解析，避免旧 `sdk.zip` 断点续传拼坏 + 旧 `extracted/` 混入。不碰 `.tmp/self_update`
-- **java 无 aarch64 包提示**（`version/discovery.rs`）：assets 空（如 jdk8 macOS aarch64 无 Adoptium 包）时 bail 明确"该版本无此架构包，换 17/21 等"
+**实测**：`cargo build --release` 通过；`sdkm ls go --remote` 返回 274 个版本（从 1.26.5 到 1.0）；`sdkm config remove-sdk go` 正确拒绝（内置保护）；release 覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），真实 home config 手动加 go 条目后远程列表正常。未发版。
 
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 

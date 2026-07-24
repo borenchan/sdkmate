@@ -265,7 +265,7 @@ impl SdkmConfig {
 
     /// 判断 SDK 名称是否为内置 SDK
     pub fn is_builtin_sdk(name: &str) -> bool {
-        matches!(name, "java" | "maven" | "node" | "python")
+        matches!(name, "java" | "maven" | "node" | "python" | "go")
     }
 
     // ── 配置操作 API ──

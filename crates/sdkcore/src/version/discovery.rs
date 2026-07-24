@@ -80,6 +80,7 @@ pub fn get_version_discovery(sdk: &Sdk) -> Box<dyn VersionDiscovery> {
         Sdk::Built(BuiltinSdk::Node) => Box::new(NodeDiscovery),
         Sdk::Built(BuiltinSdk::Python) => Box::new(PythonDiscovery),
         Sdk::Built(BuiltinSdk::Maven) => Box::new(MavenDiscovery),
+        Sdk::Built(BuiltinSdk::Go) => Box::new(GoDiscovery),
         Sdk::Custom(_) => Box::new(ConfigBasedDiscovery),
     }
 }
@@ -504,6 +505,54 @@ impl VersionDiscovery for MavenDiscovery {
         // Maven 无远程版本发现,parse 不使用
         Ok(Vec::new())
     }
+}
+
+// ─── Go 版本发现 ────────────────────────────────────────────────
+
+struct GoDiscovery;
+
+impl VersionDiscovery for GoDiscovery {
+    fn parse_version_data(&self, body: &str) -> Result<Vec<VersionEntry>> {
+        let versions: Vec<GoVersion> =
+            serde_json::from_str(body).context("[Go version lookup] failed to parse go.dev version data")?;
+
+        // 只保留稳定版,去掉 go 前缀；feature_version 取 major.minor（如 1.26）
+        let entries: Vec<VersionEntry> = versions
+            .iter()
+            .filter(|v| v.stable)
+            .map(|v| {
+                let ver = v.version.trim_start_matches("go").to_string();
+                let fv = ver.split('.').take(2).collect::<Vec<_>>().join(".");
+                VersionEntry {
+                    full_version: ver,
+                    feature_version: Some(fv),
+                    release_tag: None,
+                    download_url: None,
+                }
+            })
+            .collect();
+        Ok(entries)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GoVersion {
+    version: String,
+    stable: bool,
+    #[allow(dead_code)]
+    files: Vec<GoFile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoFile {
+    #[allow(dead_code)]
+    filename: String,
+    #[allow(dead_code)]
+    os: String,
+    #[allow(dead_code)]
+    arch: String,
+    #[allow(dead_code)]
+    kind: String,
 }
 
 // ─── ConfigBased 版本发现(自定义 SDK)──────────────────────────

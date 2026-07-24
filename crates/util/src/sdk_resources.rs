@@ -64,6 +64,20 @@ pub const BUILTIN_SDK_CONFIG: &[SdkSourceConfig] = &[
         download_fallback_url: None,
         assets_url: None,
     },
+    SdkSourceConfig {
+        sdk: BuiltinSdk::Go,
+        // 官方版本列表 API：返回所有版本（含归档）的 JSON，含 sha256/size/files
+        version_url: "https://go.dev/dl/?mode=json&include=all",
+        version_fallback_url: None,
+        // {version} = 版本号，如 1.26.5（不含 go 前缀，模板里 go{version} 组合）
+        // {os}      = linux / darwin / windows (Default 映射)
+        // {arch}    = amd64 / arm64 / 386 (Go 映射)
+        // {ext}     = zip (win) / tar.gz (linux/mac)
+        download_url: "https://go.dev/dl/go{version}.{os}-{arch}.{ext}",
+        // 国内加速备源：Google 中国 CDN
+        download_fallback_url: Some("https://golang.google.cn/dl/go{version}.{os}-{arch}.{ext}"),
+        assets_url: None,
+    },
 ];
 
 /// 根据 BuiltinSdk 类型查找对应的 source config
