@@ -84,5 +84,6 @@ sdkm config add-sdk mytool \
 坦诚面对当前状态，以下是使用时的注意事项：
 
 - **Maven 无远程版本发现**：Maven 只有下载模板、没有版本发现接口，因此 `sdkm install maven <version>` 必须给精确版本号（如 `3.9.9`），不支持模糊匹配，`sdkm list maven -r` 会报错。自定义 SDK 不填 `--version-url` 时同理。
+- **Windows 需管理员权限**：Windows 下环境变量与系统 PATH 写入 `HKEY_LOCAL_MACHINE`、创建符号链接需管理员权限，运行 `init`/`switch` 需管理员。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。

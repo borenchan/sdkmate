@@ -52,7 +52,7 @@ fn test_bug_report_url_contains_title_and_body() {
     // 构建预期的 URL 基础路径
     let base = "https://github.com/borenchan/sdkmate/issues/new";
     let url = util::terminal::build_bug_report_url(command, error_msg);
-
+    println!("Url:{}",url);
     // URL 应以 base 开头
     assert!(url.starts_with(base), "URL should start with base path");
 
@@ -77,6 +77,8 @@ fn test_bug_report_url_contains_title_and_body() {
     assert!(body.contains("Issue Report"), "body should use Issue Report header");
     assert!(body.contains("Command"), "body should contain command section");
     assert!(body.contains("Error"), "body should contain error section");
+    assert!(body.contains("sdkm version"), "body should contain sdkm version section");
+    assert!(body.contains("OS"), "body should contain OS section");
     assert!(body.contains("Platform"), "body should contain platform section");
     assert!(body.contains("Steps to reproduce"), "body should contain steps section");
 }

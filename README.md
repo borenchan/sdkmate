@@ -127,6 +127,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 - **🦀 Rust 驱动，类型安全更可靠**：由 Rust 编写，所有权与类型系统在编译期消除悬垂指针、缓冲区溢出、数据竞争等整类内存安全问题；相比无类型检查的 bash 脚本，多一层编译期兜底，不易因拼写或空值静默出错。配合原子写入 + 快照回滚，操作失败也不会把环境搞坏。
 - **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven / Go / Any Sdk，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错——**告别"为每个语言学一套版本管理器"**。
 - **🖥️ 跨平台原生 + 交互式 TUI**：Windows / Linux / macOS 全平台一等公民，统一命令统一体验；`sdkm list <sdk> -r` 进入交互式 TUI，方向键浏览远程版本、一键安装/切换，操作极其友好，Windows也能支持的很好！
+- **⚠️ Windows 需管理员运行**：`init`/`switch` 涉及写入系统环境变量（`HKEY_LOCAL_MACHINE`）与创建符号链接，需以管理员权限启动终端运行。
 - **🤖 AI agent 友好，让 AI 替你管环境**：自带 [agent skill 文档](./skills/SKILL.md)，Claude Code / Codex/openclaw 等 agent 读一遍即可替你装/切 SDK；CLI进程退出码语义清晰（0 成功 / 1 失败），CLI命令天然适配脚本与 CI，操作失败自动回滚——agent 放心调用。
 
 ---

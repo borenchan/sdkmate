@@ -62,12 +62,12 @@ impl SdkManager {
         }
         detail!("{} — {}", sdks_dir.display(), DIR_DESC_STORE);
 
-        step!("2/4", "Adding sdkm to user PATH");
+        step!("2/4", "Adding sdkm to system PATH");
         detail!("{} — sdkm CLI accessible from any terminal", root_dir.display());
         let os = OsEnvOperation {};
         if let Err(e) = os.add_sdk_path(root_dir.to_string_lossy().as_ref()) {
-            // PATH 写入失败属用户环境问题（权限/策略限制），非 bug
-            anyhow::bail!("Failed to add sdkm to user PATH: {}", e);
+            // 写系统 PATH 需管理员权限（HKLM），属用户环境问题，非 bug
+            anyhow::bail!("Failed to add sdkm to system PATH: {}", e);
         }
 
         step!("3/4", "Preparing config file");

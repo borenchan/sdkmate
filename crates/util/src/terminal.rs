@@ -176,6 +176,8 @@ pub fn suggest_bug_report(command: &str, error_msg: &str) {
     // URL 加下划线样式，便于终端识别可点击链接
     let url = build_bug_report_url(command, error_msg);
     println!("   {}", url.underlined().dark_grey());
+    detail(&format!("sdkm version: {}", env!("CARGO_PKG_VERSION")));
+    detail(&format!("OS:          {}", os_version()));
     detail(&format!("Command:  {}", command));
     detail(&format!("Error:    {}", error_msg));
     detail(&format!("Platform: {}", platform_info()));
@@ -199,13 +201,17 @@ pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
     // body 模板：预填关键信息，留出描述区域供用户补充
     let body = format!(
         "**Issue Report**\n\n\
+         **Sdkm Version**: {version}\n\
          **Command**: `{command}`\n\
          **Error**: {error_msg}\n\
+         **OS**: {os}\n\
          **Platform**: {platform}\n\n\
          **Steps to reproduce**:\n\
          1. \n\n\
          **Expected behavior**:\n\n\
          **Additional context**:\n",
+        version = env!("CARGO_PKG_VERSION"),
+        os = os_version(),
         command = command,
         error_msg = error_msg,
         platform = platform_info(),
@@ -236,4 +242,19 @@ fn platform_info() -> String {
         "unknown"
     };
     format!("{} ({})", os, arch)
+}
+
+/// 操作系统版本号（Windows build / Unix 内核版本），用于 bug report 区分环境
+fn os_version() -> String {
+    let output = if cfg!(windows) {
+        std::process::Command::new("cmd").args(["/c", "ver"]).output()
+    } else {
+        std::process::Command::new("uname").args(["-sr"]).output()
+    };
+    output
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
 }

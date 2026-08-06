@@ -39,14 +39,22 @@ struct RollbackFailure {
 // ── try_step! 宏：执行操作，失败时自动回滚并提前返回 ──
 //
 // 消除 Phase 3 中 5 处重复的 `if-let-Err + rollback + return Err(e)` 模式。
-// 失败时自动嵌入 BugReportError 标记，CLI 层可检测此标记提示 bug report。
+// 已知权限错误（access denied / privilege not held）不标记，未知错误标记 BugReportError。
 macro_rules! try_step {
     ($expr:expr, $snapshot:expr, $manager:expr, $msg:expr $(, $fmt_arg:expr)* $(,)?) => {
         match $expr {
             Err(e) => {
                 warning!($msg $(, $fmt_arg)*);
                 rollback($snapshot, $manager)?;
-                // 中间步骤失败 + 已回滚 = 用户无法自行修复，标记为 bug report
+                // 已知权限错误（access denied 5 / EACCES 13、privilege not held 1314）属用户环境问题，
+                // 提示自行解决；其余未知错误标记 bug report
+                let is_perm = e.downcast_ref::<std::io::Error>()
+                    .and_then(|ie| ie.raw_os_error())
+                    .map_or(false, |code| matches!(code, 5 | 13 | 1314));
+                if is_perm {
+                    let hint = if cfg!(windows) { "run sdkm as administrator" } else { "check permissions" };
+                    bail!("{}: {hint}", e);
+                }
                 return Err(BugReportError::wrap(e));
             }
             Ok(val) => val,

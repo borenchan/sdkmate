@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use util::{consts::ENV_PATH, detail, info, warning};
 use windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST;
 use winreg::RegKey;
-use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
 
 pub struct WindowsEnvOperation;
 
@@ -102,15 +102,15 @@ impl EnvOperation for WindowsEnvOperation {
     }
 }
 
-// HKCU 的 Environment 子键：用户级环境变量，无需管理员权限
-const ENV_KEY: &str = "Environment";
+// HKLM 的系统 Environment：系统级环境变量，需管理员权限
+const ENV_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
 
 fn open_env_key(write: bool) -> Result<RegKey> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key = if write {
-        hkcu.open_subkey_with_flags(ENV_KEY, KEY_READ | KEY_WRITE)?
+        hklm.open_subkey_with_flags(ENV_KEY, KEY_READ | KEY_WRITE)?
     } else {
-        hkcu.open_subkey(ENV_KEY)?
+        hklm.open_subkey(ENV_KEY)?
     };
     Ok(key)
 }
