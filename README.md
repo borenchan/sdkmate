@@ -100,7 +100,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 | **多语言统一管理** | ✅ Java/Node/Python/Maven/Go + 自定义 SDK | ✅ node、python、cmake、terraform 等 [hundreds more](https://github.com/jdx/mise?tab=readme-ov-file#what-does-it-do) | ⚠️ 以 Java/JVM 生态为主 | ❌ 单一语言管理器，一个工具只管一种语言（如 [nvm](https://github.com/nvm-sh/nvm?tab=readme-ov-file#node-version-manager---)、[pyenv](https://github.com/pyenv/pyenv?tab=readme-ov-file#simple-python-version-management)） |
 | **Windows 原生支持** | ✅ **一等公民**：原生注册表 + 广播通知 | ⚠️ **基础支持**：Windows 下只能用 core/vfox 插件，[可用工具有限](https://mise.jdx.dev/windows.html#windows-support) | ❌ 官方只支持 WSL / Git Bash / Cygwin，[安装文档](https://sdkman.io/install) | ⚠️ Windows 需第三方移植版（如 [nvm-windows](https://github.com/coreybutler/nvm-windows)、[pyenv-win](https://github.com/pyenv-win/pyenv-win)） |
 | **已开进程感知切换** | ✅ Windows 上通过 `WM_SETTINGCHANGE` 广播通知已开程序 | ❌ 已开进程不会重新读取 PATH；shims 也不会触发广播 | ❌ 仅当前 Shell 生效，不影响已开进程 | ❌ 仅当前 Shell 生效 |
-| **全局切换机制** | ✅ **符号链接 + 系统 PATH** 一次修改，全局持久生效。**SDK运行时零开销** | ⚠️ 默认为 **shims 中间层**；或 PATH 激活（仅当前 shell hook）[官方说明](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` 仅当前 Shell；需 `sdk default` 才持久，[使用指南](https://sdkman.io/usage#sdk-use-command) | ⚠️ Shell 变量/钩子；`use`/`shell` 通常临时生效，需额外命令持久 |
+| **全局切换机制** | ✅ **符号链接 + PATH** 一次修改，全局持久生效。**SDK运行时零开销** | ⚠️ 默认为 **shims 中间层**；或 PATH 激活（仅当前 shell hook）[官方说明](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` 仅当前 Shell；需 `sdk default` 才持久，[使用指南](https://sdkman.io/usage#sdk-use-command) | ⚠️ Shell 变量/钩子；`use`/`shell` 通常临时生效，需额外命令持久 |
 | **路径透明度 (which/IDE)** | ✅ `which java` 直接指向真实 SDK 路径 | ⚠️ shims 下 `which node` 指向 shim；官方承认“打断 `which`”，需 `mise which` 才能看到真实路径，[设计说明](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ✅ 路径透明 | ✅ 路径透明（但在 Shell 内部） |
 | **模糊版本匹配** | ✅ `21` → 最新 21.x，并给出候选列表建议 | ✅ 支持模糊版本（如 `node = "26"`）及就近匹配 | ❌ 不支持前缀模糊；需要精确版本或手动选择 | ⚠️ 部分工具支持前缀匹配，实现不一 |
 | **单文件可移植 / 绿色** | ✅ 单二进制仅**4MB**， 配置目录，可放在 U 盘或任意路径使用 | ⚠️ **100MB+**,需要 shims 目录（`~/.local/share/mise/shims` 或 `%LOCALAPPDATA%\mise\shims`），[安装说明](https://mise.jdx.dev/installing-mise.html#installation) | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + Shell 钩子，依赖 Shell 环境 |
@@ -122,7 +122,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 全栈工程师在 Java、Node.js、Python、Go、Maven 等 SDK 版本之间来回切换是常态——以往要同时装 nvm、jenv、pyenv、sdkman 多套脚本工具，各管一摊、互不通气。**sdkm 用一个 Rust 二进制把这件事做完。**
 
 - **🟢 纯绿色，可移植**：单二进制就是全部，不装后台服务。sdkm 的「`HOME`」就是可执行文件所在目录——拷到 U 盘、另一台机器，配置和已装 SDK 一并带走。把已有 JDK / Node / Python 直接放进 `store/` 目录，sdkm 自动发现并托管。
-- **⚡ 即时切换，影响全局**：符号链接 + PATH 注入 + 环境变量广播三件套切换版本，一次 `switch` 全局持久生效（符号链接、系统 PATH、`current_version` 同步更新）；Windows 下 `WM_SETTINGCHANGE` 广播，愿意响应的已开程序可感知新变量。
+- **⚡ 即时切换，影响全局**：符号链接 + PATH 注入 + 环境变量广播三件套切换版本，一次 `switch` 全局持久生效（符号链接、PATH、`current_version` 同步更新）；Windows 下 `WM_SETTINGCHANGE` 广播，愿意响应的已开程序可感知新变量。
 - **🛡️ 透明可回滚，出错不翻车**：每一步操作都逐步打印做了什么、为什么；`switch` 任一步骤失败自动恢复到切换前状态；`config` 采用原子写入 + 快照回滚，配置文件绝不会写到一半损坏。
 - **🦀 Rust 驱动，类型安全更可靠**：由 Rust 编写，所有权与类型系统在编译期消除悬垂指针、缓冲区溢出、数据竞争等整类内存安全问题；相比无类型检查的 bash 脚本，多一层编译期兜底，不易因拼写或空值静默出错。配合原子写入 + 快照回滚，操作失败也不会把环境搞坏。
 - **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven / Go / Any Sdk，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错——**告别"为每个语言学一套版本管理器"**。

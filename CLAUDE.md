@@ -36,7 +36,7 @@ sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
 
 ### 版本切换机制
 - 创建符号链接 `<symlink_dir>/<sdk_name>` → `<store>/<sdk>/<version>` 目录
-- 将符号链接的 bin 目录加入操作系统 PATH
+- 将符号链接的 bin 目录加入 PATH
 - 通过平台特定的环境变量操作设置额外变量（如 JAVA_HOME）
 - 切换后更新 config.toml 中的 `current_version`
 
@@ -132,7 +132,6 @@ bin_dir = "bin"
 
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
 - Rust 完全缺失内置源配置条目
-- Windows 环境变量操作写入 `HKEY_CURRENT_USER`（用户级，无需管理员权限）
 - Unix 环境变量操作使用 `unsafe { env::set_var() }`，在 Rust 2024 edition 中属于 UB（功能生效，彻底修复需 shim 模式重构或用户手动 source）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有限制，主源 uv metadata 无此问题）
 - Rust 工具链通过 `rust-toolchain.toml` 固定为 1.92.0（edition 2024）

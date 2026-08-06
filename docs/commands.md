@@ -18,7 +18,7 @@
 
 ## sdkm init
 
-首次使用前初始化 sdkm：创建 `store/`、符号链接目录、`config.toml`，并把符号链接目录注册到系统 PATH。
+首次使用前初始化 sdkm：创建 `store/`、符号链接目录、`config.toml`，并把符号链接目录注册到 PATH。
 
 ```bash
 sdkm init           # 标准初始化（检测目录部署是否合理）
@@ -27,7 +27,6 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 
 - `--force` / `-f`：强制重新初始化。会覆盖已有 `config.toml`，并跳过「目录部署检测」。
 - 初始化流程会透明地逐步打印每一步操作及其用途，便于排查。
-- Windows 下写入系统 PATH 与环境变量需要**管理员权限**。
 
 ---
 
@@ -113,13 +112,12 @@ sdkm switch java 21          # 切换到 Java 21
 sdkm s node 20.11.0          # 切换到 Node.js 20.11.0
 ```
 
-切换机制：创建/更新符号链接 `<symlink_dir>/<sdk_name>` → `store/<sdk>/<version>`，将符号链接的 bin 目录加入系统 PATH，并通过平台特定方式设置额外环境变量（如 `JAVA_HOME`），最后更新 `config.toml` 的 `current_version`。
+切换机制：创建/更新符号链接 `<symlink_dir>/<sdk_name>` → `store/<sdk>/<version>`，将符号链接的 bin 目录加入 PATH，并通过平台特定方式设置额外环境变量（如 `JAVA_HOME`），最后更新 `config.toml` 的 `current_version`。
 
 **安全特性**：
 
 - **PATH 冲突检测**：切换前检测 PATH 中是否已有同 SDK 的其他版本路径，避免冲突。
 - **快照回滚**：切换过程中任一步骤失败（符号链接、环境变量、PATH、配置写入），都会自动回滚到切换前的状态——恢复旧符号链接目标、旧环境变量值、移除已添加的 PATH 条目、恢复旧配置。
-- Windows 下需要**管理员权限**（环境变量写入 `HKLM`）。
 
 ---
 
@@ -185,7 +183,7 @@ sdkm config edit                                      # 用编辑器打开 confi
 
 ### sdkm self uninstall
 
-卸载 sdkm：清理所有被管理 SDK 的激活环境（符号链接 / PATH / 环境变量 / `current_version`），并删除 home 目录内容（store/links/.tmp/cache/config.toml）。破坏性操作，强制交互确认、不可跳过。sdkm 二进制本身与系统 PATH 条目需手动清理（运行中的 exe 跨平台不可靠自删）。
+卸载 sdkm：清理所有被管理 SDK 的激活环境（符号链接 / PATH / 环境变量 / `current_version`），并删除 home 目录内容（store/links/.tmp/cache/config.toml）。破坏性操作，强制交互确认、不可跳过。sdkm 二进制本身与 PATH 条目需手动清理（运行中的 exe 跨平台不可靠自删）。
 
 ### sdkm self update
 

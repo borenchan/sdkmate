@@ -41,7 +41,7 @@ sdkm current                 # 查看当前激活版本
 
 | 命令 | 别名 | 作用 | 关键点 |
 |:---|:---|:---|:---|
-| `sdkm init` | — | 初始化运行环境 | `--force` 覆盖 config.toml 并跳过部署检测；Windows 需管理员 |
+| `sdkm init` | — | 初始化运行环境 | `--force` 覆盖 config.toml 并跳过部署检测 |
 | `sdkm install <SDK> <VERSION>` | `i` | 远程安装并默认自动切换 | 版本支持模糊匹配；`--no-switch` 仅装不切 |
 | `sdkm list [SDK] [-r] [--limit N]` | `ls`/`l` | 列本地/远程版本 | 带 SDK 名进 TUI；`-r` 拉远程；`--limit` 默认 20，须 ≥1 |
 | `sdkm switch <SDK> <VERSION>` | `s` | 切到本地已安装版本 | 版本必须已存在于 store/；支持模糊匹配 |
@@ -63,7 +63,7 @@ sdkm current                 # 查看当前激活版本
 - `-r` 但未给 SDK 名 → 报错 `Please specify an SDK name`。
 - `list maven -r` → 报错（Maven 不支持远程版本列表）。
 
-**switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
+**switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。
 
 **current**：无参数显示所有 SDK 当前版本；带 SDK 名仅显示该 SDK。
 
@@ -232,7 +232,6 @@ sdkm config add-sdk groovy \
 ## 已知限制（动手前必看）
 
 - **Maven 无远程版本发现**：`install maven` 必须给精确版本，`list maven -r` 报错。
-- **Windows 需管理员权限**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`，`init`/`switch` 要管理员运行。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
 - **内置不含 Rust 工具链**：sdkm 内置 SDK 含 Java/Node/Python/Maven/Go，不含 Rust 条目（如需管理 Rust 用 rustup）。
 - **Unix 环境变量操作**修改 shell profile；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
@@ -265,7 +264,7 @@ if [ $? -ne 0 ]; then echo "切换失败"; fi
 
 ## agent 操作建议
 
-- **前提**：sdkm 已安装并 init 过；Windows 下 `init`/`switch` 需管理员权限运行（写 `HKEY_LOCAL_MACHINE`）。
+- **前提**：sdkm 已安装并 init 过。
 - **优先非交互命令**：agent 通常不在 TUI 里操作，直接用 `install`/`switch`/`current`/`list`（不带 SDK 名）。
 - **切版本前先确认本地有没有**：`sdkm list <sdk>` 看本地；要装新的用 `install`（默认自动切换）。
 - **改配置优先用 `sdkm config set`** 而不是直接编辑文件——有类型校验和回滚。批量改才用 `config edit`。

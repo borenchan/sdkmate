@@ -102,7 +102,7 @@ what python do I have      → sdkm list
 | Multi-language in one tool | ✅ Java/Node/Python/Maven/Go + custom | ⚠️ Java ecosystem mainly | ❌ one tool per language |
 | Native Windows support | ✅ first-class, registry + broadcast | ❌ needs WSL | ⚠️ needs third-party port |
 | Open processes sense the switch | ✅ Windows broadcast notifies them | ❌ current shell only | ❌ current shell only |
-| Switch is global & persistent by default | ✅ symlink + system PATH, one shot | ⚠️ `sdk use` is temp, needs `default` | ⚠️ `use`/`shell` is temp, needs extra cmd |
+| Switch is global & persistent by default | ✅ symlink + PATH, one shot | ⚠️ `sdk use` is temp, needs `default` | ⚠️ `use`/`shell` is temp, needs extra cmd |
 | Fuzzy version match | ✅ `21` → latest 21.x + suggestions | ❌ no prefix fuzzy | ⚠️ partial |
 | Single-file portability | ✅ binary + config in one dir | ❌ script + fixed install path | ❌ script + shell hooks |
 | Operations rollback-safe | ✅ snapshot auto-recovery | ❌ | ❌ |
@@ -117,7 +117,7 @@ what python do I have      → sdkm list
 Switching between Java, Node.js, Python, Go, Maven and other SDK versions is the norm for full-stack devs — you used to need nvm, jenv, pyenv, sdkman, multiple script tools, each in its own silo. **sdkm does it all with one Rust binary.**
 
 - **🟢 Portable, green**: single binary, no background service. sdkm's `HOME` is the executable's folder — copy it to a USB stick or another machine, config and installed SDKs come along. Drop existing JDK / Node / Python into the `store/` directory and sdkm discovers and manages them.
-- **⚡ Instant switching, global effect**: symlink + PATH injection + env-var broadcast. One `switch` takes effect globally and persistently (symlink, system PATH, `current_version` all updated); on Windows, `WM_SETTINGCHANGE` lets willing already-open processes pick up the new vars.
+- **⚡ Instant switching, global effect**: symlink + PATH injection + env-var broadcast. One `switch` takes effect globally and persistently (symlink, PATH, `current_version` all updated); on Windows, `WM_SETTINGCHANGE` lets willing already-open processes pick up the new vars.
 - **🛡️ Transparent and rollback-safe**: every step prints what it did and why; `switch` auto-rolls back to the pre-switch state if any step fails; `config` uses atomic write + snapshot rollback — the config file can never be left half-written.
 - **🦀 Rust-driven, type-safe & reliable**: written in Rust — ownership and the type system eliminate whole classes of memory-safety bugs (dangling pointers, buffer overflows, data races) at compile time; compared to unchecked bash scripts, you get a compile-time safety net and won't silently fail on a typo or null. Paired with atomic writes + snapshot rollback, a failed operation never wrecks your environment.
 - **🧩 Extensible, one tool for everything**: Java / Node.js / Python / Maven / Go / any SDK built in; any tool downloadable from a URL can be registered as a custom SDK with one command. Config values are type-validated — bad values error on the spot — **say goodbye to "a version manager for every language".**
