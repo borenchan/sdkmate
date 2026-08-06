@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.3 - 2026-08-06
+
+
+### 🐛 Bug Fixes
+
+- use HKCU for env vars so init works without admin — [`910de49`](https://github.com/borenchan/sdkmate/commit/910de49)
+
+### 📝 Documentation
+
+- add Go to built-in SDK listings in README and docs — [`77ce909`](https://github.com/borenchan/sdkmate/commit/77ce909)
+
+### 🧰 Chore
+
+- release v0.3.3 — [`5c8cc5d`](https://github.com/borenchan/sdkmate/commit/5c8cc5d)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.3.2...v0.3.3
+
+
+
 ## v0.3.2 - 2026-07-24
 
 
