@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.4 - 2026-08-06
+
+
+### 🐛 Bug Fixes
+
+- require admin, try_step hints on perm errors, bug report adds version/OS — [`d6ebea4`](https://github.com/borenchan/sdkmate/commit/d6ebea4)
+
+### 📝 Documentation
+
+- update windows path desc — [`ef933c3`](https://github.com/borenchan/sdkmate/commit/ef933c3)
+
+### 📌 Other
+
+- Merge branch 'master' of https://github.com/borenchan/sdkmate — [`b23b326`](https://github.com/borenchan/sdkmate/commit/b23b326)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.3.3...v0.3.4
+
+
+
 ## v0.3.3 - 2026-08-06
 
 
