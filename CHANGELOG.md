@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.5 - 2026-08-12
+
+
+### 🐛 Bug Fixes
+
+- resolve dangling symlink replacement failure #6 — [`040b891`](https://github.com/borenchan/sdkmate/commit/040b891)
+
+### 📝 Documentation
+
+- move Windows admin note to Installation — [`5ddac03`](https://github.com/borenchan/sdkmate/commit/5ddac03)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.3.4...v0.3.5
+
+
+
 ## v0.3.4 - 2026-08-06
 
 
