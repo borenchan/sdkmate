@@ -14,3 +14,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 url = { workspace = true }
 unicode-width = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+# 读取用户 Documents 重定向（User Shell Folders\Personal），定位 PowerShell profile
+winreg = { workspace = true }

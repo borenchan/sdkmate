@@ -1,11 +1,14 @@
 use crate::impls::config::ConfigHandler;
 use crate::impls::current::CurrentHandler;
+use crate::impls::env::EnvHandler;
+use crate::impls::hook::HookHandler;
 use crate::impls::init::InitHandler;
 use crate::impls::install::InstallHandler;
 use crate::impls::list::ListHandler;
 use crate::impls::self_cmd::SelfHandler;
 use crate::impls::switch::SwitchHandler;
 use crate::impls::uninstall::UninstallHandler;
+use crate::impls::use_cmd::UseHandler;
 use clap::builder::styling;
 use clap::{ColorChoice, Parser, Subcommand};
 use crossterm::style::Stylize;
@@ -40,8 +43,30 @@ pub enum Commands {
     #[command(name = "list", visible_aliases = ["ls", "l"], about = "List installed or remote SDK versions")]
     List(ListHandler),
 
-    #[command(name = "switch", visible_alias = "s", about = "Switch an SDK to a specific version")]
+    #[command(
+        name = "switch",
+        visible_alias = "s",
+        about = "Switch an SDK to a specific version (global)"
+    )]
     Switch(SwitchHandler),
+
+    #[command(
+        name = "use",
+        about = "Pin an SDK version for this project (.sdkm.toml) or the current shell (--shell)"
+    )]
+    Use(UseHandler),
+
+    #[command(
+        name = "env",
+        about = "Print env setup script for the current dir (used by shell hook)"
+    )]
+    Env(EnvHandler),
+
+    #[command(
+        name = "hook",
+        about = "Print shell hook registration code (eval this: eval \"$(sdkm hook <shell>)\")"
+    )]
+    Hook(HookHandler),
 
     #[command(name = "current", visible_alias = "c", about = "Show the active version of an SDK")]
     Current(CurrentHandler),
@@ -77,6 +102,9 @@ impl Commands {
             Commands::Install(handler) => handler.run(),
             Commands::List(handler) => handler.run(),
             Commands::Switch(handler) => handler.run(),
+            Commands::Use(handler) => handler.run(),
+            Commands::Env(handler) => handler.run(),
+            Commands::Hook(handler) => handler.run(),
             Commands::Current(handler) => handler.run(),
             Commands::Config(handler) => handler.run(),
             Commands::Uninstall(handler) => handler.run(),

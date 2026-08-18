@@ -55,14 +55,14 @@ impl SdkManager {
         // ── 开始初始化 ──
         divider!();
 
-        step!("1/4", "Creating store directory");
+        step!("1/5", "Creating store directory");
         let sdks_dir = get_installed_sdks_dir()?;
         if !sdks_dir.exists() {
             try_bug!(fs::create_dir(&sdks_dir));
         }
         detail!("{} — {}", sdks_dir.display(), DIR_DESC_STORE);
 
-        step!("2/4", "Adding sdkm to system PATH");
+        step!("2/5", "Adding sdkm to system PATH");
         detail!("{} — sdkm CLI accessible from any terminal", root_dir.display());
         let os = OsEnvOperation {};
         if let Err(e) = os.add_sdk_path(root_dir.to_string_lossy().as_ref()) {
@@ -70,14 +70,14 @@ impl SdkManager {
             anyhow::bail!("Failed to add sdkm to system PATH: {}", e);
         }
 
-        step!("3/4", "Preparing config file");
+        step!("3/5", "Preparing config file");
         // 首次 init 或 force 重置：写默认 config；非 force 且已存在：保留用户配置不覆盖
         if !config_existed || force {
             try_bug!(Self::init_sdkm_config());
         }
         detail!("{} — {}", config_file.display(), DIR_DESC_CONFIG);
 
-        step!("4/4", "Creating symlink directory");
+        step!("4/5", "Creating symlink directory");
         let config = try_bug!(SdkmConfig::read_from_disk());
         let symlink_dir = try_bug!(config.resolved_symlink_dir());
         if let Err(e) = fs::create_dir_all(&symlink_dir) {
@@ -89,6 +89,10 @@ impl SdkManager {
             );
         }
         detail!("{} — active SDK bin links for PATH resolution", symlink_dir);
+
+        step!("5/5", "Injecting shell hook");
+        // shell 注入细节在 shell/inject.rs（检测/定位/去重/升级），init 只编排
+        crate::shell::inject::inject_shell_hook()?;
 
         // ── 目录树：透明展示 sdkm home 结构 ──
         let exe_name = env::current_exe()

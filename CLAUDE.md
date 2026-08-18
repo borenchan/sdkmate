@@ -85,6 +85,9 @@ bin_dir = "bin"
 | `sdkm uninstall <SDK> <VERSION>` | `rm`, `un` | cli/UninstallHandler |
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler |
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler |
+| `sdkm use <SDK> <VERSION> [--shell]` | — | cli/UseHandler |
+| `sdkm env [SHELL]` | — | cli/EnvHandler |
+| `sdkm hook [SHELL]` | — | cli/HookHandler |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler |
 | `sdkm config` | — | cli/ConfigHandler |
 | `sdkm self uninstall` | — | cli/self_cmd::SelfUninstallHandler |
@@ -94,37 +97,37 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-07-24）
+## 当前开发进度（2026-08-14）
 
-### 本次改动 —— 新增 Go 内置 SDK
+### 本次改动 —— 项目级 SDK 版本管理（会话 > 项目 > 全局三层）
 
-在现有 java/node/python/maven 四个内置 SDK 基础上新增 `go`，支持远程版本发现 + 下载安装 + 符号链接切换。
+在现有全局 symlink 机制之上新增项目级/会话级版本管理，「全局 Symlink 兜底 + Shell Hook 进程级覆盖」混合模型。**全局层（switch/符号链接/注册表 env）一行未动**，IDE/非 shell 兜底不变；install 完全不考虑项目级行为，保留原本全局逻辑。
 
-**版本发现**：`https://go.dev/dl/?mode=json&include=all` — 官方 JSON API，返回所有版本（含归档），每个版本带 `stable` 标记 + `files[]`（含 sha256/size/os/arch/kind）。`GoDiscovery` 过滤 `stable == true`，去掉 `go` 前缀（`go1.26.5` → `1.26.5`），`feature_version` 取 major.minor（如 `1.26`）。
+**三层优先级**：会话层 `SDKM_ACTIVE_<SDK_UPPER>`（`eval "$(sdkm use --shell java 8)"` 设，非持久）> 项目层 `.sdkm.toml` 摊平 KV（`java = "21"`，向上查找命中即停）> 全局层（不加 prepend，PATH 依赖全局 symlink 在 base）。
 
-**下载 URL**：模板 `https://go.dev/dl/go{version}.{os}-{arch}.{ext}`，备源 `https://golang.google.cn/dl/go{version}.{os}-{arch}.{ext}`（Google 中国 CDN）。Go 官方下载命名用 `linux-amd64`/`darwin-arm64`/`windows-amd64.zip`，新增 `ArchStyle::Go`（amd64/arm64/386）映射，OS 用 `OsStyle::Default`（linux/darwin/windows）。
+**新命令**：`sdkm use <sdk> <ver>`（写当前目录 .sdkm.toml，父级冲突 warning；`--shell` 输出会话级 eval 脚本）、`sdkm env [--shell]`（输出当前目录 env 设置脚本，hook 每次提示符渲染调用，带 mtime 缓存）、`sdkm hook <shell>`（输出 hook 注册脚本，bash PROMPT_COMMAND/zsh precmd/PowerShell prompt 包装，cmd.exe 不支持自动 hook）。`sdkm init` 扩为 5 步：step 5 自动检测 shell + 往 profile 幂等注入 hook 行——**PowerShell 同时注入 PS7 与 PS5.1 两个 profile**（用户可能日常用任一版本），Unix 注入 ~/.zshrc 或 ~/.bashrc。
 
-**改动文件**（12 个，+92/-13）：
-- `util/src/sdk.rs` — `BuiltinSdk` 加 `Go` 变体 + FromStr/Display/primary_executables（`["go", "gofmt"]`）；bin_dir 走默认 `"bin"`
-- `util/src/sdk_resources.rs` — `BUILTIN_SDK_CONFIG` 追加 Go 条目（version_url + download_url + download_fallback_url）
-- `util/src/config_helper.rs` — `ArchStyle` 加 `Go`（amd64/arm64/386）
-- `sdkcore/src/config/mod.rs` — `is_builtin_sdk` 加 `"go"`；`get_default_builtin_sdks` match 走 `_ => {}`（无特殊 env vars，Go 不需要 GOROOT）
-- `sdkcore/src/version/discovery.rs` — 新增 `GoDiscovery` struct + impl + 工厂分支
-- `sdkcore/src/install/download_url.rs` — `build_download_url` 加 Go 分支
-- `cli/src/impls/{install,uninstall,switch,list,current}.rs` — help 文本加 "go"
+**hook 触发语义**：**每次提示符渲染都触发** `sdkm env`（bash PROMPT_COMMAND / zsh precmd / PS prompt 包装），不比对 PWD——改 .sdkm.toml 后按回车即生效（热更新），高频性能由 sdkm env 的 mtime 缓存承担。
 
-**实测**：`cargo build --release` 通过；`sdkm ls go --remote` 返回 274 个版本（从 1.26.5 到 1.0）；`sdkm config remove-sdk go` 正确拒绝（内置保护）；release 覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），真实 home config 手动加 go 条目后远程列表正常。未发版。
+**PowerShell 注入铁律**：
+1. **profile 行与 hook 脚本内都用 `-join [Environment]::NewLine`**（不要用 `-join "`n"`）——`"`n"` 是反引号转义序列，在 PS 5.1 捕获原生命令输出再二次 IEX 时会被解释成真实换行，破坏字符串引号配对（报"意外的 }"）。
+2. **hook 脚本输出必须纯 ASCII**（英文注释）——PS 5.1 按 ANSI 代码页（中文系统 GBK）解码原生命令 stdout，任何非 ASCII 字节（如中文注释）都可能被误解码成破坏脚本的字符（`}` 等）。`shell/hook.rs` 有 `is_ascii()` 测试守护。
+3. **profile 定位必须读注册表重定向**（`User Shell Folders\Personal`）——用户把 Documents 移到 D 盘时，硬编码 `USERPROFILE\Documents` 会注入错文件导致 hook 永不加载。用 `util::shell::windows_documents_dir()`。
+4. **必须用 `Invoke-Expression` 而非 `[scriptblock]::Create`**（后者作用域隔离，函数定义执行完即丢失）。`shell/inject.rs` 有旧格式升级逻辑：检测 `[scriptblock]::Create((sdkm hook` 或 `-join "`n"` 原位替换。
 
-### 本次改动 —— 内置 SDK 自动补全
+**Shell 职责分层**（重构后）：通用 Shell 类型（枚举/detect/parse）与 profile 路径解析（unix `~/.zshrc|.bashrc`、windows PS7+PS5.1）收敛在 **`util::shell`**；hook/env 脚本生成与 profile 注入收敛在 **`sdkcore::shell/{hook,env,inject}.rs`**；`init.rs` 只做编排（step 5 一行调用 `shell::inject::inject_shell_hook()`），`env/unix.rs` 的 profile 定位委托 `util::shell::unix_profile_path()`——不再各处写路径魔法值。
 
-**问题**：Go SDK 的 `[[sdk]]` 条目只在 `config init` 时被写入 config.toml。自更新后的新二进制缺少新内置 SDK 条目，导致 "Unregistered SDK"。
+**关键机制**：
+- **幂等重建还原**：hook 初始化一次性存 `_SDKM_BASE_PATH`（启动 PATH），`sdkm env` 永远输出 `PATH="<项目bins>:$_SDKM_BASE_PATH"`（无项目 = base 本身）+ 对全局 config 所有 extra_vars keys 并集中本次未选中的输出 unset——离开目录自动还原，无跨调用状态机
+- **`{sdk_dir}` 占位符项目层语义** = store 真实版本目录（`<store>/<sdk>/<ver>`，绕过 symlink），JAVA_HOME 等指向项目版本
+- **hook 缓存** `<home>/.cache/hook_cache.json`（照搬 size_cache 范式 + 3 处偏离：mtime 纳秒防同秒编辑盲区、损坏删文件自愈、key 用 PWD 路径串非 hash）；无项目配置的 PWD 不缓存（无法锚定）
+- **eval 纯净性**：`env`/`hook`/`use --shell` 三命令 stdout 只吐脚本，诊断全走 stderr（error!/eprintln!）——`warning!/info!` 等宏走 stdout 会污染 eval
+- **未装降级**：项目/会话声明版本本地缺失 → stderr warn + 跳过该 SDK 回退全局，不阻断 shell
 
-**方案**：`read_from_disk()` 反序列化完成后调用 `ensure_builtin_sdks()` —— 遍历编译期常量 `BUILTIN_SDK_CONFIG`（5 个条目），逐一对比 config.sdks 已有条目，缺失则补入并 `atomic_write_to_disk` 写回。无缺失时 O(5) 字符串比较后直接返回，无 IO。
-- 不改 init、不加新字段、不设版本戳
-- 天然支持手动替换二进制 + self update 两种���级路径
-- 实测：删除 config.toml 的 go 条目 → 跑 `sdkm config list` → 自动补全 `go` → 二次运行不重复触发
+**新增文件**（8）：`sdkcore/{project_config,hook_cache}.rs`、`sdkcore/shell/{mod,hook,env,inject}.rs`（脚本生成 + 注入分目录收敛）、`util/shell.rs`（Shell 类型 + profile 路径解析）、`cli/impls/{hook,env,use_cmd}.rs`
+**改动文件**（5）：`util/{consts,path,lib}.rs`、`sdkcore/{lib,init,uninstall}.rs`、`cli/{lib,impls/mod}.rs`
 
-**改动文件**：仅 `crates/sdkcore/src/config/mod.rs`（`read_from_disk` + 新增 `ensure_builtin_sdks` 方法，约 20 行）
+**实测**（Windows）：release build 通过；临时目录 `use java 8` → `.sdkm.toml` 生成 → `env powershell` 输出 `PATH="…store\java\8.0.492\bin;" + base` + `JAVA_HOME="…store\java\8.0.492"`；二次调用缓存命中（hook_cache.json 落盘，miss→hit 链路通）；改配置热更新失效重解析（换未装版本 9.9.9 → 自动降级 + stderr 警告）；无项目配置 + `SDKM_ACTIVE_JAVA` → 会话层正确注入、移除后干净回退。**未发版**。Unix shell hook（bash/zsh 模板 + profile 注入）已在代码中实现，真机行为待 macOS/Linux 实测。
 
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 

@@ -1,8 +1,11 @@
 pub mod config;
 pub mod current;
+pub mod env;
+pub mod hook;
 pub mod init;
 pub mod install;
 pub mod list;
 pub mod self_cmd;
 pub mod switch;
 pub mod uninstall;
+pub mod use_cmd;

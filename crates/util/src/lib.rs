@@ -4,4 +4,5 @@ pub mod macros;
 pub mod path;
 pub mod sdk;
 pub mod sdk_resources;
+pub mod shell;
 pub mod terminal;

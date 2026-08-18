@@ -1,13 +1,17 @@
 pub mod config;
 pub mod env;
+pub mod hook_cache;
 pub mod init;
 pub mod install;
 pub mod link;
 pub mod list;
 pub mod manager;
+pub mod project_config;
 pub mod self_uninstall;
 pub mod self_update;
+pub mod shell;
 pub mod size_cache;
 pub mod switch;
 pub mod uninstall;
+pub mod use_cmd;
 pub mod version;

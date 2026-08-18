@@ -61,6 +61,15 @@ pub fn get_size_cache_path() -> Result<PathBuf> {
     Ok(sdkm_home.join(SDKM_CACHE_DIR).join("size.json"))
 }
 
+/// 获取 shell hook 缓存文件路径（<sdkm_home>/.cache/hook_cache.json）
+///
+/// 与 size 缓存同目录（SDKM_CACHE_DIR）但独立文件，key 为 PWD 绝对路径。
+/// 仅 `sdkm env`（hook 高频路径）读写，其他子命令不碰。
+pub fn get_hook_cache_path() -> Result<PathBuf> {
+    let sdkm_home = get_sdkm_home()?;
+    Ok(sdkm_home.join(SDKM_CACHE_DIR).join("hook_cache.json"))
+}
+
 /// 字节数格式化为人类可读（1024 进制，自动 B/KB/MB/GB/TB，1 位小数）
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];

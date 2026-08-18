@@ -80,6 +80,24 @@ impl SdkManager {
             }
         }
 
+        // ── 卸载前只读检测（只提示不阻断）──
+        if is_active {
+            warning!(
+                "You are uninstalling the globally active version of `{}`. \
+                 IDEs/non-shell tools using the global symlink may break until you switch.",
+                sdk
+            );
+        }
+        for path in Self::check_project_references(sdk, &target_version) {
+            warning!(
+                "Project config '{}' pins {} = {}. After uninstall, `sdkm env` will fall back \
+                 to global/system for that project.",
+                path.display(),
+                sdk,
+                target_version
+            );
+        }
+
         info!("uninstalling `{}` `{}`...", sdk, target_version);
 
         if is_active {
@@ -208,5 +226,18 @@ impl SdkManager {
             }
         }
         Ok(())
+    }
+
+    /// 检测当前目录向上的 `.sdkm.toml` 是否引用该 SDK+版本（只读，只提示不阻断）
+    ///
+    /// 返回引用了该版本的配置文件路径列表。
+    fn check_project_references(sdk: &Sdk, version: &str) -> Vec<PathBuf> {
+        let Some((path, project_cfg)) = crate::project_config::find_project_config().ok().flatten() else {
+            return Vec::new();
+        };
+        match project_cfg.pins.get(&sdk.to_string()) {
+            Some(v) if v == version => vec![path],
+            _ => Vec::new(),
+        }
     }
 }

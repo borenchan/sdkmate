@@ -26,15 +26,9 @@ const PATH_BACKREF: &str = "$PATH";
 pub struct UnixEnvOperation {}
 
 impl UnixEnvOperation {
-    /// 按 $SHELL 选 profile：zsh → ~/.zshrc，其余 → ~/.bashrc
+    /// 按 $SHELL 选 profile：zsh → ~/.zshrc，其余 → ~/.bashrc（统一走 util::shell，避免重复判定）
     fn get_shell_profile_path() -> Result<PathBuf> {
-        let home = env::var_os("HOME").context("HOME environment variable not set")?;
-        let profile = if env::var("SHELL").unwrap_or_default().contains("zsh") {
-            PROFILE_ZSHRC
-        } else {
-            PROFILE_BASHRC
-        };
-        Ok(PathBuf::from(home).join(profile))
+        util::shell::unix_profile_path()
     }
 
     fn expand_path(path: &str) -> String {

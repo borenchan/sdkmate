@@ -22,6 +22,15 @@ pub const SDKM_TMP_DIR: &str = ".tmp";
 pub const SDKM_CACHE_DIR: &str = ".cache";
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 
+/// 项目级配置文件名（项目根 .sdkm.toml，摊平 KV：java = "21"）
+pub const PROJECT_CONFIG_FILE_NAME: &str = ".sdkm.toml";
+
+/// shell hook 保存启动 PATH 的变量名（离开项目目录时用它幂等重建 PATH）
+pub const ENV_HOOK_BASE_PATH: &str = "_SDKM_BASE_PATH";
+
+/// 会话层版本覆盖的环境变量前缀（SDKM_ACTIVE_JAVA 等，非持久 → 新 shell 丢失）
+pub const SDKM_SESSION_ENV_PREFIX: &str = "SDKM_ACTIVE_";
+
 /// 目录树中各目录的用途说明
 pub const DIR_DESC_STORE: &str = "SDK versions storage";
 pub const DIR_DESC_TMP: &str = "download temp (created on install)";

@@ -1935,6 +1935,7 @@ dependencies = [
  "serde",
  "unicode-width",
  "url",
+ "winreg",
 ]
 
 [[package]]
