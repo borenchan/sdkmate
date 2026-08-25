@@ -77,6 +77,12 @@ pub fn powershell_profile_paths() -> Result<Vec<PathBuf>> {
     ])
 }
 
+/// 非 Windows 无法检测到 PowerShell：防御性空（保证 inject.rs 等处无条件引用此函数跨平台编译通过）
+#[cfg(not(windows))]
+pub fn powershell_profile_paths() -> Result<Vec<PathBuf>> {
+    Ok(Vec::new())
+}
+
 /// Windows 用户 Documents 目录（遵循「已知文件夹重定向」）
 ///
 /// PowerShell 的 `$PROFILE` 基于此路径（`Documents\WindowsPowerShell\...`）。
