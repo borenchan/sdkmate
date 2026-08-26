@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use std::collections::HashMap;
+use std::env;
 use std::sync::OnceLock;
 
 /// ------------  PLACEHOLDER start  ------------------
@@ -44,7 +45,7 @@ pub enum ArchStyle {
 
 /// 标准化的 OS 检测函数，按指定风格映射
 pub fn detect_os_with(style: OsStyle) -> String {
-    match std::env::consts::OS {
+    match env::consts::OS {
         "windows" => match style {
             OsStyle::Default | OsStyle::Adoptium => "windows",
             OsStyle::Short => "win",
@@ -61,7 +62,7 @@ pub fn detect_os_with(style: OsStyle) -> String {
 
 /// 标准化的 ARCH 检测函数，按指定风格映射
 pub fn detect_arch_with(style: ArchStyle) -> String {
-    match std::env::consts::ARCH {
+    match env::consts::ARCH {
         "x86_64" => match style {
             ArchStyle::Default | ArchStyle::Adoptium => "x64",
             ArchStyle::Python | ArchStyle::Go => "amd64",
@@ -88,7 +89,7 @@ pub fn detect_ext() -> String {
 /// 检测 python-build-standalone 平台三元组（如 x86_64-pc-windows-msvc）
 /// 用于 Python 下载 URL 的 {platform} 占位符
 pub fn detect_platform_triple() -> Result<String> {
-    let triple = match (std::env::consts::OS, std::env::consts::ARCH) {
+    let triple = match (env::consts::OS, env::consts::ARCH) {
         ("windows", "x86_64") => "x86_64-pc-windows-msvc",
         ("windows", "aarch64") => "aarch64-pc-windows-msvc",
         ("windows", "x86") => "i686-pc-windows-msvc",

@@ -97,39 +97,44 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-08-25）
+## 当前开发进度（2026-08-26）
 
-### 本次改动 —— Shell 后端双表抽象 + fish 支持
+### 本次改动 —— 导入 lint 工具化 + 三提交 review + shell 集成测试
 
-项目级三层模型（会话 `SDKM_ACTIVE_*` > 项目 `.sdkm.toml` > 全局 symlink 兜底）保持不变，本次把散落 6 个文件的 `match shell` 语法分支收敛为 **`util::shell_backend` 双表**，并新增 fish 支持（bash/zsh/fish/PowerShell 四 shell）。
+承接上次（shell 后端双表 + fish，commit `03bcc8d`），本次三件事：
 
-**Shell 职责分层**（本次重构后）：
-- **`util::shell`**：`Shell` 枚举（加 Fish）+ detect（**$SHELL 取 basename 精确匹配**，sh/dash/兜底 Bash，mise 同款）+ parse（错误信息由表动态生成防 stale）+ `syntax()`/`persistence()`/`profile_paths()` 入口
-- **`util::shell_backend/{mod,bash,zsh,fish,pwsh}.rs`**：每 shell 一文件内聚两张表——
-  - `ShellSyntax`（**4 shell 全量**）：parse_names/detect_basename/inject_hook_line/inject_marker/legacy_upgrades 等 const 字段 + generate_hook/base_self_heal_line/path_line/export_line/unset_line fn 指针。bash 与 zsh 的 env 语法 fn 完全相同，zsh.rs 直接引用 bash::（只有 hook 模板不同）
-  - `ProfilePersistence`（**仅 bash/zsh/fish 三行，PowerShell 返 None**——Windows 走注册表，能力缺席用缺席表达）：shell_command/echo_path_cmd/export_prefix + `PathModel` 分发（`RebuildLine`=bash/zsh 单行 `export PATH="a:b:$PATH"` 重建 vs `PerDirCommand`=fish 逐行 `fish_add_path --path "<dir>"`）
-- **`sdkcore::shell/{hook,env,inject}.rs`**：纯编排委托（hook.rs 9 行转发；env.rs render 按 syntax fn 渲染；inject.rs 走 profile_paths+inject_hook_line+marker）
-- **`env/unix.rs`**：全量 backend 化——profile 定位 `detect_shell().profile_paths()`（修了 fish 用户被写 .bashrc 的 bug）、export 行读写走 persistence、PATH 增删按 path_model 分发、source_profile 按 shell_command+echo_path_cmd
-- **`hook_cache.rs`**：`HookEntry` 加 `shell: u8`（serde default），resolve 校验 shell 不符当 miss（修跨 shell 串扰）；`CACHE_SCHEMA_VERSION = 3`
+**1. 导入规则工具化（clippy `absolute_paths`）**——答用户「能否用 rustfmt/clippy 控制」：
+- rustfmt **管不了**使用处全路径（`imports_granularity` 只管 use 聚合且 nightly-only）；clippy **可以**——`clippy::absolute_paths`（restriction，默认 allow）专查使用处绝对路径（不管 use 语句/宏/derive）。
+- 配置三处：根 `Cargo.toml` 加 `[workspace.lints.clippy] absolute_paths = "warn"` + 各 crate `[lints] workspace = true` + 根 `clippy.toml` 的 `absolute-paths-max-segments = 3`。
+- **max-segments=3 权衡**：只抓 4 段及以上超长全路径（`crate::shell::inject::fn`、`std::path::Path::new`），放过第三方惯用 3 段子模块写法（`tokio::fs::metadata`、`reqwest::header::AUTHORIZATION`、`crossterm::terminal::size`——强改 use 反而更糟）。max=2 误伤第三方、噪音过大；项目内 std 全路径已清为 use 短名。工具管不了的：相对路径「最多 1 级 `inject::fn()`」（absolute_paths 只管绝对路径）。详见记忆 `clippy-absolute-paths-lint`。
+- 清理剩余使用处全路径：`util/terminal.rs` `std::process::Command::new` → use；`util/tests/test_bug_report.rs` 类型标注 `std::collections::HashMap` → use；`tests/{uninstall,self_uninstall}.rs` `std::sync::MutexGuard` → use；`tests/install.rs` 删孤儿 `use std::process`。
 
-**fish 关键铁律**（写代码/排查必读）：
-1. **一律 `| source`，禁 `eval (...)`**——fish 命令替换按换行拆参、eval 空格连接 → 多行脚本压成一行（注释吞行/if-end 破坏/多行 set 静默合并成 list）。`sdkm hook fish | source`、hook 函数体 `sdkm env --shell fish | source`、`sdkm use --shell ... | source`。hook.rs 有专测守护（断言含 `| source` 不含 `eval (`）
-2. **`_SDKM_BASE_PATH` 是 list**：base 引用不引号（按元素展开，含空格路径天然保留）、bin 单独引号
-3. **`set -e` 对不存在变量报错**：unset 行必须 `set -q K; and set -e K` 守卫
-4. **PATH 持久化用 `fish_add_path --path "<dir>"`**（req fish ≥ 3.2）：默认前置、幂等；**必须 `--path`** 否则写 universal `fish_user_paths`（删行也残留）；移除 = 按 add 时字符串精确删行
-5. **source_profile 输出协议**：fish 的 `$PATH` 是 list，`echo $PATH` 每路径一行 → 必须 `string join : $PATH`，否则当前进程 PATH 被写坏
+**2. Review 最近三提交 + 修复**（两子代理并行 review `f24bf48`/`03bcc8d`/`47e3343`，无致命 bug）：
+- **[BUG 修复] `check_project_references`（uninstall.rs）**：原精确 `v == version` 比较，对模糊 pin（`"21"`，`use_project_version` 未装时写入或用户手写）永不命中 → 卸载该版本时**漏发项目引用警告**。改为 `fuzzy_match_version_core(&[version], pin).is_ok()`（pin 当输入、被卸载版本当候选池）。
+- **[NIT] `Shell` 枚举加 `#[repr(u8)]`**：`hook_cache` 用 `shell as u8` 存盘，把判别序契约写死（Bash=0/Zsh=1/Fish=2/PowerShell=3）。
+- **[NIT] `generate_env_script_inner` 去掉 `_pwd` 误导形参**：cache key 由 `generate_env_script_cached` 持有 pwd，inner 用 `find_project_config()`（同进程 current_dir 一致）。
+- **review 不成立**：`resolve_local_version`「吞 fuzzy Err」——`fuzzy_match_version_core` 的 Err 只有「无匹配」一种（前缀匹配取最新，不报歧义），Err 即未装，当 None 处理正确，不改。
+- **遗留 RISK（未改）**：`SDKM_ACTIVE_*` 只有 set 路径无 unset 入口（清除靠手敲 `unset`），可用性缺口非 bug，待加 `use --shell --unset` 或 help 说明。
 
-**仍有效的关键机制**（沿自项目级版本管理改动）：
-- hook 触发语义：每次提示符渲染都触发 `sdkm env`（bash PROMPT_COMMAND / zsh precmd / **fish `--on-event fish_prompt`** / PS prompt 包装），热更新靠它，性能靠 mtime 缓存
-- 幂等重建还原：`_SDKM_BASE_PATH` 一次性存启动 PATH；`sdkm env` 永远输出 `PATH="<项目bins>:$_SDKM_BASE_PATH"`（fish 是 list 形态）+ 未选中的 known keys unset
-- eval 纯净性：`env`/`hook`/`use --shell` stdout 只吐脚本，诊断全走 stderr
-- PowerShell 注入铁律不变：`-join [Environment]::NewLine`、纯 ASCII 输出（GBK 代码页）、Documents 注册表重定向、`Invoke-Expression` 非 scriptblock（旧格式升级对在 pwsh.rs 的 legacy_upgrades）
-- 未装降级：项目/会话版本本地缺失 → stderr warn + 跳过回退全局
+**3. shell 后端核心入口集成测试**（新文件 `crates/sdkcore/tests/shell_integration.rs`，7 测全过）：
+- `use_session_version` 四 shell 端到端（模糊 "21" → 精确 21.0.2+9，各 shell 赋值前缀）+ 未装 bail
+- `generate_env_script_cached` 端到端（有项目 pin → 含 bin PATH 行 + export JAVA_HOME；无配置 → unset JAVA_HOME 幂等还原；缓存幂等）
+- `HookCache` 跨 shell 串扰（put bash → resolve fish/zsh/PS miss）+ 旧 schema miss
+- 均跨平台入口，cfg(unix) 路径 Windows 也能编译（测试只走公共入口，不直接引 unix-only fn）
 
-**新增文件**（5）：`util/shell_backend/{mod,bash,zsh,fish,pwsh}.rs`
-**改动文件**（12）：`util/{shell,lib}.rs`、`sdkcore/{shell/{hook,env,inject},env/unix,hook_cache,use_cmd}.rs`、`cli/{lib,impls/{hook,env,use_cmd}}.rs`；独立前置 commit `47e3343`（Linux 编译 hotfix：`powershell_profile_paths` 加 unix stub）
+**新增文件**（1）：`crates/sdkcore/tests/shell_integration.rs`
+**改动文件**：根 `Cargo.toml`、`clippy.toml`、三 crate `Cargo.toml`、`util/{terminal,shell}.rs`、`util/tests/test_bug_report.rs`、`sdkcore/tests/{install,uninstall,self_uninstall}.rs`、`sdkcore/src/{uninstall,shell/env}.rs`。**未发版**。
 
-**测试**：backend 完备性（遍历 Shell::ALL 护航漏填表）+ fish/bash/PS 语法 golden + detect basename 纯函数 + render_env_script 四 shell golden + unix.rs cfg(unix) 单测（bash RebuildLine / fish PerDirCommand）。**未发版**。Linux 真机 fish 链路（init 注入 config.fish / hook 热更新 / fish_add_path 持久化）待 CI 或 WSL 实测。
+### 沿自上次（shell 后端双表 + fish 支持）—— 仍有效，排查必读
+
+**fish 关键铁律**（细节见 `shell_backend/fish.rs` 注释 + `hook.rs`/`inject.rs` 测试守护）：
+1. 一律 `| source`，禁 `eval (...)`（命令替换按换行拆参、eval 压行）
+2. `_SDKM_BASE_PATH` 是 list：base 引用不引号、bin 单独引号
+3. `set -e` 对不存在变量报错：unset 行必须 `set -q K; and set -e K` 守卫
+4. PATH 持久化用 `fish_add_path --path "<dir>"`（必须 `--path`，否则写 universal `fish_user_paths`）
+5. source_profile 输出必须 `string join : $PATH`（`$PATH` 是 list）
+
+**关键机制**：hook 每提示符触发 `sdkm env`（热更新 + mtime 缓存）；幂等重建（base 一次性存 PATH，env 永远重建 + 未选中 known keys unset）；stdout 纯净（脚本走 stdout，诊断走 stderr）；未装降级（项目/会话版本缺失 → stderr warn + 跳过回退全局）；PowerShell 注入铁律（`-join [Environment]::NewLine`、ASCII、Documents 重定向、IEX 非 scriptblock）。Shell 职责分层（`util::shell` 枚举+detect/parse + `shell_backend` 双表 + `sdkcore::shell` 编排 + `env/unix.rs` backend 化 + `hook_cache` shell 字段 schema=3）见源码。
 
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 

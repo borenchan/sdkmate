@@ -59,6 +59,11 @@ cli = { path = "crates/cli" }
 sdkcore = { path = "crates/sdkcore" }
 util = { path = "crates/util" }
 
+# 工作区 lint：禁止使用处绝对路径（用 use 导入短名），restriction lint 默认 allow，显式开启
+# rustfmt 管不了使用处全路径（imports_granularity 只管 use 聚合且 nightly-only）；clippy absolute_paths 专管此场景
+[workspace.lints.clippy]
+absolute_paths = "warn"
+
 #根目录 包配置
 [package]
 name = "sdkmate"
@@ -91,6 +96,9 @@ path = "main.rs"
 [dependencies]
 cli = { workspace = true }
 clap = {workspace = true}
+
+[lints]
+workspace = true
 
 # 发布构建体积优化（不影响功能：sdkm 为 IO 密集型 CLI，CPU 计算极少）
 [profile.release]

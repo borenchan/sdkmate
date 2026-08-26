@@ -1,3 +1,6 @@
+use std::error;
+use std::fmt;
+
 pub const BANNER: &str = r"
      ___  ____  _  _  __  __
     / __||  _ \| |/ /|  \/  |
@@ -87,21 +90,21 @@ impl BugReportError {
     }
 }
 
-impl std::fmt::Debug for BugReportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Debug for BugReportError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("BugReportError").field("source", &self.source).finish()
     }
 }
 
-impl std::fmt::Display for BugReportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for BugReportError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // 只显示内部错误，不添加额外标记到用户可见的错误消息
         self.source.fmt(f)
     }
 }
 
-impl std::error::Error for BugReportError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl error::Error for BugReportError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         Some(self.source.as_ref())
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 use util::{detail, info};
@@ -26,7 +26,7 @@ pub fn remove_symlink<P: AsRef<Path>>(link_path: &P) -> Result<()> {
     // 用 symlink_metadata（不跟随），断链也能检测到；NotFound 视为无需删除
     let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e.into()),
     };
     if meta.is_symlink() || meta.is_file() {
@@ -59,13 +59,17 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) ->
 
     //create symlink on os
     #[cfg(unix)]
-    std::os::unix::fs::symlink(original, link)?;
+    {
+        use std::os::unix::fs::symlink;
+        symlink(original, link)?;
+    }
     #[cfg(windows)]
     {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
         if original_path.is_dir() {
-            std::os::windows::fs::symlink_dir(original, link)?;
+            symlink_dir(original, link)?;
         } else {
-            std::os::windows::fs::symlink_file(original, link)?;
+            symlink_file(original, link)?;
         }
     }
     info!(

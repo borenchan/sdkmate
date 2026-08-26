@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use indicatif::ProgressBar;
 use std::fs;
+use std::io;
 use std::path::Path;
 
 /// 解压下载的压缩包到指定目录，支持进度反馈
@@ -59,7 +60,7 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -> Result
             }
             let mut out_file =
                 fs::File::create(&out_path).context(format!("Failed to create file: {}", out_path.display()))?;
-            std::io::copy(&mut entry, &mut out_file)
+            io::copy(&mut entry, &mut out_file)
                 .context(format!("Failed to write zip entry to: {}", out_path.display()))?;
         }
 
@@ -91,7 +92,7 @@ fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
 pub fn normalize_extracted_dir(extracted_dir: &Path, target_dir: &Path) -> Result<()> {
     let entries: Vec<fs::DirEntry> = fs::read_dir(extracted_dir)
         .context("Failed to read extracted directory")?
-        .collect::<std::io::Result<Vec<_>>>()
+        .collect::<io::Result<Vec<_>>>()
         .context("Failed to list extracted directory entries")?;
 
     if entries.len() == 1 && entries[0].path().is_dir() {
@@ -114,7 +115,7 @@ pub fn normalize_extracted_dir(extracted_dir: &Path, target_dir: &Path) -> Resul
 fn lift_single_inner_dir(target_dir: &Path) -> Result<()> {
     let entries: Vec<fs::DirEntry> = fs::read_dir(target_dir)
         .context("Failed to read target directory for inner lift")?
-        .collect::<std::io::Result<Vec<_>>>()
+        .collect::<io::Result<Vec<_>>>()
         .context("Failed to list target directory entries")?;
 
     if entries.len() != 1 || !entries[0].path().is_dir() {

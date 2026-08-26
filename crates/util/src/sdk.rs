@@ -1,9 +1,5 @@
-use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
-use std::clone;
-use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
+use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -37,7 +33,7 @@ impl FromStr for Sdk {
 }
 
 impl Display for Sdk {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Sdk::Built(b) => b.fmt(f),
             Sdk::Custom(o) => o.fmt(f),
@@ -58,7 +54,7 @@ impl FromStr for BuiltinSdk {
     }
 }
 impl Display for BuiltinSdk {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             BuiltinSdk::Java => write!(f, "java"),
             BuiltinSdk::Maven => write!(f, "maven"),

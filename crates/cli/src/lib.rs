@@ -12,6 +12,7 @@ use crate::impls::use_cmd::UseHandler;
 use clap::builder::styling;
 use clap::{ColorChoice, Parser, Subcommand};
 use crossterm::style::Stylize;
+use std::env;
 use std::process::ExitCode;
 use util::consts::{ABOUT, BANNER, BugReportError};
 use util::error;
@@ -134,9 +135,9 @@ fn needs_bug_report(err: &anyhow::Error) -> bool {
 }
 
 /// 获取完整命令行输入，如 "switch java 21" 或 "install node 18 --no-switch"
-/// 使用 std::env::args 获取原始输入，去掉 args[0]（程序路径）只保留子命令和参数
+/// 用 env::args 获取原始输入，去掉 args[0]（程序路径）只保留子命令和参数
 fn full_command_line() -> String {
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
     // args[0] 是程序路径（如 "sdkm.exe"），不需要包含在输出中
     args[1..].join(" ")
 }

@@ -35,10 +35,7 @@ _sdkm_hook
 
 /// env 脚本 base 兜底自愈行：hook 未注入时（手动 source）先锚定 base = 当前 PATH，防 PATH 被清空
 fn base_self_heal_line() -> String {
-    format!(
-        "if not set -q {e}\n    set -gx {e} $PATH\nend",
-        e = ENV_HOOK_BASE_PATH
-    )
+    format!("if not set -q {e}\n    set -gx {e} $PATH\nend", e = ENV_HOOK_BASE_PATH)
 }
 
 /// env 脚本 PATH 重建行：`set -gx PATH "bin1" "bin2" $_SDKM_BASE_PATH`（空格分隔、bin 引号、base 不引号）

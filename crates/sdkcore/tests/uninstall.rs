@@ -9,10 +9,13 @@ use sdkcore::link::symlink::{create_symlink, read_symlink_target};
 use sdkcore::manager::SdkManager;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::path::PathBuf;
+use std::process;
 use std::rc::Rc;
 use std::sync::{
-    Mutex,
+    Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -60,15 +63,15 @@ impl EnvOperation for MockEnv {
 /// 测试环境：持有串行锁 + 临时 home，Drop 时恢复 SDKM_HOME 并清理临时目录
 struct TestEnv {
     temp: PathBuf,
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _lock: MutexGuard<'static, ()>,
 }
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
         unsafe {
-            std::env::remove_var("SDKM_HOME");
+            env::remove_var("SDKM_HOME");
         }
-        let _ = std::fs::remove_dir_all(&self.temp);
+        let _ = fs::remove_dir_all(&self.temp);
     }
 }
 
@@ -76,14 +79,14 @@ impl Drop for TestEnv {
 fn setup(config: &SdkmConfig) -> TestEnv {
     let lock = LOCK.lock().unwrap();
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp = std::env::temp_dir().join(format!("sdkm_uninstall_{}_{}", std::process::id(), id));
-    let _ = std::fs::remove_dir_all(&temp);
-    std::fs::create_dir_all(temp.join("store")).unwrap();
-    std::fs::create_dir_all(temp.join("links")).unwrap();
-    std::fs::write(temp.join("config.toml"), toml::to_string(config).unwrap()).unwrap();
+    let temp = env::temp_dir().join(format!("sdkm_uninstall_{}_{}", process::id(), id));
+    let _ = fs::remove_dir_all(&temp);
+    fs::create_dir_all(temp.join("store")).unwrap();
+    fs::create_dir_all(temp.join("links")).unwrap();
+    fs::write(temp.join("config.toml"), toml::to_string(config).unwrap()).unwrap();
     let temp_str = temp.to_str().unwrap().to_string();
     unsafe {
-        std::env::set_var("SDKM_HOME", &temp_str);
+        env::set_var("SDKM_HOME", &temp_str);
     }
     TestEnv { temp, _lock: lock }
 }
@@ -120,7 +123,7 @@ fn make_manager(config: SdkmConfig) -> (SdkManager, Rc<RefCell<MockState>>) {
 /// 在 store 下建版本目录
 fn make_version_dir(env: &TestEnv, sdk: &str, ver: &str) -> PathBuf {
     let dir = env.temp.join("store").join(sdk).join(ver);
-    std::fs::create_dir_all(&dir).unwrap();
+    fs::create_dir_all(&dir).unwrap();
     dir
 }
 

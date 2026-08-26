@@ -34,3 +34,6 @@ reqwest = { workspace = true }
 tokio = { workspace = true }
 indicatif = { workspace = true }
 
+[lints]
+workspace = true
+

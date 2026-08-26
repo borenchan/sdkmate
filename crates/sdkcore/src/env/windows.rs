@@ -65,17 +65,16 @@ impl EnvOperation for WindowsEnvOperation {
 
     fn get_env_value(&self, key: &str) -> Result<Option<String>> {
         let hklm_key = open_env_key(false)?;
-        let val: std::result::Result<String, _> = hklm_key.get_value(key);
-        match val {
-            std::result::Result::Ok(v) => Ok(Some(v)),
-            std::result::Result::Err(_) => Ok(None), // 注册表中不存在该值
+        match hklm_key.get_value(key) {
+            Ok(v) => Ok(Some(v)),
+            Err(_) => Ok(None), // 注册表中不存在该值
         }
     }
 
     fn unset_sdk_env(&self, key: &str) -> Result<()> {
         let reg_key = open_env_key(true)?;
         // 值不存在时忽略错误（可能已被手动删除）
-        let result: std::result::Result<(), _> = reg_key.delete_value(key);
+        let result = reg_key.delete_value(key);
         if result.is_ok() {
             detail!("removed env `{key}`");
         } else {
@@ -119,6 +118,7 @@ fn open_env_key(write: bool) -> Result<RegKey> {
 fn broadcast_env_change() {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
     use windows_sys::Win32::UI::WindowsAndMessaging::{SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE};
 
     let msg: Vec<u16> = OsStr::new("Environment\0").encode_wide().collect();
@@ -131,7 +131,7 @@ fn broadcast_env_change() {
             msg.as_ptr() as isize,
             SMTO_ABORTIFHUNG,
             5000,
-            std::ptr::null_mut(),
+            ptr::null_mut(),
         );
     }
 }

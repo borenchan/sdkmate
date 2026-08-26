@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 use util::consts::SDKM_CACHE_DIR;
 use util::path::get_sdkm_home;
@@ -30,7 +31,7 @@ impl VersionSource {
 // ─── 通用缓存(缓存优先 + TTL 过期) ─────────────────────────────
 
 /// 缓存路径:<sdkm_home>/.cache/api/<sdk_name>.json
-fn cache_path(sdk_name: &str) -> Result<std::path::PathBuf> {
+fn cache_path(sdk_name: &str) -> Result<PathBuf> {
     let dir = get_sdkm_home()?.join(SDKM_CACHE_DIR).join("api");
     fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("{}.json", sdk_name)))

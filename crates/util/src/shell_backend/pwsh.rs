@@ -1,7 +1,7 @@
 //! PowerShell 语法后端：hook（prompt 包装）+ env 语法。**无 PERSISTENCE**——Windows 走注册表，
 //! unix.rs 永不接触 PowerShell，`Shell::persistence()` 对 PowerShell 返 None。
 
-use super::{ShellSyntax};
+use super::ShellSyntax;
 use crate::consts::ENV_HOOK_BASE_PATH;
 use crate::shell::Shell;
 
@@ -37,10 +37,7 @@ _sdkm_hook
 
 /// env 脚本 base 兜底自愈行：hook 未注入时（手动 IEX）先锚定 base = 当前 PATH，防 PATH 被清空
 fn base_self_heal_line() -> String {
-    format!(
-        "if (-not $env:{b}) {{ $env:{b} = $env:PATH }}",
-        b = ENV_HOOK_BASE_PATH
-    )
+    format!("if (-not $env:{b}) {{ $env:{b} = $env:PATH }}", b = ENV_HOOK_BASE_PATH)
 }
 
 /// env 脚本 PATH 重建行：`$env:PATH = "<list>;" + $env:_SDKM_BASE_PATH`（无 bins = base 本身，离开项目还原）

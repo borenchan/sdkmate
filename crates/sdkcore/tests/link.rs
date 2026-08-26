@@ -1,16 +1,17 @@
 use sdkcore::link::symlink;
+use std::env;
 use std::fs;
+use std::path::PathBuf;
+use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 生成独立临时目录，避免并行测试冲突
-fn temp_dir(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
+fn temp_dir(tag: &str) -> PathBuf {
+    let dir = env::temp_dir().join(format!(
         "sdkm_test_{}_{}_{}",
         tag,
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -110,10 +111,7 @@ fn test_remove_symlink_dangling() {
     symlink::remove_symlink(&link).unwrap();
 
     // symlink_metadata 也应失败——symlink 确实被删了
-    assert!(
-        fs::symlink_metadata(&link).is_err(),
-        "dangling symlink should be removed"
-    );
+    assert!(fs::symlink_metadata(&link).is_err(), "dangling symlink should be removed");
 
     let _ = fs::remove_dir_all(&temp);
 }

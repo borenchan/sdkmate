@@ -1,6 +1,7 @@
 // 版本字符串模糊匹配(与 SDK 来源无关,install/switch/list 共用)
 
 use anyhow::Result;
+use std::cmp::Ordering;
 
 /// 去除版本号前导的 `v`/`V`(`"v14.16.0"` → `"14.16.0"`),用于归一化比较。
 ///
@@ -112,7 +113,7 @@ fn parse_version_components(v: &str) -> Vec<u32> {
 }
 
 /// 按版本号降序比较(数值分量逐段比较)
-fn compare_versions_desc(a: &str, b: &str) -> std::cmp::Ordering {
+fn compare_versions_desc(a: &str, b: &str) -> Ordering {
     let va = parse_version_components(a);
     let vb = parse_version_components(b);
     vb.cmp(&va) // 降序:b 在前则 b 更大

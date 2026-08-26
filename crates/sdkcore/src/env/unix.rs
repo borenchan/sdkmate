@@ -11,6 +11,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::slice;
 
 use anyhow::{Context, Result};
 use util::consts::ENV_PATH;
@@ -64,9 +65,7 @@ impl UnixEnvOperation {
 
     /// 在 profile 行里找 `export PATH=` 行的索引（RebuildLine 专用）
     fn find_path_export_line(lines: &[String]) -> Option<usize> {
-        lines
-            .iter()
-            .position(|l| l.trim().starts_with(REBUILD_PATH_PREFIX))
+        lines.iter().position(|l| l.trim().starts_with(REBUILD_PATH_PREFIX))
     }
 
     /// 从 profile 内容提取 PATH 值；无 export PATH 行时回退到进程 $PATH（RebuildLine 专用）
@@ -74,10 +73,7 @@ impl UnixEnvOperation {
         for line in content.lines() {
             let line = line.trim();
             if line.starts_with(REBUILD_PATH_PREFIX) {
-                return line
-                    .trim_start_matches(REBUILD_PATH_PREFIX)
-                    .replace('"', "")
-                    .to_string();
+                return line.trim_start_matches(REBUILD_PATH_PREFIX).replace('"', "").to_string();
             }
         }
         env::var(ENV_PATH).unwrap_or_default()
@@ -94,10 +90,7 @@ impl UnixEnvOperation {
         // 赋值行来自 ShellSyntax（export_line 是脚本语法，persistence 表只提供匹配前缀 export_prefix）
         let new_line = (p.shell.syntax().export_line)(key, &expanded_value);
         let export_prefix = (p.export_prefix)(key);
-        let mut lines: Vec<String> = Self::read_profile(file_path)
-            .lines()
-            .map(String::from)
-            .collect();
+        let mut lines: Vec<String> = Self::read_profile(file_path).lines().map(String::from).collect();
 
         let mut found = false;
         for line in lines.iter_mut() {
@@ -127,10 +120,7 @@ impl UnixEnvOperation {
                 let content = Self::read_profile(file_path);
 
                 // 已存在则跳过（检查 export PATH 行值与进程 $PATH）
-                if Self::get_path_from_content(&content)
-                    .split(':')
-                    .any(|e| e == expanded)
-                {
+                if Self::get_path_from_content(&content).split(':').any(|e| e == expanded) {
                     warning!("path exists. sdk_path: {}", new_path);
                     return Ok(());
                 }
@@ -144,7 +134,7 @@ impl UnixEnvOperation {
                     lines[idx] = build(&merged, backref);
                 } else {
                     // 无 export PATH 行：新建，backref=$PATH 引用（$PATH 展开避免冲掉系统 PATH）
-                    lines.push(build(std::slice::from_ref(&expanded), true));
+                    lines.push(build(slice::from_ref(&expanded), true));
                 }
                 Self::write_profile(file_path, &lines)
             }
@@ -170,11 +160,7 @@ impl UnixEnvOperation {
     /// 否则当前进程 PATH 会被写坏。（fish -c 本会自动读 config.fish，显式 source 冗余但无害，保留对称。）
     fn source_profile(profile_path: &Path) -> Result<()> {
         let p = Self::current_persistence()?;
-        let source_cmd = format!(
-            "source '{}' 2>/dev/null; {}",
-            profile_path.display(),
-            (p.echo_path_cmd)()
-        );
+        let source_cmd = format!("source '{}' 2>/dev/null; {}", profile_path.display(), (p.echo_path_cmd)());
         let output = Command::new(p.shell_command).args(["-c", &source_cmd]).output()?;
 
         if output.status.success() {
@@ -251,11 +237,7 @@ impl EnvOperation for UnixEnvOperation {
                 // fish：精确删掉匹配 add_dir_command(target) 的行（与 add 时写入的字符串对齐）
                 let add = p.add_dir_command.context("PerDirCommand 缺 add_dir_command")?;
                 let expect = add(&expanded_target);
-                let lines: Vec<String> = content
-                    .lines()
-                    .filter(|l| l.trim() != expect)
-                    .map(String::from)
-                    .collect();
+                let lines: Vec<String> = content.lines().filter(|l| l.trim() != expect).map(String::from).collect();
                 Self::write_profile(&profile_path, &lines)?;
             }
         }
@@ -321,16 +303,14 @@ impl EnvOperation for UnixEnvOperation {
 mod tests {
     use super::*;
     use std::fs;
+    use std::process;
+    use std::thread;
     use util::shell::Shell;
 
     /// 临时唯一 profile 路径（bash 语义；测试不改真实 profile）
     fn temp_profile() -> PathBuf {
         let dir = env::temp_dir();
-        let name = format!(
-            "sdkm_unix_test_{}_{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
+        let name = format!("sdkm_unix_test_{}_{:?}", process::id(), thread::current().id());
         dir.join(name)
     }
 

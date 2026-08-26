@@ -32,6 +32,17 @@ struct-field-name-threshold = 1
 # 枚举变体名称最小长度
 enum-variant-name-threshold = 2
 
+# ===================== 导入规则 =====================
+
+# absolute_paths lint 配合项（lint 级别在 Cargo.toml [workspace.lints.clippy] 开启 warn）：
+# 绝对路径段数 > 此值触发告警。取 3 = 只抓 4 段及以上超长全路径（如 crate::shell::inject::fn、
+# std::path::Path::new，正是项目规则要避免的），放过第三方 crate 惯用的 3 段子模块写法
+# （tokio::fs::metadata、reqwest::header::AUTHORIZATION、crossterm::terminal::size——这些
+# 是惯用可读写法，强改 use 短名反而更糟）。use 语句天然豁免。
+# 权衡：max=2 能抓 3 段 std 全路径（std::env::var）但会误伤上述第三方惯用写法，噪音过大；
+# 项目内 std 全路径已清理为 use 短名（记忆「Std No Full Path」规则 + review 把关），故取 3。
+absolute-paths-max-segments = 3
+
 # ===================== 注意事项 =====================
 # 1. Lint 级别（deny/warn/allow）需要在代码中通过属性配置
 #    例如：#[deny(unused_variables)] 或通过命令行参数

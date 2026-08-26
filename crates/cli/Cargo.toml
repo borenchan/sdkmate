@@ -15,3 +15,6 @@ crossterm = { workspace = true }
 anyhow = { workspace = true}
 tokio = { workspace = true }
 unicode-width = { workspace = true }
+
+[lints]
+workspace = true

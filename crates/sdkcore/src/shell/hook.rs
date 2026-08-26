@@ -44,10 +44,7 @@ mod tests {
     fn fish_hook_uses_pipe_source_not_eval() {
         let script = generate_hook_script(Shell::Fish);
         assert!(script.contains("| source"), "fish hook 必须用 | source");
-        assert!(
-            !script.contains("eval ("),
-            "fish hook 禁用 eval ( 消费多行脚本（会被压平）"
-        );
+        assert!(!script.contains("eval ("), "fish hook 禁用 eval ( 消费多行脚本（会被压平）");
         // --on-event fish_prompt：每次提示符渲染触发 = 热更新语义
         assert!(script.contains("--on-event fish_prompt"), "fish hook 必须注册 fish_prompt");
     }

@@ -1,7 +1,9 @@
 use crate::consts::{DIVIDER, GITHUB_ISSUES_URL};
 use anyhow::Result;
 use crossterm::style::Stylize;
+use std::env;
 use std::io::{self, Write};
+use std::process::Command;
 use unicode_width::UnicodeWidthStr;
 use url::Url;
 
@@ -143,15 +145,15 @@ pub fn prompt_confirm(prompt: &str) -> Result<bool> {
 pub fn suggest_sdkm_path() -> String {
     #[cfg(windows)]
     {
-        let username = std::env::var("USERNAME")
-            .or_else(|_| std::env::var("USERPROFILE").map(|p| p.rsplit('\\').next().unwrap_or("YourName").to_string()))
+        let username = env::var("USERNAME")
+            .or_else(|_| env::var("USERPROFILE").map(|p| p.rsplit('\\').next().unwrap_or("YourName").to_string()))
             .unwrap_or_else(|_| "YourName".to_string());
         format!("C:\\Users\\{}\\sdkm\\", username)
     }
 
     #[cfg(unix)]
     {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/usr/local".to_string());
+        let home = env::var("HOME").unwrap_or_else(|_| "/usr/local".to_string());
         if home.starts_with('/') {
             format!("{}/sdkm/", home)
         } else {
@@ -227,7 +229,7 @@ pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
 
 /// 平台信息：操作系统 + 架构
 fn platform_info() -> String {
-    let os = std::env::var("OS").unwrap_or_else(|_| {
+    let os = env::var("OS").unwrap_or_else(|_| {
         if cfg!(windows) {
             "windows".to_string()
         } else {
@@ -247,9 +249,9 @@ fn platform_info() -> String {
 /// 操作系统版本号（Windows build / Unix 内核版本），用于 bug report 区分环境
 fn os_version() -> String {
     let output = if cfg!(windows) {
-        std::process::Command::new("cmd").args(["/c", "ver"]).output()
+        Command::new("cmd").args(["/c", "ver"]).output()
     } else {
-        std::process::Command::new("uname").args(["-sr"]).output()
+        Command::new("uname").args(["-sr"]).output()
     };
     output
         .ok()

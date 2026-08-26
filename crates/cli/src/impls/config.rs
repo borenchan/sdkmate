@@ -7,6 +7,7 @@ use sdkcore::config::{
 };
 use sdkcore::manager::SdkManager;
 use std::collections::HashMap;
+use std::env;
 use std::process::Command;
 use util::{detail, info, success, warning};
 
@@ -280,12 +281,12 @@ fn run_edit() -> Result<()> {
 /// Detect system editor: $EDITOR / $VISUAL → platform fallback
 fn detect_editor() -> String {
     // 优先使用环境变量
-    if let Ok(ed) = std::env::var("EDITOR") {
+    if let Ok(ed) = env::var("EDITOR") {
         if !ed.is_empty() {
             return ed;
         }
     }
-    if let Ok(ed) = std::env::var("VISUAL") {
+    if let Ok(ed) = env::var("VISUAL") {
         if !ed.is_empty() {
             return ed;
         }

@@ -6,6 +6,7 @@ use crate::manager::SdkManager;
 use crate::version::fuzzy_match_version_core;
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use util::config_helper::PLACEHOLDER_SDK_DIR;
 use util::consts::BugReportError;
@@ -48,7 +49,7 @@ macro_rules! try_step {
                 rollback($snapshot, $manager)?;
                 // 已知权限错误（access denied 5 / EACCES 13、privilege not held 1314）属用户环境问题，
                 // 提示自行解决；其余未知错误标记 bug report
-                let is_perm = e.downcast_ref::<std::io::Error>()
+                let is_perm = e.downcast_ref::<io::Error>()
                     .and_then(|ie| ie.raw_os_error())
                     .map_or(false, |code| matches!(code, 5 | 13 | 1314));
                 if is_perm {

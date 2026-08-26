@@ -1,5 +1,7 @@
 use clap::Parser;
 use cli::SdkMateCli;
+#[cfg(debug_assertions)]
+use std::env;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -7,9 +9,9 @@ fn main() -> ExitCode {
     // Rust 2024 edition 中 set_var 是 unsafe，这里仅在程序启动最早期设置，
     // 不存在多线程竞争风险
     #[cfg(debug_assertions)]
-    if std::env::var("RUST_BACKTRACE").is_err() {
+    if env::var("RUST_BACKTRACE").is_err() {
         unsafe {
-            std::env::set_var("RUST_BACKTRACE", "1");
+            env::set_var("RUST_BACKTRACE", "1");
         }
     }
 

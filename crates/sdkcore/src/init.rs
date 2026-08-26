@@ -1,9 +1,11 @@
 use crate::config::SdkmConfig;
 use crate::env::{EnvOperation, OsEnvOperation};
 use crate::manager::SdkManager;
+use crate::shell::inject;
 use anyhow::Result;
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use util::consts::{
     BANNER, CONFIG_FILE_NAME, DIR_DESC_CACHE, DIR_DESC_CONFIG, DIR_DESC_LINKS, DIR_DESC_STORE, DIR_DESC_TMP,
     SDKM_CACHE_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR,
@@ -92,7 +94,7 @@ impl SdkManager {
 
         step!("5/5", "Injecting shell hook");
         // shell 注入细节在 shell/inject.rs（检测/定位/去重/升级），init 只编排
-        crate::shell::inject::inject_shell_hook()?;
+        inject::inject_shell_hook()?;
 
         // ── 目录树：透明展示 sdkm home 结构 ──
         let exe_name = env::current_exe()
@@ -101,7 +103,7 @@ impl SdkManager {
             .unwrap_or_else(|| "sdkm".to_string());
 
         // symlink_dir 显示：在 home 下用相对名，自定义到 home 外用绝对路径标注
-        let symlink_path = std::path::PathBuf::from(&symlink_dir);
+        let symlink_path = PathBuf::from(&symlink_dir);
         let symlink_display = if symlink_path.starts_with(&root_dir) {
             format!("{}/", symlink_path.strip_prefix(&root_dir).unwrap().display())
         } else {

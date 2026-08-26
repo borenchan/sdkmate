@@ -107,9 +107,7 @@ mod tests {
         }
         // persistence：bash/zsh/fish 必须 Some 且字段满足各自 path_model；PowerShell 必须缺席
         for sh in [Shell::Bash, Shell::Zsh, Shell::Fish] {
-            let p = sh
-                .persistence()
-                .unwrap_or_else(|| panic!("{sh:?} 应提供持久化表"));
+            let p = sh.persistence().unwrap_or_else(|| panic!("{sh:?} 应提供持久化表"));
             assert_eq!(p.shell, sh);
             assert!(!(p.echo_path_cmd)().is_empty());
             match p.path_model {

@@ -7,6 +7,8 @@
 
 use crate::manager::SdkManager;
 use anyhow::Result;
+use std::env;
+use std::fs;
 use std::str::FromStr;
 use util::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_LINKS_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR};
 use util::path::get_sdkm_home;
@@ -45,21 +47,21 @@ impl SdkManager {
         for sub in [SDKM_STORE_DIR, SDKM_LINKS_DIR, SDKM_TMP_DIR, SDKM_CACHE_DIR] {
             let p = home.join(sub);
             if p.exists()
-                && let Err(e) = std::fs::remove_dir_all(&p)
+                && let Err(e) = fs::remove_dir_all(&p)
             {
                 warning!("failed to remove `{}`: {}", p.display(), e);
             }
         }
         let cfg = home.join(CONFIG_FILE_NAME);
         if cfg.exists()
-            && let Err(e) = std::fs::remove_file(&cfg)
+            && let Err(e) = fs::remove_file(&cfg)
         {
             warning!("failed to remove `{}`: {}", cfg.display(), e);
         }
 
         // sdkm 自身的 PATH 条目：自动移除（binary 保留但 PATH 条目应清理，尽力而为）
         // sdkm 目录可能不在 PATH 中（remove_sdk_path 幂等：无该条目则静默）
-        if let Ok(exe) = std::env::current_exe() {
+        if let Ok(exe) = env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 let exe_dir_str = exe_dir.to_string_lossy().to_string();
                 if let Err(e) = self.env_operation.remove_sdk_path(&exe_dir_str) {

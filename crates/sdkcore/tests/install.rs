@@ -1,5 +1,7 @@
 use indicatif::{ProgressBar, ProgressDrawTarget};
 use sdkcore::install::downloader::download_with_progress;
+use std::env;
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
@@ -28,13 +30,13 @@ fn download_writes_full_body() {
     let client = reqwest::Client::new();
     for (i, body) in cases.into_iter().enumerate() {
         let url = serve(body.clone());
-        let dest = std::env::temp_dir().join(format!("sdkm_dl_test_{}.bin", i));
+        let dest = env::temp_dir().join(format!("sdkm_dl_test_{}.bin", i));
         let pb = ProgressBar::new(0);
         pb.set_draw_target(ProgressDrawTarget::hidden());
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(download_with_progress(&client, &url, &dest, &pb)).unwrap();
-        assert_eq!(std::fs::read(&dest).unwrap(), body);
-        let _ = std::fs::remove_file(&dest);
+        assert_eq!(fs::read(&dest).unwrap(), body);
+        let _ = fs::remove_file(&dest);
     }
 }
 
@@ -80,14 +82,14 @@ fn download_resumes_partial() {
     let body = vec![b'c'; 200_000];
     let url = serve_range(body.clone());
     let client = reqwest::Client::new();
-    let dest = std::env::temp_dir().join("sdkm_dl_resume.bin");
-    std::fs::write(&dest, &body[..100_000]).unwrap(); // 预写前 100KB
+    let dest = env::temp_dir().join("sdkm_dl_resume.bin");
+    fs::write(&dest, &body[..100_000]).unwrap(); // 预写前 100KB
     let pb = ProgressBar::new(0);
     pb.set_draw_target(ProgressDrawTarget::hidden());
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(download_with_progress(&client, &url, &dest, &pb)).unwrap();
-    assert_eq!(std::fs::read(&dest).unwrap(), body);
-    let _ = std::fs::remove_file(&dest);
+    assert_eq!(fs::read(&dest).unwrap(), body);
+    let _ = fs::remove_file(&dest);
 }
 
 /// 服务器不支持 Range（返 200 全量）时，从头覆盖已有部分文件
@@ -96,12 +98,12 @@ fn download_restarts_when_no_range_support() {
     let body = vec![b'd'; 200_000];
     let url = serve(body.clone()); // serve 只返 200，不解析 Range
     let client = reqwest::Client::new();
-    let dest = std::env::temp_dir().join("sdkm_dl_norange.bin");
-    std::fs::write(&dest, b"STALE PARTIAL CONTENT").unwrap(); // 预写垃圾
+    let dest = env::temp_dir().join("sdkm_dl_norange.bin");
+    fs::write(&dest, b"STALE PARTIAL CONTENT").unwrap(); // 预写垃圾
     let pb = ProgressBar::new(0);
     pb.set_draw_target(ProgressDrawTarget::hidden());
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(download_with_progress(&client, &url, &dest, &pb)).unwrap();
-    assert_eq!(std::fs::read(&dest).unwrap(), body);
-    let _ = std::fs::remove_file(&dest);
+    assert_eq!(fs::read(&dest).unwrap(), body);
+    let _ = fs::remove_file(&dest);
 }

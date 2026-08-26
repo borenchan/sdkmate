@@ -76,10 +76,7 @@ impl SdkManager {
                 status
             );
         }
-        let release: LatestRelease = resp
-            .json()
-            .await
-            .context("Failed to parse latest release JSON")?;
+        let release: LatestRelease = resp.json().await.context("Failed to parse latest release JSON")?;
         let latest_version = strip_v(&release.tag_name).to_string();
 
         detail!("current: v{}", CURRENT_VERSION);
@@ -214,9 +211,8 @@ fn do_rollback() -> Result<()> {
 
     // 当前 exe 运行中 → rename 挪到 work/.discard 腾位（非 delete），再换入 .bak
     let discard = work.join(format!("{}.discard", name));
-    fs::rename(&exe, &discard).context(
-        "Failed to set aside current binary (SDKM_HOME on a different drive than sdkm.exe?)",
-    )?;
+    fs::rename(&exe, &discard)
+        .context("Failed to set aside current binary (SDKM_HOME on a different drive than sdkm.exe?)")?;
     if let Err(e) = fs::rename(&bak, &exe) {
         let _ = fs::rename(&discard, &exe); // 换入失败，恢复原 exe
         bail!("Failed to restore backup: {}", e);
@@ -291,10 +287,7 @@ fn work_dir() -> Result<PathBuf> {
 
 /// exe 的文件名（用于在 work_dir 下构造备份/临时副本名）
 fn bin_name(exe: &Path) -> String {
-    exe.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("sdkm")
-        .to_string()
+    exe.file_name().and_then(|n| n.to_str()).unwrap_or("sdkm").to_string()
 }
 
 /// 清理 work_dir 下残留的临时副本（.discard / .bad）：上次 rollback 在 Windows 上因进程占用删不掉的

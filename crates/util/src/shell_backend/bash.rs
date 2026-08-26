@@ -28,10 +28,7 @@ _sdkm_hook
 
 /// env 脚本 base 兜底自愈行：hook 未注入时（手动 eval）先锚定 base = 当前 PATH，防 PATH 被清空
 pub(crate) fn base_self_heal_line() -> String {
-    format!(
-        "[ -z \"${{{b}:-}}\" ] && export {b}=\"$PATH\"",
-        b = ENV_HOOK_BASE_PATH
-    )
+    format!("[ -z \"${{{b}:-}}\" ] && export {b}=\"$PATH\"", b = ENV_HOOK_BASE_PATH)
 }
 
 /// env 脚本 PATH 重建行：`export PATH="<bins 冒号拼接>:$_SDKM_BASE_PATH"`（无 bins = base 本身，离开项目还原）
