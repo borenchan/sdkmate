@@ -43,7 +43,7 @@ impl SdkManager {
         if let Some(entry) = cache.resolve(pwd, shell as u8) {
             return entry.env_script.clone();
         }
-        let (script, config_path, mtime) = self.generate_env_script_inner(shell, pwd);
+        let (script, config_path, mtime) = self.generate_env_script_inner(shell);
         if let (Some(path), Some(m)) = (config_path, mtime) {
             cache.put(
                 pwd,
@@ -65,7 +65,9 @@ impl SdkManager {
     ///
     /// 无项目配置时 config_path/mtime 为 None（该 PWD 不缓存——「无配置」状态
     /// 可能因用户创建配置而改变，无法用 mtime 锚定，每次实时解析）。
-    fn generate_env_script_inner(&self, shell: Shell, _pwd: &Path) -> (String, Option<PathBuf>, Option<u128>) {
+    /// 注：PWD 由缓存层 `generate_env_script_cached` 持有做 cache key，本函数用
+    /// `find_project_config()`（内部 current_dir）解析——同进程下两者一致。
+    fn generate_env_script_inner(&self, shell: Shell) -> (String, Option<PathBuf>, Option<u128>) {
         // 三层解析：会话层（SDKM_ACTIVE_*）> 项目层（.sdkm.toml）> 全局（跳过）
         let mut selected: Vec<(String, SelectedSdk)> = Vec::new();
 

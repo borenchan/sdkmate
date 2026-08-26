@@ -8,9 +8,14 @@
 use crate::config::{rollback_config, take_config_snapshot};
 use crate::link::symlink::remove_symlink;
 use crate::manager::SdkManager;
+use crate::project_config::find_project_config;
 use crate::version::fuzzy_match_version_core;
 use anyhow::{Context, Result, bail};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
 use util::terminal::prompt_confirm;
@@ -193,14 +198,14 @@ impl SdkManager {
         }
         info!("removing version directory: {}", dir.display());
         // Windows 上目录可能被杀毒/索引/进程短暂锁定，重试几次通常可恢复
-        let mut last_err: Option<std::io::Error> = None;
+        let mut last_err: Option<io::Error> = None;
         for attempt in 0..3u32 {
-            match std::fs::remove_dir_all(dir) {
+            match fs::remove_dir_all(dir) {
                 Ok(()) => return Ok(true),
                 Err(e) => {
                     last_err = Some(e);
                     if attempt < 2 {
-                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        thread::sleep(Duration::from_millis(300));
                     }
                 }
             }
@@ -220,8 +225,8 @@ impl SdkManager {
     fn cleanup_empty_sdk_store_dir(&self, sdk: &Sdk) -> Result<()> {
         let sdk_store = get_installed_sdks_dir()?.join(sdk.to_string());
         if sdk_store.exists() {
-            let is_empty = std::fs::read_dir(&sdk_store).map(|mut it| it.next().is_none()).unwrap_or(false);
-            if is_empty && let Err(e) = std::fs::remove_dir(&sdk_store) {
+            let is_empty = fs::read_dir(&sdk_store).map(|mut it| it.next().is_none()).unwrap_or(false);
+            if is_empty && let Err(e) = fs::remove_dir(&sdk_store) {
                 warning!("failed to remove empty store dir `{}`: {}", sdk_store.display(), e);
             }
         }
@@ -232,11 +237,13 @@ impl SdkManager {
     ///
     /// 返回引用了该版本的配置文件路径列表。
     fn check_project_references(sdk: &Sdk, version: &str) -> Vec<PathBuf> {
-        let Some((path, project_cfg)) = crate::project_config::find_project_config().ok().flatten() else {
+        let Some((path, project_cfg)) = find_project_config().ok().flatten() else {
             return Vec::new();
         };
+        // pin 可能是模糊值（如 "21"：use_project_version 未装时写入或用户手写），
+        // 不能精确比较——把被卸载版本当候选池、pin 当输入做模糊匹配，命中即视为引用
         match project_cfg.pins.get(&sdk.to_string()) {
-            Some(v) if v == version => vec![path],
+            Some(pin) if fuzzy_match_version_core(&[version.to_string()], pin).is_ok() => vec![path],
             _ => Vec::new(),
         }
     }

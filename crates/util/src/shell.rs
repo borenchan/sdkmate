@@ -11,9 +11,13 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 pub use crate::shell_backend::{PathModel, ProfilePersistence, ShellSyntax};
+use crate::shell_backend::{bash, fish, pwsh, zsh};
 
 /// 目标 shell 类型（hook/env/use --shell 的 `--shell` 参数；clap 解析在 cli 层）
+/// `#[repr(u8)]`：hook_cache 把 shell 序列化为 u8 存盘，按声明序 Bash=0/Zsh=1/Fish=2/PowerShell=3，
+/// 加 repr 把 `as u8` 的判别序契约写死，防止重排变体导致旧缓存反序列化错位
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Shell {
     Bash,
     Zsh,
@@ -26,21 +30,21 @@ impl Shell {
     pub const ALL: [Shell; 4] = [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::PowerShell];
 
     /// 脚本语法表（env/hook/use --shell 生成能力，4 shell 全量）
-    pub const fn syntax(&self) -> &'static crate::shell_backend::ShellSyntax {
+    pub const fn syntax(&self) -> &'static ShellSyntax {
         match self {
-            Shell::Bash => &crate::shell_backend::bash::SYNTAX,
-            Shell::Zsh => &crate::shell_backend::zsh::SYNTAX,
-            Shell::Fish => &crate::shell_backend::fish::SYNTAX,
-            Shell::PowerShell => &crate::shell_backend::pwsh::SYNTAX,
+            Shell::Bash => &bash::SYNTAX,
+            Shell::Zsh => &zsh::SYNTAX,
+            Shell::Fish => &fish::SYNTAX,
+            Shell::PowerShell => &pwsh::SYNTAX,
         }
     }
 
     /// Unix profile 持久化表（bash/zsh/fish；PowerShell 缺席——Windows 走注册表，返 None）
-    pub const fn persistence(&self) -> Option<&'static crate::shell_backend::ProfilePersistence> {
+    pub const fn persistence(&self) -> Option<&'static ProfilePersistence> {
         match self {
-            Shell::Bash => Some(&crate::shell_backend::bash::PERSISTENCE),
-            Shell::Zsh => Some(&crate::shell_backend::zsh::PERSISTENCE),
-            Shell::Fish => Some(&crate::shell_backend::fish::PERSISTENCE),
+            Shell::Bash => Some(&bash::PERSISTENCE),
+            Shell::Zsh => Some(&zsh::PERSISTENCE),
+            Shell::Fish => Some(&fish::PERSISTENCE),
             Shell::PowerShell => None,
         }
     }
