@@ -97,37 +97,39 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-08-14）
+## 当前开发进度（2026-08-25）
 
-### 本次改动 —— 项目级 SDK 版本管理（会话 > 项目 > 全局三层）
+### 本次改动 —— Shell 后端双表抽象 + fish 支持
 
-在现有全局 symlink 机制之上新增项目级/会话级版本管理，「全局 Symlink 兜底 + Shell Hook 进程级覆盖」混合模型。**全局层（switch/符号链接/注册表 env）一行未动**，IDE/非 shell 兜底不变；install 完全不考虑项目级行为，保留原本全局逻辑。
+项目级三层模型（会话 `SDKM_ACTIVE_*` > 项目 `.sdkm.toml` > 全局 symlink 兜底）保持不变，本次把散落 6 个文件的 `match shell` 语法分支收敛为 **`util::shell_backend` 双表**，并新增 fish 支持（bash/zsh/fish/PowerShell 四 shell）。
 
-**三层优先级**：会话层 `SDKM_ACTIVE_<SDK_UPPER>`（`eval "$(sdkm use --shell java 8)"` 设，非持久）> 项目层 `.sdkm.toml` 摊平 KV（`java = "21"`，向上查找命中即停）> 全局层（不加 prepend，PATH 依赖全局 symlink 在 base）。
+**Shell 职责分层**（本次重构后）：
+- **`util::shell`**：`Shell` 枚举（加 Fish）+ detect（**$SHELL 取 basename 精确匹配**，sh/dash/兜底 Bash，mise 同款）+ parse（错误信息由表动态生成防 stale）+ `syntax()`/`persistence()`/`profile_paths()` 入口
+- **`util::shell_backend/{mod,bash,zsh,fish,pwsh}.rs`**：每 shell 一文件内聚两张表——
+  - `ShellSyntax`（**4 shell 全量**）：parse_names/detect_basename/inject_hook_line/inject_marker/legacy_upgrades 等 const 字段 + generate_hook/base_self_heal_line/path_line/export_line/unset_line fn 指针。bash 与 zsh 的 env 语法 fn 完全相同，zsh.rs 直接引用 bash::（只有 hook 模板不同）
+  - `ProfilePersistence`（**仅 bash/zsh/fish 三行，PowerShell 返 None**——Windows 走注册表，能力缺席用缺席表达）：shell_command/echo_path_cmd/export_prefix + `PathModel` 分发（`RebuildLine`=bash/zsh 单行 `export PATH="a:b:$PATH"` 重建 vs `PerDirCommand`=fish 逐行 `fish_add_path --path "<dir>"`）
+- **`sdkcore::shell/{hook,env,inject}.rs`**：纯编排委托（hook.rs 9 行转发；env.rs render 按 syntax fn 渲染；inject.rs 走 profile_paths+inject_hook_line+marker）
+- **`env/unix.rs`**：全量 backend 化——profile 定位 `detect_shell().profile_paths()`（修了 fish 用户被写 .bashrc 的 bug）、export 行读写走 persistence、PATH 增删按 path_model 分发、source_profile 按 shell_command+echo_path_cmd
+- **`hook_cache.rs`**：`HookEntry` 加 `shell: u8`（serde default），resolve 校验 shell 不符当 miss（修跨 shell 串扰）；`CACHE_SCHEMA_VERSION = 3`
 
-**新命令**：`sdkm use <sdk> <ver>`（写当前目录 .sdkm.toml，父级冲突 warning；`--shell` 输出会话级 eval 脚本）、`sdkm env [--shell]`（输出当前目录 env 设置脚本，hook 每次提示符渲染调用，带 mtime 缓存）、`sdkm hook <shell>`（输出 hook 注册脚本，bash PROMPT_COMMAND/zsh precmd/PowerShell prompt 包装，cmd.exe 不支持自动 hook）。`sdkm init` 扩为 5 步：step 5 自动检测 shell + 往 profile 幂等注入 hook 行——**PowerShell 同时注入 PS7 与 PS5.1 两个 profile**（用户可能日常用任一版本），Unix 注入 ~/.zshrc 或 ~/.bashrc。
+**fish 关键铁律**（写代码/排查必读）：
+1. **一律 `| source`，禁 `eval (...)`**——fish 命令替换按换行拆参、eval 空格连接 → 多行脚本压成一行（注释吞行/if-end 破坏/多行 set 静默合并成 list）。`sdkm hook fish | source`、hook 函数体 `sdkm env --shell fish | source`、`sdkm use --shell ... | source`。hook.rs 有专测守护（断言含 `| source` 不含 `eval (`）
+2. **`_SDKM_BASE_PATH` 是 list**：base 引用不引号（按元素展开，含空格路径天然保留）、bin 单独引号
+3. **`set -e` 对不存在变量报错**：unset 行必须 `set -q K; and set -e K` 守卫
+4. **PATH 持久化用 `fish_add_path --path "<dir>"`**（req fish ≥ 3.2）：默认前置、幂等；**必须 `--path`** 否则写 universal `fish_user_paths`（删行也残留）；移除 = 按 add 时字符串精确删行
+5. **source_profile 输出协议**：fish 的 `$PATH` 是 list，`echo $PATH` 每路径一行 → 必须 `string join : $PATH`，否则当前进程 PATH 被写坏
 
-**hook 触发语义**：**每次提示符渲染都触发** `sdkm env`（bash PROMPT_COMMAND / zsh precmd / PS prompt 包装），不比对 PWD——改 .sdkm.toml 后按回车即生效（热更新），高频性能由 sdkm env 的 mtime 缓存承担。
+**仍有效的关键机制**（沿自项目级版本管理改动）：
+- hook 触发语义：每次提示符渲染都触发 `sdkm env`（bash PROMPT_COMMAND / zsh precmd / **fish `--on-event fish_prompt`** / PS prompt 包装），热更新靠它，性能靠 mtime 缓存
+- 幂等重建还原：`_SDKM_BASE_PATH` 一次性存启动 PATH；`sdkm env` 永远输出 `PATH="<项目bins>:$_SDKM_BASE_PATH"`（fish 是 list 形态）+ 未选中的 known keys unset
+- eval 纯净性：`env`/`hook`/`use --shell` stdout 只吐脚本，诊断全走 stderr
+- PowerShell 注入铁律不变：`-join [Environment]::NewLine`、纯 ASCII 输出（GBK 代码页）、Documents 注册表重定向、`Invoke-Expression` 非 scriptblock（旧格式升级对在 pwsh.rs 的 legacy_upgrades）
+- 未装降级：项目/会话版本本地缺失 → stderr warn + 跳过回退全局
 
-**PowerShell 注入铁律**：
-1. **profile 行与 hook 脚本内都用 `-join [Environment]::NewLine`**（不要用 `-join "`n"`）——`"`n"` 是反引号转义序列，在 PS 5.1 捕获原生命令输出再二次 IEX 时会被解释成真实换行，破坏字符串引号配对（报"意外的 }"）。
-2. **hook 脚本输出必须纯 ASCII**（英文注释）——PS 5.1 按 ANSI 代码页（中文系统 GBK）解码原生命令 stdout，任何非 ASCII 字节（如中文注释）都可能被误解码成破坏脚本的字符（`}` 等）。`shell/hook.rs` 有 `is_ascii()` 测试守护。
-3. **profile 定位必须读注册表重定向**（`User Shell Folders\Personal`）——用户把 Documents 移到 D 盘时，硬编码 `USERPROFILE\Documents` 会注入错文件导致 hook 永不加载。用 `util::shell::windows_documents_dir()`。
-4. **必须用 `Invoke-Expression` 而非 `[scriptblock]::Create`**（后者作用域隔离，函数定义执行完即丢失）。`shell/inject.rs` 有旧格式升级逻辑：检测 `[scriptblock]::Create((sdkm hook` 或 `-join "`n"` 原位替换。
+**新增文件**（5）：`util/shell_backend/{mod,bash,zsh,fish,pwsh}.rs`
+**改动文件**（12）：`util/{shell,lib}.rs`、`sdkcore/{shell/{hook,env,inject},env/unix,hook_cache,use_cmd}.rs`、`cli/{lib,impls/{hook,env,use_cmd}}.rs`；独立前置 commit `47e3343`（Linux 编译 hotfix：`powershell_profile_paths` 加 unix stub）
 
-**Shell 职责分层**（重构后）：通用 Shell 类型（枚举/detect/parse）与 profile 路径解析（unix `~/.zshrc|.bashrc`、windows PS7+PS5.1）收敛在 **`util::shell`**；hook/env 脚本生成与 profile 注入收敛在 **`sdkcore::shell/{hook,env,inject}.rs`**；`init.rs` 只做编排（step 5 一行调用 `shell::inject::inject_shell_hook()`），`env/unix.rs` 的 profile 定位委托 `util::shell::unix_profile_path()`——不再各处写路径魔法值。
-
-**关键机制**：
-- **幂等重建还原**：hook 初始化一次性存 `_SDKM_BASE_PATH`（启动 PATH），`sdkm env` 永远输出 `PATH="<项目bins>:$_SDKM_BASE_PATH"`（无项目 = base 本身）+ 对全局 config 所有 extra_vars keys 并集中本次未选中的输出 unset——离开目录自动还原，无跨调用状态机
-- **`{sdk_dir}` 占位符项目层语义** = store 真实版本目录（`<store>/<sdk>/<ver>`，绕过 symlink），JAVA_HOME 等指向项目版本
-- **hook 缓存** `<home>/.cache/hook_cache.json`（照搬 size_cache 范式 + 3 处偏离：mtime 纳秒防同秒编辑盲区、损坏删文件自愈、key 用 PWD 路径串非 hash）；无项目配置的 PWD 不缓存（无法锚定）
-- **eval 纯净性**：`env`/`hook`/`use --shell` 三命令 stdout 只吐脚本，诊断全走 stderr（error!/eprintln!）——`warning!/info!` 等宏走 stdout 会污染 eval
-- **未装降级**：项目/会话声明版本本地缺失 → stderr warn + 跳过该 SDK 回退全局，不阻断 shell
-
-**新增文件**（8）：`sdkcore/{project_config,hook_cache}.rs`、`sdkcore/shell/{mod,hook,env,inject}.rs`（脚本生成 + 注入分目录收敛）、`util/shell.rs`（Shell 类型 + profile 路径解析）、`cli/impls/{hook,env,use_cmd}.rs`
-**改动文件**（5）：`util/{consts,path,lib}.rs`、`sdkcore/{lib,init,uninstall}.rs`、`cli/{lib,impls/mod}.rs`
-
-**实测**（Windows）：release build 通过；临时目录 `use java 8` → `.sdkm.toml` 生成 → `env powershell` 输出 `PATH="…store\java\8.0.492\bin;" + base` + `JAVA_HOME="…store\java\8.0.492"`；二次调用缓存命中（hook_cache.json 落盘，miss→hit 链路通）；改配置热更新失效重解析（换未装版本 9.9.9 → 自动降级 + stderr 警告）；无项目配置 + `SDKM_ACTIVE_JAVA` → 会话层正确注入、移除后干净回退。**未发版**。Unix shell hook（bash/zsh 模板 + profile 注入）已在代码中实现，真机行为待 macOS/Linux 实测。
+**测试**：backend 完备性（遍历 Shell::ALL 护航漏填表）+ fish/bash/PS 语法 golden + detect basename 纯函数 + render_env_script 四 shell golden + unix.rs cfg(unix) 单测（bash RebuildLine / fish PerDirCommand）。**未发版**。Linux 真机 fish 链路（init 注入 config.fish / hook 热更新 / fish_add_path 持久化）待 CI 或 WSL 实测。
 
 **注：下次更新进度时，删除本条（只保留最新一次会话）。**
 

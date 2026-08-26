@@ -3,16 +3,16 @@ use clap::Parser;
 use sdkcore::shell::generate_hook_script;
 use util::shell::{detect_shell, parse_shell};
 
-/// `sdkm hook [shell]`：输出 shell hook 注册脚本（供 `eval "$(sdkm hook)"` 用）
+/// `sdkm hook [shell]`：输出 shell hook 注册脚本（消费方式按 shell：bash/zsh `eval "$(...)"`、fish `| source`）
 ///
-/// **stdout 只吐脚本**（会被 shell eval），禁用 info!/warning! 等 stdout 宏；
+/// **stdout 只吐脚本**（会被 shell eval/source），禁用 info!/warning! 等 stdout 宏；
 /// 诊断走 stderr（error! 宏）。
 #[derive(Debug, Parser)]
 pub struct HookHandler {
-    /// Target shell (bash/zsh/powershell); omit to auto-detect
+    /// Target shell (bash/zsh/fish/powershell); omit to auto-detect
     #[arg(
         value_name = "shell",
-        help = "Target shell: bash, zsh, powershell (omit to auto-detect)"
+        help = "Target shell: bash, zsh, fish, powershell (omit to auto-detect)"
     )]
     shell: Option<String>,
 }

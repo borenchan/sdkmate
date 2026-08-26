@@ -71,11 +71,8 @@ impl SdkManager {
         };
 
         let var = format!("{}{}", SDKM_SESSION_ENV_PREFIX, sanitize_env_suffix(&sdk.to_string()));
-        // 按 shell 输出对应语法（bash/zsh 用 export，PowerShell 用 $env:）
-        let script = match shell {
-            Shell::PowerShell => format!("$env:{} = \"{}\"\n", var, resolved),
-            Shell::Bash | Shell::Zsh => format!("export {}=\"{}\"\n", var, resolved),
-        };
+        // 按 shell 语法后端输出赋值行（bash `export` / fish `set -gx` / PS `$env:`）
+        let script = format!("{}\n", (shell.syntax().export_line)(&var, &resolved));
         Ok(script)
     }
 

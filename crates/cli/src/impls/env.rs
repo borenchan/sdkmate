@@ -10,11 +10,11 @@ use util::shell::{detect_shell, parse_shell};
 /// 诊断（未装降级提示等）在 sdkcore 侧已走 stderr。
 #[derive(Debug, Parser)]
 pub struct EnvHandler {
-    /// Target shell (bash/zsh/powershell); omit to auto-detect
+    /// Target shell (bash/zsh/fish/powershell); omit to auto-detect
     #[arg(
         long = "shell",
         value_name = "shell",
-        help = "Target shell: bash, zsh, powershell (omit to auto-detect)"
+        help = "Target shell: bash, zsh, fish, powershell (omit to auto-detect)"
     )]
     shell: Option<String>,
 }

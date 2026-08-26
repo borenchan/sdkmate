@@ -64,7 +64,7 @@ pub enum Commands {
 
     #[command(
         name = "hook",
-        about = "Print shell hook registration code (eval this: eval \"$(sdkm hook <shell>)\")"
+        about = "Print shell hook registration code (eval \"$(sdkm hook <shell>)\" for bash/zsh, or `sdkm hook fish | source` for fish)"
     )]
     Hook(HookHandler),
 

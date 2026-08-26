@@ -7,7 +7,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use util::shell::{Shell, detect_shell, powershell_profile_paths, unix_profile_path};
+use util::shell::{Shell, detect_shell};
 use util::{detail, info, warning};
 
 /// 注入 shell hook（step 5）：自动检测 shell → 定位 profile → 去重追加
@@ -33,25 +33,13 @@ pub fn inject_shell_hook() -> anyhow::Result<()> {
 
 /// 往 shell profile 追加 hook 注册行。返 true=本次写入（任一 profile），false=全部已存在跳过
 fn inject_hook_to_profile(shell: Shell) -> anyhow::Result<bool> {
-    // (profile_path, hook_line) 列表：Windows 同时注入 PS7 与 PS5.1 两个 profile，
-    // 用户日常可能用任意一个版本；Unix 只注入一个。
-    let targets: Vec<(PathBuf, String)> = match shell {
-        Shell::Bash | Shell::Zsh => {
-            let path = unix_profile_path()?;
-            let sh = if shell == Shell::Zsh { "zsh" } else { "bash" };
-            vec![(path, format!("eval \"$(sdkm hook {})\"", sh))]
-        }
-        Shell::PowerShell => {
-            // 必须用 Invoke-Expression：[scriptblock]::Create 作用域隔离，
-            // 函数定义留在 scriptblock 内部作用域，profile 执行完即丢失（hook 静默失效）；
-            // -join [Environment]::NewLine：PS 5.1 捕获原生命令输出为行数组需 -join 成串，
-            // 用常量避免 `n 被二次解释成换行破坏引号配对
-            let line = "Invoke-Expression ((sdkm hook powershell) -join [Environment]::NewLine)".to_string();
-            let paths = powershell_profile_paths()?;
-            // 与 util::shell 返回顺序对齐：PS7 在前、PS5.1 在后（都注入，各自幂等）
-            paths.into_iter().map(|p| (p, line.clone())).collect()
-        }
-    };
+    // (profile_path, hook_line) 列表：PowerShell 返回 PS7+PS5.1 两个；Unix 每 shell 一个。
+    // 路径来自 Shell::profile_paths、注入行来自 ShellSyntax::inject_hook_line（fish 用 `| source`）。
+    let targets: Vec<(PathBuf, String)> = shell
+        .profile_paths()?
+        .into_iter()
+        .map(|p| (p, shell.syntax().inject_hook_line.to_string()))
+        .collect();
 
     // 逐个注入；任一本次写入 → true（提示重启 shell），全已存在 → false
     let mut any_written = false;
@@ -66,28 +54,17 @@ fn inject_hook_to_profile(shell: Shell) -> anyhow::Result<bool> {
 /// 往单个 profile 文件追加 hook 行（去重 + 旧格式升级）。返 true=本次写入，false=已存在跳过
 fn inject_into_profile_file(profile_path: &Path, hook_line: &str, shell: Shell) -> anyhow::Result<bool> {
     let content = fs::read_to_string(profile_path).unwrap_or_default();
-    // 去重检测：注入标记（精确到 sdkm hook 调用形式，避免误判用户注释）
-    let marker = match shell {
-        Shell::Bash | Shell::Zsh => "sdkm hook",
-        Shell::PowerShell => "(sdkm hook",
-    };
+    // 去重检测：注入标记来自 backend（精确到 sdkm hook 调用形式，避免误判用户注释）
+    let syntax = shell.syntax();
+    let marker = syntax.inject_marker;
     if content.contains(marker) {
-        // PowerShell 旧格式升级（存量用户重跑 init 自愈），按旧行形态分别替换：
-        // ① scriptblock::Create 作用域隔离导致 hook 静默失效
-        // ② `-join "`n"` 反引号被二次解释破坏引号配对
-        if shell == Shell::PowerShell {
-            let legacy_scriptblock = "& ([scriptblock]::Create((sdkm hook powershell)))";
-            let legacy_backtick = "Invoke-Expression ((sdkm hook powershell) -join \"`n\")";
-            if content.contains(legacy_scriptblock) {
-                let upgraded = content.replace(legacy_scriptblock, hook_line);
+        // 旧格式升级（存量用户重跑 init 自愈）：遍历 backend 的 legacy_upgrades 对
+        // （bash/zsh/fish 表为空 → 循环 0 次跳过；PowerShell 有 scriptblock/backtick 两对形态）
+        for (legacy, new_line) in syntax.legacy_upgrades {
+            if content.contains(legacy) {
+                let upgraded = content.replace(legacy, new_line);
                 fs::write(profile_path, upgraded)?;
-                detail!("Hook line upgraded from scriptblock form: {}", profile_path.display());
-                return Ok(true);
-            }
-            if content.contains(legacy_backtick) {
-                let upgraded = content.replace(legacy_backtick, hook_line);
-                fs::write(profile_path, upgraded)?;
-                detail!("Hook line upgraded from backtick-join form: {}", profile_path.display());
+                detail!("Hook line upgraded from legacy form: {}", profile_path.display());
                 return Ok(true);
             }
         }

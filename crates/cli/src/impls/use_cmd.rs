@@ -23,10 +23,10 @@ pub struct UseHandler {
     )]
     sdk_version: String,
 
-    /// Set for the current shell session only (eval "$(sdkm use --shell java 21)")
+    /// Set for the current shell session only (eval "$(sdkm use --shell java 21)" for bash/zsh; `| source` for fish)
     #[arg(
         long = "shell",
-        help = "Set for the current shell session only: eval \"$(sdkm use --shell <sdk> <version>)\""
+        help = "Set for the current shell session only (bash/zsh: eval \"$(sdkm use --shell <sdk> <version>)\"; fish: sdkm use --shell <sdk> <version> | source)"
     )]
     shell: bool,
 }

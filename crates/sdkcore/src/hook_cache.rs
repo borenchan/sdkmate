@@ -15,7 +15,7 @@ use std::time::UNIX_EPOCH;
 use util::path::get_hook_cache_path;
 
 /// 缓存 schema 版本：脚本模板/生成逻辑变化时 bump，旧缓存条目整体失效（自动重建）
-pub const CACHE_SCHEMA_VERSION: u128 = 2;
+pub const CACHE_SCHEMA_VERSION: u128 = 3;
 
 /// 单条 hook 缓存：命中的配置文件路径 + 采样时 mtime（纳秒）+ 已生成好的完整 env 脚本
 #[derive(Serialize, Deserialize, Default)]
@@ -29,6 +29,10 @@ pub struct HookEntry {
     /// 生成此条目时的 schema 版本（不匹配 = 旧格式，当 miss 重建）
     #[serde(default)]
     pub schema_version: u128,
+    /// 生成此条目的 shell 判别序号（`Shell as u8`）。命中时 shell 不符当 miss——
+    /// 防「同一 PWD 跨 --shell 拿到上一 shell 脚本」的串扰（key 仍只含 PWD，不破坏 prune）
+    #[serde(default)]
+    pub shell: u8,
 }
 
 /// 缓存表：PWD 绝对路径字符串 → hook 条目（transparent 序列化为裸 JSON object）
@@ -66,12 +70,15 @@ impl HookCache {
         }
     }
 
-    /// 查缓存是否命中：PWD 有记录、schema 版本一致、且其锚定的配置文件 mtime 未变
+    /// 查缓存是否命中：PWD 有记录、shell 相符、schema 版本一致、且其锚定的配置文件 mtime 未变
     ///
-    /// 返回命中条目的 env_script 引用；未命中/无记录/mtime 变了/旧 schema → None（触发实时解析）。
-    pub fn resolve(&self, pwd: &Path) -> Option<&HookEntry> {
+    /// 返回命中条目的 env_script 引用；未命中/无记录/shell 不符/mtime 变了/旧 schema → None（触发实时解析）。
+    pub fn resolve(&self, pwd: &Path, shell: u8) -> Option<&HookEntry> {
         let key = pwd.to_string_lossy();
         let entry = self.map.0.get(key.as_ref())?;
+        if entry.shell != shell {
+            return None;
+        }
         if entry.schema_version != CACHE_SCHEMA_VERSION {
             return None;
         }

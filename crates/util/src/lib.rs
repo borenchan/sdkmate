@@ -5,4 +5,5 @@ pub mod path;
 pub mod sdk;
 pub mod sdk_resources;
 pub mod shell;
+pub mod shell_backend;
 pub mod terminal;

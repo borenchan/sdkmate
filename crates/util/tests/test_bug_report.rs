@@ -77,7 +77,7 @@ fn test_bug_report_url_contains_title_and_body() {
     assert!(body.contains("Issue Report"), "body should use Issue Report header");
     assert!(body.contains("Command"), "body should contain command section");
     assert!(body.contains("Error"), "body should contain error section");
-    assert!(body.contains("sdkm version"), "body should contain sdkm version section");
+    assert!(body.contains("Sdkm Version"), "body should contain sdkm version section");
     assert!(body.contains("OS"), "body should contain OS section");
     assert!(body.contains("Platform"), "body should contain platform section");
     assert!(body.contains("Steps to reproduce"), "body should contain steps section");

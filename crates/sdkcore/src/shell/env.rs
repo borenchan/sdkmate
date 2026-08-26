@@ -22,7 +22,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use util::config_helper::PLACEHOLDER_SDK_DIR;
-use util::consts::{ENV_HOOK_BASE_PATH, SDKM_SESSION_ENV_PREFIX};
+use util::consts::SDKM_SESSION_ENV_PREFIX;
 use util::error;
 use util::sdk::Sdk;
 use util::shell::Shell;
@@ -40,7 +40,7 @@ impl SdkManager {
     pub fn generate_env_script_cached(&self, shell: Shell, pwd: &Path) -> String {
         let mut cache = HookCache::load();
         cache.prune();
-        if let Some(entry) = cache.resolve(pwd) {
+        if let Some(entry) = cache.resolve(pwd, shell as u8) {
             return entry.env_script.clone();
         }
         let (script, config_path, mtime) = self.generate_env_script_inner(shell, pwd);
@@ -52,6 +52,8 @@ impl SdkManager {
                     mtime_nanos: m,
                     env_script: script.clone(),
                     schema_version: CACHE_SCHEMA_VERSION,
+                    // 记录 shell：同一 PWD 跨 shell 调用时命中校验不符当 miss，防脚本串扰
+                    shell: shell as u8,
                 },
             );
             cache.save();
@@ -201,58 +203,95 @@ fn render_env_script(shell: Shell, selected: &[(String, SelectedSdk)], known: &B
         path_entries.extend(s.bins.iter().cloned());
     }
 
-    let lines: Vec<String> = match shell {
-        Shell::Bash | Shell::Zsh => {
-            let mut lines = Vec::new();
-            // base 兜底自愈：hook 未注入时（手动 eval）先锚定 base = 当前 PATH，防 PATH 被清空
-            lines.push(format!(
-                "[ -z \"${{{env_base}:-}}\" ] && export {env_base}=\"$PATH\"",
-                env_base = ENV_HOOK_BASE_PATH
-            ));
-            let path_value = if path_entries.is_empty() {
-                format!("${}", ENV_HOOK_BASE_PATH)
-            } else {
-                format!("{}:${}", path_entries.join(":"), ENV_HOOK_BASE_PATH)
-            };
-            lines.push(format!("export PATH=\"{}\"", path_value));
-            for key in known.iter().filter(|k| !cur.contains(k.as_str())) {
-                lines.push(format!("unset {}", key));
-            }
-            for (_, s) in selected {
-                for (k, v) in &s.env_vars {
-                    lines.push(format!("export {}=\"{}\"", k, v));
-                }
-            }
-            lines
+    // 渲染语法统一走 ShellSyntax fn（bash/zsh/PS/fish 各自实现；顺序固定：base 自愈 → PATH → unset → export）
+    let b = shell.syntax();
+    let mut lines = Vec::new();
+    // base 兜底自愈：hook 未注入时（手动 eval/source/IEX）先锚定 base = 当前 PATH，防 PATH 被清空
+    lines.push((b.base_self_heal_line)());
+    // PATH 重建行（bins 字母序拼接，引用 _SDKM_BASE_PATH；无 bins = base 本身，离开项目还原）
+    lines.push((b.path_line)(&path_entries));
+    // unset（known ∖ cur）：对全局 config 所有 extra_vars keys 并集中本次未选中的输出取消，幂等还原
+    for key in known.iter().filter(|k| !cur.contains(k.as_str())) {
+        lines.push((b.unset_line)(key));
+    }
+    // export（cur）：对本次选中的 extra_vars 输出赋值
+    for (_, s) in selected {
+        for (k, v) in &s.env_vars {
+            lines.push((b.export_line)(k, v));
         }
-        Shell::PowerShell => {
-            let mut lines = Vec::new();
-            // base 兜底自愈：hook 未注入时（手动 IEX）先锚定 base = 当前 PATH，防 PATH 被清空
-            lines.push(format!(
-                "if (-not $env:{env_base}) {{ $env:{env_base} = $env:PATH }}",
-                env_base = ENV_HOOK_BASE_PATH
-            ));
-            let path_value = if path_entries.is_empty() {
-                format!("$env:{}", ENV_HOOK_BASE_PATH)
-            } else {
-                format!("\"{};\" + $env:{}", path_entries.join(";"), ENV_HOOK_BASE_PATH)
-            };
-            lines.push(format!("$env:PATH = {}", path_value));
-            for key in known.iter().filter(|k| !cur.contains(k.as_str())) {
-                lines.push(format!("Remove-Item Env:{} -ErrorAction SilentlyContinue", key));
-            }
-            for (_, s) in selected {
-                for (k, v) in &s.env_vars {
-                    lines.push(format!("$env:{} = \"{}\"", k, v));
-                }
-            }
-            lines
-        }
-    };
+    }
 
     if lines.is_empty() {
         String::new()
     } else {
         lines.join("\n") + "\n"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use util::consts::ENV_HOOK_BASE_PATH;
+
+    /// 构造一个选中 SDK（2 个 bins + 1 个 extra_var）与 known 集合（含一个未选中的 EXTRA）
+    fn sample_selected() -> Vec<(String, SelectedSdk)> {
+        vec![(
+            "java".to_string(),
+            SelectedSdk {
+                bins: vec!["bin/a".to_string(), "bin/b".to_string()],
+                env_vars: vec![("JAVA_HOME".to_string(), "/sdk/java".to_string())],
+            },
+        )]
+    }
+    fn sample_known() -> BTreeSet<String> {
+        ["JAVA_HOME".to_string(), "EXTRA".to_string()].into_iter().collect()
+    }
+
+    /// render_env_script 是纯函数，四 shell 各自语法 golden（顺序固定：base 自愈 → PATH → unset → export）
+    #[test]
+    fn render_env_script_fish_golden() {
+        let e = ENV_HOOK_BASE_PATH;
+        let script = render_env_script(Shell::Fish, &sample_selected(), &sample_known());
+        assert_eq!(
+            script,
+            format!(
+                "if not set -q {e}\n    set -gx {e} $PATH\nend\n\
+                 set -gx PATH \"bin/a\" \"bin/b\" ${e}\n\
+                 set -q EXTRA; and set -e EXTRA\n\
+                 set -gx JAVA_HOME \"/sdk/java\"\n"
+            )
+        );
+    }
+
+    #[test]
+    fn render_env_script_bash_golden() {
+        let e = ENV_HOOK_BASE_PATH;
+        let script = render_env_script(Shell::Bash, &sample_selected(), &sample_known());
+        assert_eq!(
+            script,
+            format!(
+                "[ -z \"${{{e}:-}}\" ] && export {e}=\"$PATH\"\n\
+                 export PATH=\"bin/a:bin/b:${e}\"\n\
+                 unset EXTRA\n\
+                 export JAVA_HOME=\"/sdk/java\"\n"
+            )
+        );
+        // zsh 与 bash 语法相同（同 backend fn）
+        assert_eq!(script, render_env_script(Shell::Zsh, &sample_selected(), &sample_known()));
+    }
+
+    #[test]
+    fn render_env_script_powershell_golden() {
+        let e = ENV_HOOK_BASE_PATH;
+        let script = render_env_script(Shell::PowerShell, &sample_selected(), &sample_known());
+        assert_eq!(
+            script,
+            format!(
+                "if (-not $env:{e}) {{ $env:{e} = $env:PATH }}\n\
+                 $env:PATH = \"bin/a;bin/b;\" + $env:{e}\n\
+                 Remove-Item Env:EXTRA -ErrorAction SilentlyContinue\n\
+                 $env:JAVA_HOME = \"/sdk/java\"\n"
+            )
+        );
     }
 }
