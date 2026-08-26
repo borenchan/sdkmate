@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.4.0 - 2026-08-26
+
+
+### ✨ Features
+
+- add fish support with pluggable shell backend — [`03bcc8d`](https://github.com/borenchan/sdkmate/commit/03bcc8d)
+- add project-level SDK version management — [`f24bf48`](https://github.com/borenchan/sdkmate/commit/f24bf48)
+
+### 🐛 Bug Fixes
+
+- fuzzy-match project pin in check_project_references — [`7f312e8`](https://github.com/borenchan/sdkmate/commit/7f312e8)
+- add unix stub for powershell_profile_paths to unblock linux build — [`47e3343`](https://github.com/borenchan/sdkmate/commit/47e3343)
+
+### ♻️ Refactor
+
+- enforce use-short-name via clippy absolute_paths lint — [`e664629`](https://github.com/borenchan/sdkmate/commit/e664629)
+
+### ✅ Tests
+
+- add shell backend core-entry integration tests — [`3336d07`](https://github.com/borenchan/sdkmate/commit/3336d07)
+
+### 🧰 Chore
+
+- release v0.4.0 — [`e8603ca`](https://github.com/borenchan/sdkmate/commit/e8603ca)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.3.5...v0.4.0
+
+
+
 ## v0.3.5 - 2026-08-12
 
 
