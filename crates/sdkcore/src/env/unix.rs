@@ -15,7 +15,7 @@ use std::slice;
 
 use anyhow::{Context, Result};
 use util::consts::ENV_PATH;
-use util::shell::{PathModel, ProfilePersistence, detect_shell};
+use util::shell::{PathModel, ProfilePersistence, Shell, detect_shell};
 use util::{detail, info, warning};
 
 use crate::env::EnvOperation;
@@ -57,9 +57,13 @@ impl UnixEnvOperation {
         fs::read_to_string(file_path).unwrap_or_default()
     }
 
-    /// 把行数组写回 profile（\n 连接）
+    /// 把行数组写回 profile（\n 连接 + 尾换行；空行集不写空文件）
     fn write_profile(file_path: &Path, lines: &[String]) -> Result<()> {
-        fs::write(file_path, lines.join("\n"))?;
+        let mut content = lines.join("\n");
+        if !content.is_empty() {
+            content.push('\n');
+        }
+        fs::write(file_path, content)?;
         Ok(())
     }
 
@@ -68,15 +72,11 @@ impl UnixEnvOperation {
         lines.iter().position(|l| l.trim().starts_with(REBUILD_PATH_PREFIX))
     }
 
-    /// 从 profile 内容提取 PATH 值；无 export PATH 行时回退到进程 $PATH（RebuildLine 专用）
-    fn get_path_from_content(content: &str) -> String {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with(REBUILD_PATH_PREFIX) {
-                return line.trim_start_matches(REBUILD_PATH_PREFIX).replace('"', "").to_string();
-            }
-        }
-        env::var(ENV_PATH).unwrap_or_default()
+    /// profile 内含 hook marker 的行索引（把 export PATH 行插到 hook 之前，
+    /// 确保 source 时 sdkm 先进 PATH 再跑 hook 的 eval，否则 hook 启动期 `sdkm` 找不到）
+    fn find_hook_marker_line(lines: &[String], shell: Shell) -> Option<usize> {
+        let marker = shell.syntax().inject_marker;
+        lines.iter().position(|l| l.contains(marker))
     }
 
     /// 设置/替换一个赋值行（已存在则替换，无则追加）。行形态走 backend（bash `export K="v"` / fish `set -gx K "v"`）
@@ -117,24 +117,36 @@ impl UnixEnvOperation {
             PathModel::RebuildLine => {
                 let parse = p.parse_profile_path_line.context("RebuildLine 缺 parse 语法")?;
                 let build = p.profile_path_line.context("RebuildLine 缺 build 语法")?;
-                let content = Self::read_profile(file_path);
+                let mut lines: Vec<String> = Self::read_profile(file_path).lines().map(String::from).collect();
 
-                // 已存在则跳过（检查 export PATH 行值与进程 $PATH）
-                if Self::get_path_from_content(&content).split(':').any(|e| e == expanded) {
+                // 仅查 profile 自己的 export PATH 行是否已含该条目（不读进程 $PATH）：
+                // 旧实现回退进程 $PATH，会让"目录已在 live PATH 但未持久化"时误判"已存在"跳过写入，
+                // 重启后 PATH 丢失（self-uninstall 删了 profile 行、同会话 live PATH 仍残留时触发）。
+                // 持久化语义：profile 行里没有就写。
+                let path_line_idx = Self::find_path_export_line(&lines);
+                let already_in_profile =
+                    path_line_idx.is_some_and(|idx| parse(&lines[idx]).0.iter().any(|e| e == &expanded));
+                if already_in_profile {
                     warning!("path exists. sdk_path: {}", new_path);
                     return Ok(());
                 }
 
-                let mut lines: Vec<String> = content.lines().map(String::from).collect();
-                if let Some(idx) = Self::find_path_export_line(&lines) {
+                if let Some(idx) = path_line_idx {
                     // 前置插入到已有 export PATH 行；保留原 backref 状态（有 $PATH 引用则重建时附回）
                     let (entries, backref) = parse(&lines[idx]);
                     let mut merged = vec![expanded.clone()];
                     merged.extend(entries);
                     lines[idx] = build(&merged, backref);
                 } else {
-                    // 无 export PATH 行：新建，backref=$PATH 引用（$PATH 展开避免冲掉系统 PATH）
-                    lines.push(build(slice::from_ref(&expanded), true));
+                    // 无 export PATH 行：新建，backref=$PATH 引用（$PATH 展开避免冲掉系统 PATH）。
+                    // 插到 hook marker 行之前——确保 source 时 sdkm 先进 PATH，再跑 hook 的 eval；
+                    // 否则 hook 行若在 PATH 行之前，source 时 `sdkm` 找不到 → PROMPT_COMMAND 注册失败。
+                    // 无 marker 则追加末尾。
+                    let new_line = build(slice::from_ref(&expanded), true);
+                    match Self::find_hook_marker_line(&lines, p.shell) {
+                        Some(idx) => lines.insert(idx, new_line),
+                        None => lines.push(new_line),
+                    }
                 }
                 Self::write_profile(file_path, &lines)
             }
@@ -304,8 +316,12 @@ mod tests {
     use super::*;
     use std::fs;
     use std::process;
+    use std::sync::Mutex;
     use std::thread;
     use util::shell::Shell;
+
+    /// 序列化本模块内改写进程 $PATH 的测试（set_var 全局竞态）
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     /// 临时唯一 profile 路径（bash 语义；测试不改真实 profile）
     fn temp_profile() -> PathBuf {
@@ -354,6 +370,60 @@ mod tests {
         UnixEnvOperation::add_path_entry(&path, p, "/opt/sdk/bin").unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert_eq!(content, "fish_add_path --path \"/opt/sdk/bin\"\n");
+        let _ = fs::remove_file(&path);
+    }
+
+    /// Bug 1 回归：profile 无 export PATH 行、但进程 live $PATH 已含该目录时，
+    /// 旧实现回退进程 $PATH 误判"已存在"跳过写入；修复后只查 profile → 必须写入。
+    /// 触发场景：self-uninstall 删了 profile 行、同会话 live $PATH 仍残留该目录时重跑 init。
+    #[test]
+    fn add_path_entry_writes_even_if_dir_in_process_path() {
+        let p = Shell::Bash.persistence().unwrap();
+        let path = temp_profile();
+        let _g = ENV_MUTEX.lock().unwrap();
+        // Drop 守卫：无论测试成功或 panic 都恢复进程 $PATH
+        struct PathGuard(String);
+        impl Drop for PathGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    env::set_var(ENV_PATH, &self.0);
+                }
+            }
+        }
+        let _restore = PathGuard(env::var(ENV_PATH).unwrap_or_default());
+        // 进程 live $PATH 含 /sdk/bin（模拟 self-uninstall 删了 profile 行、live $PATH 仍残留）
+        unsafe {
+            env::set_var(ENV_PATH, "/sdk/bin:/usr/bin");
+        }
+        // profile 文件不存在（无 export PATH 行）
+        UnixEnvOperation::add_path_entry(&path, p, "/sdk/bin").unwrap();
+        let content = fs::read_to_string(&path).unwrap_or_default();
+        // 修复后必须写入；旧实现此处为空串（跳过 → Bug 1）
+        assert_eq!(content, "export PATH=\"/sdk/bin:$PATH\"\n");
+        let _ = fs::remove_file(&path);
+    }
+
+    /// Bug 2 回归：profile 已有 hook 行、无 export PATH 行时，新建 PATH 行必须插到 hook 行之前，
+    /// 确保 source 时 sdkm 先进 PATH 再跑 hook 的 eval（否则 hook 启动期 `sdkm` 找不到）。
+    /// 触发场景：重跑 init（hook 行已存在、PATH 行被删）。
+    #[test]
+    fn add_path_entry_inserts_path_before_hook_line() {
+        let p = Shell::Bash.persistence().unwrap();
+        let path = temp_profile();
+        // 模拟重跑 init：hook 行已存在、PATH 行被 self-uninstall 删了
+        fs::write(&path, "# sdkm project-level version hook\neval \"$(sdkm hook bash)\"\n").unwrap();
+        UnixEnvOperation::add_path_entry(&path, p, "/home/u/.sdkm").unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        let export_idx = lines.iter().position(|l| l.starts_with("export PATH="));
+        let hook_idx = lines.iter().position(|l| l.contains("sdkm hook bash"));
+        assert!(export_idx.is_some(), "PATH 行应被写入");
+        assert!(hook_idx.is_some(), "hook 行应保留");
+        assert!(
+            export_idx.unwrap() < hook_idx.unwrap(),
+            "PATH 行必须在 hook 行之前（实际顺序：{:?}）",
+            lines
+        );
         let _ = fs::remove_file(&path);
     }
 }

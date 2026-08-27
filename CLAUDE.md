@@ -99,31 +99,21 @@ bin_dir = "bin"
 
 ## 当前开发进度（2026-08-27）
 
-### 本次改动 —— 文档补全：项目级版本管理 + shell 支持说明
+### 本次改动 —— 修 `env/unix.rs` 两个 PATH 持久化 bug
 
-承接上次（导入 lint 工具化 + review + shell 集成测试，已发版 v0.4.0），本次纯文档更新（无代码改动，无需编译）：
+承接上次（文档补全 v0.4.0），本次代码改动（WSL 用户排查"项目级版本切换重启后失效"时定位出的两个 bug）：
 
-**新增内容**（答用户「根据最近 commit 更新 README 和 docs，新增项目级版本管理用法 + shell 支持情况 + 不同 shell 手动注册 hook 说明」+ 后续「技术细节单独章节、加 hook 流程图、三层描述挑重点不堆命名」）：
-- `docs/commands.md`：补 `sdkm use`/`sdkm env`/`sdkm hook` 三命令详解（总览表 + 独立章节），三层优先级精简为一行引用指向 usage.md 工作原理。
-- `docs/usage.md`：**分层重组**——用户操作层（「项目级版本管理」「Shell 支持与 Hook 注册」只讲做什么/效果，4 shell 表只留 profile 路径，技术机制移走）+ 技术参考层（新增「工作原理」章：两张 mermaid 流程图【hook 生效流程 + 三层优先级解析】、三层对照表、关键机制【幂等重建+base PATH、stdout 纯净、mtime 缓存、未装降级、父级冲突检测、会话无 unset 入口】、各 shell hook 触发/PATH 持久化表）；导航表补 use/env/hook + 章节索引；临时级 `use --shell` 用法补 PowerShell 写法（bash/zsh/fish/PS 四 shell 齐全）。
-- `README.md`/`README-en.md`：命令参考表加 use/env/hook；简介节改用「作用域 + 实现方式」概括三种切换（临时=shell 临时环境变量、项目=shell 钩子读 `.sdkm.toml`、全局=系统 PATH+符号链接），不堆砌「会话级/项目级/全局级」命名，指向 usage.md。
+**Bug 1（dedup 回退进程 `$PATH`，silent footgun）**：`add_path_entry`（unix.rs）用 `get_path_from_content` 做"已存在则跳过"，该函数在 `.bashrc` 无 `export PATH=` 行时**回退到进程当前 `$PATH`**。后果：目录已在 live `$PATH` 但未持久化时（典型：`self uninstall` 删了 profile 行、同会话 live `$PATH` 仍残留 → 重跑 `init`）误判"已存在"跳过写入 → 重启丢 PATH。修：dedup 只查 profile 自己的 `export PATH=` 行（`find_path_export_line` + `parse`），不读进程 env；删因之孤立的 `get_path_from_content`。`add_sdk_path` 被 `init` + `switch` 共用，故 switch 的 PATH 持久化同步受益。
 
-**话术自洽调整**：README 命令表删 `env`/`hook`（前端无关、对快速入门无意义）；核心优势表 / 对比表 / 专为全栈设计三处把「全局切换」优势话术改为「同时支持全局/项目/临时三作用域」，已开进程感知与 AI-agent 友好行加作用域限定，保证与三作用域现状自洽。
+**Bug 2（重跑 init 时 PATH 行落到 hook 行之后）**：`add_path_entry` 无 `export PATH=` 行时走 `lines.push` 追加末尾。若 hook 行已存在（重跑 init 常见），PATH 行落在 hook 行之后 → source 时先跑 `eval "$(sdkm hook bash)"`（此时 sdkm 不在线）→ `PROMPT_COMMAND` 注册失败 → 项目 pin 不生效。修：新建 PATH 行插到 hook marker 行之前（新增 `find_hook_marker_line`，marker 取 `shell.syntax().inject_marker`），无 marker 则追加末尾。首次 init 不受影响（step2 在 step5 之前，顺序本就正确）。
 
-**改动文件**（4，纯文档）：`docs/commands.md`、`docs/usage.md`、`README.md`、`README-en.md`。**未发版**（无代码变化，复用 v0.4.0）。
+**顺手修**：`write_profile` 加尾换行（POSIX；既有的 `bash_rebuild_line_add_path_entry` 测试期望带 `\n` 却因 CI 不跑 lib 测试一直静默失败，一并修好）。
 
-### 沿自前次（shell 后端双表 + fish 支持）—— 仍有效，排查必读
+**回归测试**（`env/unix.rs` tests 模块，`#[cfg(all(test, unix))]`）：新增 `add_path_entry_writes_even_if_dir_in_process_path`（Bug 1 守护，设进程 `$PATH` 含目标目录 + 空 profile，断言仍写入）+ `add_path_entry_inserts_path_before_hook_line`（Bug 2 守护，断言 PATH 行索引 < hook 行索引）；模块级 `static ENV_MUTEX: Mutex<()>` 序列化 $PATH 改写（本模块唯一碰 `$PATH` 的测试）+ Drop 守卫恢复。
 
-**fish 关键铁律**（细节见 `shell_backend/fish.rs` 注释 + `hook.rs`/`inject.rs` 测试守护）：
-1. 一律 `| source`，禁 `eval (...)`（命令替换按换行拆参、eval 压行）
-2. `_SDKM_BASE_PATH` 是 list：base 引用不引号、bin 单独引号
-3. `set -e` 对不存在变量报错：unset 行必须 `set -q K; and set -e K` 守卫
-4. PATH 持久化用 `fish_add_path --path "<dir>"`（必须 `--path`，否则写 universal `fish_user_paths`）
-5. source_profile 输出必须 `string join : $PATH`（`$PATH` 是 list）
+**验证**：按 cfg(unix) Windows 盲区规矩——临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 放开 + 测试门控临时改 `#[cfg(test)]`，在 Windows 上强制编译并**实跑** unix 测试（5 passed：含既有 `bash_export_write_replace_read`/`bash_rebuild_line_add_path_entry`/`fish_per_dir_add_path_entry` + 两新测），验完两处门控改回。Windows 全量 lib 测试 23 passed 无回归。WSL 无 cargo 工具链，未端到端跑。
 
-**关键机制**：hook 每提示符触发 `sdkm env`（热更新 + mtime 缓存）；幂等重建（base 一次性存 PATH，env 永远重建 + 未选中 known keys unset）；stdout 纯净（脚本走 stdout，诊断走 stderr）；未装降级（项目/会话版本缺失 → stderr warn + 跳过回退全局）；PowerShell 注入铁律（`-join [Environment]::NewLine`、ASCII、Documents 重定向、IEX 非 scriptblock）。Shell 职责分层（`util::shell` 枚举+detect/parse + `shell_backend` 双表 + `sdkcore::shell` 编排 + `env/unix.rs` backend 化 + `hook_cache` shell 字段 schema=3）见源码。
-
-**注：下次更新进度时，删除本条（只保留最新一次会话）。**
+**改动文件**（1）：`crates/sdkcore/src/env/unix.rs`（`env/mod.rs` 临时改动已恢复，无净变化）。**未发版**。
 
 ## 已知问题与注意事项
 
@@ -139,6 +129,7 @@ bin_dir = "bin"
 - **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`。改 `unix.rs` 后**必须**验证类型——Windows 上临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use` 避免冲突），跑 `cargo check -p sdkcore` 强制编译暴露错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行（aws-lc-rs build.rs 找不到 `x86_64-linux-gnu-gcc`）；或直接 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用）**——`split()` 的 item 是 `&str`，闭包参数是 `&&str`，必须用 `|&p|` 解构才能跟 `&str` 比较；`&String` 用 `.as_str()` 转 `&str`
 - **SDKM_HOME 环境变量可覆盖 home**：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME`，未设回退 `current_exe().parent()`，行为兼容。主要解锁 in-process 集成测试——`SdkManager::new()` 等路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入），注入后测试可全部指向临时目录。`tests/uninstall.rs` 等用：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录
 - **改完代码先 review 再交付**（编译通过 ≠ 代码干净）：每次改完、build/test/通知用户/提交前，对本次 diff 逐文件自审——(1) 逻辑/边界 bug（空集、None、并发、`panic=abort` 下后台线程无 unwrap）；(2) 因改动变孤儿的 import/变量/函数一并清；(3) 风格违规（标准库别用 `std::fs::` 全路径，优先 `use` 短名，歧义才加包名）；(4) 冗余/可简化处。复核通过再 build/test/交付
+- **WSL + Windows 双装 sdkm 的跨平台污染**（排查"项目级切换重启失效"教训）：WSL 默认 `appendWindowsPath=true` 继承 Windows PATH，但 **WSL bash 不补 `.exe` 后缀**（[WSL#2003](https://github.com/microsoft/WSL/issues/2003)）——bare `sdkm`/`node` 只命中文件名恰好叫 `sdkm`/`node`（无后缀）的条目，Windows 目录里的 `sdkm.exe`/`node.exe` **不匹配**。所以 Windows PATH 里的 `/mnt/d/.../sdkm` 是纯干扰，不能让 bare 命令生效。用户若在 WSL 敲 `sdkm.exe`（带后缀）则跑的是 **Windows sdkm**，操作 Windows home（`D:\...\sdkm`）、写 PowerShell profile/注册表，**完全不碰 Linux `.bashrc`**。排查要点：让用户 `command -v sdkm` + `file $(command -v sdkm)` 确认命中 Linux ELF 还是 Windows PE。`init` 的 PATH 持久化靠 `add_sdk_path`→`add_path_entry` 写 profile 行，但 `source_profile` 只把新 PATH 设进 **sdkm 子进程**（`env::set_var`），**不回传交互 shell**——所以 init/switch 后必须新开 shell 或 `source ~/.bashrc` 才生效。已修两 bug：dedup 不再回退进程 `$PATH`（Bug 1）、新建 PATH 行插到 hook 行之前（Bug 2，避免 source 时 hook 找不到 sdkm）。详见进度段本次改动。
 
 ## 发布流程
 
