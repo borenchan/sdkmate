@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.4.1 - 2026-08-27
+
+
+### 🐛 Bug Fixes
+
+- persist PATH to profile correctly on re-init — [`9fd47cb`](https://github.com/borenchan/sdkmate/commit/9fd47cb)
+
+### 📝 Documentation
+
+- add multi-scope version switching and shell hook docs — [`5ae3659`](https://github.com/borenchan/sdkmate/commit/5ae3659)
+
+### 🧰 Chore
+
+- release v0.4.1 — [`4b461f3`](https://github.com/borenchan/sdkmate/commit/4b461f3)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.0...v0.4.1
+
+
+
 ## v0.4.0 - 2026-08-26
 
 
