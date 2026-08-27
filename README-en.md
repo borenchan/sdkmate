@@ -54,8 +54,8 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
         <p>Single binary · zero runtime deps · <strong>~4MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
       </td>
       <td width="25%" align="center">
-        <h3>⚡ Instant · Global</h3>
-        <p>Symlink + PATH + broadcast<br>Open processes notice · one switch, system-wide</p>
+        <h3>⚡ Multi-scope version switching</h3>
+        <p>Global · project · temp<br>auto-switch on cd · auto-restore on leave</p>
       </td>
       <td width="25%" align="center">
         <h3>🛡️ Transparent · Rollback-safe</h3>
@@ -101,13 +101,13 @@ what python do I have      → sdkm list
 |:---|:---:|:---:|:---:|
 | Multi-language in one tool | ✅ Java/Node/Python/Maven/Go + custom | ⚠️ Java ecosystem mainly | ❌ one tool per language |
 | Native Windows support | ✅ first-class, registry + broadcast | ❌ needs WSL | ⚠️ needs third-party port |
-| Open processes sense the switch | ✅ Windows broadcast notifies them | ❌ current shell only | ❌ current shell only |
-| Switch is global & persistent by default | ✅ symlink + PATH, one shot | ⚠️ `sdk use` is temp, needs `default` | ⚠️ `use`/`shell` is temp, needs extra cmd |
+| Open processes sense the switch | ✅ global-scope switch broadcasts via Windows `WM_SETTINGCHANGE` (project/temp scopes are in-shell, like others) | ❌ current shell only | ❌ current shell only |
+| Three switching scopes (global / project / temp) | ✅ all three: symlink+PATH / .sdkm.toml+hook / use --shell | ⚠️ `sdk use` temp, `default` global — no project pin | ⚠️ `.nvmrc`/`.python-version` project + shell, global via default |
 | Fuzzy version match | ✅ `21` → latest 21.x + suggestions | ❌ no prefix fuzzy | ⚠️ partial |
 | Single-file portability | ✅ binary + config in one dir | ❌ script + fixed install path | ❌ script + shell hooks |
 | Operations rollback-safe | ✅ snapshot auto-recovery | ❌ | ❌ |
 | Memory-safe implementation | ⚡ Rust ownership + compile-time checks | 🐌 unchecked bash | 🐌 unchecked shell |
-| AI-agent friendly | ✅ exit-code semantics + global effect + skill doc | ⚠️ shell function, cross-process limited | ⚠️ switch is current-shell only, cross-process limited |
+| AI-agent friendly | ✅ exit-code semantics + child processes inherit the new env + skill doc | ⚠️ shell function, cross-process limited | ⚠️ switch is current-shell only, cross-process limited |
 | Implementation | ⚡ Rust compiled binary | 🐌 bash script | 🐌 bash / shell script |
 
 </div>
@@ -117,7 +117,7 @@ what python do I have      → sdkm list
 Switching between Java, Node.js, Python, Go, Maven and other SDK versions is the norm for full-stack devs — you used to need nvm, jenv, pyenv, sdkman, multiple script tools, each in its own silo. **sdkm does it all with one Rust binary.**
 
 - **🟢 Portable, green**: single binary, no background service. sdkm's `HOME` is the executable's folder — copy it to a USB stick or another machine, config and installed SDKs come along. Drop existing JDK / Node / Python into the `store/` directory and sdkm discovers and manages them.
-- **⚡ Instant switching, global effect**: symlink + PATH injection + env-var broadcast. One `switch` takes effect globally and persistently (symlink, PATH, `current_version` all updated); on Windows, `WM_SETTINGCHANGE` lets willing already-open processes pick up the new vars.
+- **⚡ Three scopes, switch on demand**: global (`switch` symlink + system PATH, system-wide; on Windows `WM_SETTINGCHANGE` lets open processes notice), project (`use` writes `.sdkm.toml`, shell hook auto-switches on entry, restores on leave), and temp (`use --shell`, current-terminal override) — all three supported by one mechanism, pick as needed.
 - **🛡️ Transparent and rollback-safe**: every step prints what it did and why; `switch` auto-rolls back to the pre-switch state if any step fails; `config` uses atomic write + snapshot rollback — the config file can never be left half-written.
 - **🦀 Rust-driven, type-safe & reliable**: written in Rust — ownership and the type system eliminate whole classes of memory-safety bugs (dangling pointers, buffer overflows, data races) at compile time; compared to unchecked bash scripts, you get a compile-time safety net and won't silently fail on a typo or null. Paired with atomic writes + snapshot rollback, a failed operation never wrecks your environment.
 - **🧩 Extensible, one tool for everything**: Java / Node.js / Python / Maven / Go / any SDK built in; any tool downloadable from a URL can be registered as a custom SDK with one command. Config values are type-validated — bad values error on the spot — **say goodbye to "a version manager for every language".**
@@ -174,6 +174,26 @@ sdkm current               # Show active versions of all SDKs
 
 ---
 
+## 🐚 Multi-scope version switching
+
+sdkm switches versions across **three scopes**, from highest to lowest priority:
+
+- **Temporary · this terminal**: `sdkm use --shell java 21` sets a temp env var, only affects this shell process, gone when the terminal closes.
+- **Project · a directory (recommended)**: `sdkm use java 21` writes `.sdkm.toml` in the current dir; the shell hook auto-switches on entry and auto-restores on leave — edit, press Enter, it applies.
+- **Global · the whole system**: `sdkm switch java 21` modifies the system PATH and symlink, all terminals and directories.
+
+```bash
+sdkm switch java 21                      # Global: Java 21 everywhere
+sdkm use java 21                         # Project: Java 21 only in this dir (needs hook)
+eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highest priority, overrides both)
+```
+
+> Temporary and project scopes take effect via the shell hook; without it, only `switch` (global) works. Run `sdkm init` to auto-inject the hook — bash / zsh / fish / PowerShell supported.
+
+📖 Manual hook registration, profile reset, hook mechanism & flow diagrams: see [Detailed Usage](./docs/usage.md).
+
+---
+
 ## 🎮 Command Reference
 
 | Command | Alias | What it does | Example |
@@ -181,7 +201,8 @@ sdkm current               # Show active versions of all SDKs
 | `sdkm init` | — | Initialize sdkmate | `sdkm init --force` |
 | `sdkm install` | `i` | Install a version (fuzzy match, auto-switch) | `sdkm install java 21` |
 | `sdkm list` | `ls`, `l` | List/browse versions (interactive TUI) | `sdkm list node -r` |
-| `sdkm switch` | `s` | Switch to a locally installed version | `sdkm switch java 21` |
+| `sdkm switch` | `s` | Switch to a locally installed version (global) | `sdkm switch java 21` |
+| `sdkm use` | — | Pin a version for the project / temp session | `sdkm use java 21` |
 | `sdkm current` | `c` | Show the active version | `sdkm current java` |
 | `sdkm config` | — | Configuration management | `sdkm config edit` |
 

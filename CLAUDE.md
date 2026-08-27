@@ -97,35 +97,22 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-08-26）
+## 当前开发进度（2026-08-27）
 
-### 本次改动 —— 导入 lint 工具化 + 三提交 review + shell 集成测试
+### 本次改动 —— 文档补全：项目级版本管理 + shell 支持说明
 
-承接上次（shell 后端双表 + fish，commit `03bcc8d`），本次三件事：
+承接上次（导入 lint 工具化 + review + shell 集成测试，已发版 v0.4.0），本次纯文档更新（无代码改动，无需编译）：
 
-**1. 导入规则工具化（clippy `absolute_paths`）**——答用户「能否用 rustfmt/clippy 控制」：
-- rustfmt **管不了**使用处全路径（`imports_granularity` 只管 use 聚合且 nightly-only）；clippy **可以**——`clippy::absolute_paths`（restriction，默认 allow）专查使用处绝对路径（不管 use 语句/宏/derive）。
-- 配置三处：根 `Cargo.toml` 加 `[workspace.lints.clippy] absolute_paths = "warn"` + 各 crate `[lints] workspace = true` + 根 `clippy.toml` 的 `absolute-paths-max-segments = 3`。
-- **max-segments=3 权衡**：只抓 4 段及以上超长全路径（`crate::shell::inject::fn`、`std::path::Path::new`），放过第三方惯用 3 段子模块写法（`tokio::fs::metadata`、`reqwest::header::AUTHORIZATION`、`crossterm::terminal::size`——强改 use 反而更糟）。max=2 误伤第三方、噪音过大；项目内 std 全路径已清为 use 短名。工具管不了的：相对路径「最多 1 级 `inject::fn()`」（absolute_paths 只管绝对路径）。详见记忆 `clippy-absolute-paths-lint`。
-- 清理剩余使用处全路径：`util/terminal.rs` `std::process::Command::new` → use；`util/tests/test_bug_report.rs` 类型标注 `std::collections::HashMap` → use；`tests/{uninstall,self_uninstall}.rs` `std::sync::MutexGuard` → use；`tests/install.rs` 删孤儿 `use std::process`。
+**新增内容**（答用户「根据最近 commit 更新 README 和 docs，新增项目级版本管理用法 + shell 支持情况 + 不同 shell 手动注册 hook 说明」+ 后续「技术细节单独章节、加 hook 流程图、三层描述挑重点不堆命名」）：
+- `docs/commands.md`：补 `sdkm use`/`sdkm env`/`sdkm hook` 三命令详解（总览表 + 独立章节），三层优先级精简为一行引用指向 usage.md 工作原理。
+- `docs/usage.md`：**分层重组**——用户操作层（「项目级版本管理」「Shell 支持与 Hook 注册」只讲做什么/效果，4 shell 表只留 profile 路径，技术机制移走）+ 技术参考层（新增「工作原理」章：两张 mermaid 流程图【hook 生效流程 + 三层优先级解析】、三层对照表、关键机制【幂等重建+base PATH、stdout 纯净、mtime 缓存、未装降级、父级冲突检测、会话无 unset 入口】、各 shell hook 触发/PATH 持久化表）；导航表补 use/env/hook + 章节索引；临时级 `use --shell` 用法补 PowerShell 写法（bash/zsh/fish/PS 四 shell 齐全）。
+- `README.md`/`README-en.md`：命令参考表加 use/env/hook；简介节改用「作用域 + 实现方式」概括三种切换（临时=shell 临时环境变量、项目=shell 钩子读 `.sdkm.toml`、全局=系统 PATH+符号链接），不堆砌「会话级/项目级/全局级」命名，指向 usage.md。
 
-**2. Review 最近三提交 + 修复**（两子代理并行 review `f24bf48`/`03bcc8d`/`47e3343`，无致命 bug）：
-- **[BUG 修复] `check_project_references`（uninstall.rs）**：原精确 `v == version` 比较，对模糊 pin（`"21"`，`use_project_version` 未装时写入或用户手写）永不命中 → 卸载该版本时**漏发项目引用警告**。改为 `fuzzy_match_version_core(&[version], pin).is_ok()`（pin 当输入、被卸载版本当候选池）。
-- **[NIT] `Shell` 枚举加 `#[repr(u8)]`**：`hook_cache` 用 `shell as u8` 存盘，把判别序契约写死（Bash=0/Zsh=1/Fish=2/PowerShell=3）。
-- **[NIT] `generate_env_script_inner` 去掉 `_pwd` 误导形参**：cache key 由 `generate_env_script_cached` 持有 pwd，inner 用 `find_project_config()`（同进程 current_dir 一致）。
-- **review 不成立**：`resolve_local_version`「吞 fuzzy Err」——`fuzzy_match_version_core` 的 Err 只有「无匹配」一种（前缀匹配取最新，不报歧义），Err 即未装，当 None 处理正确，不改。
-- **遗留 RISK（未改）**：`SDKM_ACTIVE_*` 只有 set 路径无 unset 入口（清除靠手敲 `unset`），可用性缺口非 bug，待加 `use --shell --unset` 或 help 说明。
+**话术自洽调整**：README 命令表删 `env`/`hook`（前端无关、对快速入门无意义）；核心优势表 / 对比表 / 专为全栈设计三处把「全局切换」优势话术改为「同时支持全局/项目/临时三作用域」，已开进程感知与 AI-agent 友好行加作用域限定，保证与三作用域现状自洽。
 
-**3. shell 后端核心入口集成测试**（新文件 `crates/sdkcore/tests/shell_integration.rs`，7 测全过）：
-- `use_session_version` 四 shell 端到端（模糊 "21" → 精确 21.0.2+9，各 shell 赋值前缀）+ 未装 bail
-- `generate_env_script_cached` 端到端（有项目 pin → 含 bin PATH 行 + export JAVA_HOME；无配置 → unset JAVA_HOME 幂等还原；缓存幂等）
-- `HookCache` 跨 shell 串扰（put bash → resolve fish/zsh/PS miss）+ 旧 schema miss
-- 均跨平台入口，cfg(unix) 路径 Windows 也能编译（测试只走公共入口，不直接引 unix-only fn）
+**改动文件**（4，纯文档）：`docs/commands.md`、`docs/usage.md`、`README.md`、`README-en.md`。**未发版**（无代码变化，复用 v0.4.0）。
 
-**新增文件**（1）：`crates/sdkcore/tests/shell_integration.rs`
-**改动文件**：根 `Cargo.toml`、`clippy.toml`、三 crate `Cargo.toml`、`util/{terminal,shell}.rs`、`util/tests/test_bug_report.rs`、`sdkcore/tests/{install,uninstall,self_uninstall}.rs`、`sdkcore/src/{uninstall,shell/env}.rs`。**未发版**。
-
-### 沿自上次（shell 后端双表 + fish 支持）—— 仍有效，排查必读
+### 沿自前次（shell 后端双表 + fish 支持）—— 仍有效，排查必读
 
 **fish 关键铁律**（细节见 `shell_backend/fish.rs` 注释 + `hook.rs`/`inject.rs` 测试守护）：
 1. 一律 `| source`，禁 `eval (...)`（命令替换按换行拆参、eval 压行）

@@ -9,7 +9,10 @@
 | [`sdkm init`](#sdkm-init) | — | 初始化 sdkm 运行环境 |
 | [`sdkm install`](#sdkm-install) | `i` | 从远程安装 SDK 版本 |
 | [`sdkm list`](#sdkm-list) | `ls`, `l` | 列出本地/远程版本（含交互式 TUI） |
-| [`sdkm switch`](#sdkm-switch) | `s` | 切换到本地已安装版本 |
+| [`sdkm switch`](#sdkm-switch) | `s` | 切换到本地已安装版本（全局） |
+| [`sdkm use`](#sdkm-use) | — | 为当前项目 / 当前 shell 会话固定版本 |
+| [`sdkm env`](#sdkm-env) | — | 输出当前目录应 eval 的环境脚本（hook 内部用） |
+| [`sdkm hook`](#sdkm-hook) | — | 输出 shell hook 注册脚本（注入 profile 用） |
 | [`sdkm current`](#sdkm-current) | `c` | 查看当前激活版本 |
 | [`sdkm config`](#sdkm-config) | — | 配置管理（7 个子命令） |
 | [`sdkm self`](#sdkm-self) | — | 管理 sdkm 自身（卸载 / 自更新） |
@@ -120,6 +123,86 @@ sdkm s node 20.11.0          # 切换到 Node.js 20.11.0
 - **PATH 冲突检测**：切换前检测 PATH 中是否已有同 SDK 的其他版本路径，避免冲突。
 - **快照回滚**：切换过程中任一步骤失败（符号链接、环境变量、PATH、配置写入），都会自动回滚到切换前的状态——恢复旧符号链接目标、旧环境变量值、移除已添加的 PATH 条目、恢复旧配置。
 - Windows 下创建符号链接与写入环境变量需**管理员权限**。
+
+---
+
+## sdkm use
+
+为当前项目或当前 shell 会话固定一个 SDK 版本。与 `switch`（改全局符号链接）不同，`use` 走的是 shell hook 路径——**只影响当前目录及其子目录**，离开目录自动还原全局版本。
+
+```bash
+sdkm use <SDK> <VERSION> [--shell]
+```
+
+- `<SDK>`：SDK 名称（内置或自定义）。
+- `<VERSION>`：目标版本，**支持模糊匹配**（如 `21` → 本地已装的最新 `21.x`）。
+- `--shell`：仅对当前 shell 会话生效，不写文件，输出一段可 `eval`/`source` 的脚本。
+
+### 项目级（默认）
+
+```bash
+sdkm use java 21          # 在当前目录写 .sdkm.toml：java = "21"
+```
+
+- 在当前目录生成（或合并进已有的）`.sdkm.toml`，把 SDK → 期望版本作为 KV 摊平写入（如 `java = "21"`）。
+- **声明意图，不强制安装**：若该版本本地未装，仍写入，但 `sdkm env` 会自动降级回全局版本，并提示你 `sdkm install java 21`。
+- 写入前若检测到上层目录已有 `.sdkm.toml`，会 warning 提示覆盖关系（只提示不阻断）。
+- 写入后**开一个新 shell**（或 `cd` 出去再进来）即激活——hook 会在每次提示符渲染时读 `.sdkm.toml` 热更新。
+
+### 会话级（`--shell`）
+
+```bash
+eval "$(sdkm use --shell java 21)"          # bash / zsh
+sdkm use --shell java 21 | source            # fish
+Invoke-Expression ((sdkm use --shell java 21) -join [Environment]::NewLine)  # PowerShell
+```
+
+- 不写文件，输出一行设置 `SDKM_ACTIVE_<SDK>` 环境变量的脚本（变量名由 SDK 名大写化得到，如 `SDKM_ACTIVE_JAVA`）。
+- 会话级**优先级最高**，覆盖项目级与全局。
+- 会话级版本**必须本地已安装**，否则报错退出（不像项目级那样宽容降级）。
+
+### 三层优先级
+
+> **临时环境变量**（`use --shell`）> **项目 `.sdkm.toml`**（`use`）> **全局符号链接**（`switch`）——`sdkm env` 对每个 SDK 取第一个命中的。
+>
+> 临时级 / 项目级依赖 shell hook 才会自动激活，**未注入 hook 时 `use` 不生效**，只能靠 `switch` 改全局。先跑 `sdkm init` 注入 hook。三层解析流程、hook 生效机制与流程图见 [工作原理](./usage.md#工作原理)。
+
+---
+
+## sdkm env
+
+输出当前目录应 `eval`/`source` 的环境变量设置脚本。**由 shell hook 在每次提示符渲染时高频调用**，日常一般不手动跑。
+
+```bash
+sdkm env [--shell <shell>]
+```
+
+- `--shell <shell>`：指定目标 shell（`bash`/`zsh`/`fish`/`powershell`）；省略则自动检测当前 shell。
+- 输出内容：PATH 重建行（项目 bins 前置到 `_SDKM_BASE_PATH`）+ 全局 known env vars 的幂等 unset + 本次选中 SDK 的 export（如 `JAVA_HOME`）。
+- **幂等重建**：每次调用都从 base PATH 重建，离开项目目录即还原全局；无项目配置时输出幂等还原脚本。
+- 带 mtime 缓存：`.sdkm.toml` 未改动时直接吐缓存脚本，未装降级等诊断走 stderr，不污染 stdout（stdout 必须纯净供 eval）。
+
+手动验证当前目录会注入什么（不会改动环境）：
+
+```bash
+sdkm env --shell bash          # 看脚本内容
+```
+
+---
+
+## sdkm hook
+
+输出 shell hook 注册脚本。`sdkm init` 会自动把它追加进对应 shell 的 profile；本命令供手动注入或排查用。
+
+```bash
+sdkm hook [<shell>]
+```
+
+- `<shell>`：`bash`/`zsh`/`fish`/`powershell`；省略则自动检测。
+- 输出的脚本注册一个「每次提示符渲染时执行 `sdkm env`」的钩子（bash 用 `PROMPT_COMMAND`、zsh 用 `precmd`、fish 用 `fish_prompt` 事件、PowerShell 包装 `prompt` 函数），并一次性保存启动 PATH 到 `_SDKM_BASE_PATH`。
+- 消费方式按 shell 不同：bash/zsh `eval "$(sdkm hook bash)"`、fish `sdkm hook fish | source`、PowerShell `Invoke-Expression ((sdkm hook powershell) -join [Environment]::NewLine)`。
+
+手动注入与重置方法见 [Shell 支持与 Hook 注册](./usage.md#shell-支持与-hook-注册)。
 
 ---
 
