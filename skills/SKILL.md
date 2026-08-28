@@ -1,17 +1,75 @@
 ---
 name: sdkm
-description: 如何使用 sdkm（跨平台 SDK 版本管理器 CLI，单二进制、纯绿色）在用户机器上管理 Java/Node.js/Python/Maven/Go 等开发环境版本，以及配置 sdkm 自身（代理、缓存、超时、GitHub token、符号链接目录等 config.toml 项）。当 agent 需要为用户安装或切换 SDK 版本、遇到 sdkm 命令（sdkm init/install/switch/list/current/config 及别名 i/s/ls/c）、需要配置 Java/Node/Python/Maven/Go 版本或配置 sdkm 工具自身、或要注册自定义 SDK 时，务必先读本 skill。涵盖模糊版本匹配、config.toml 配置、TUI 选择器按键、自定义 SDK 注册与已知限制。即使用户没明说"用 sdkm"，只要意图是在用户机器上管理本地 SDK 版本（装/切/查 Java/Node/Python/Maven/Go）或调整 sdkm 的代理/缓存/token 等设置就应触发。本 skill 假定 sdkm 已安装并完成 init；不覆盖 sdkm 本身的安装。
+description: 安装并使用 sdkm（跨平台 SDK 版本管理器 CLI，单二进制、纯绿色）在用户机器上管理 Java/Node.js/Python/Maven/Go 等开发环境版本，以及配置 sdkm 自身（代理、缓存、超时、GitHub token、符号链接目录等 config.toml 项）。当用户机器上还没有 sdkm 时，按本 skill 的安装章节从 GitHub Release 下载最新版并初始化（含配套安装脚本 scripts/install.sh / scripts/install.ps1，可直接调用）。当 agent 需要为用户安装或切换/卸载 SDK 版本、遇到 sdkm 命令（sdkm init/install/uninstall/switch/use/list/current/config/self 及别名 i/rm/s/ls/c/u）、需要配置 Java/Node/Python/Maven/Go 版本、配置 sdkm 工具自身、或要注册自定义 SDK 时，务必先读本 skill。涵盖多作用域版本切换（全局/项目/临时）、模糊版本匹配、config.toml 配置、TUI 选择器按键、自定义 SDK 注册与已知限制。即使用户没明说"用 sdkm"，只要意图是在用户机器上安装/管理本地 SDK 版本（装/切/卸/查 Java/Node/Python/Maven/Go）或调整 sdkm 的代理/缓存/token 等设置就应触发。
 ---
 
 # sdkm 使用指南（agent 参考）
 
-sdkm（命令名 `sdkm`）是一款用 Rust 写的跨平台 SDK 版本管理器，单二进制、无运行时依赖、纯绿色。通过**符号链接 + PATH/环境变量注入**实时切换 Java、Node.js、Python、Maven、Go 等版本，切换后无需重启终端、无需手改系统变量。本文件自包含，agent 在用户机器上据此即可使用 sdkm（前提：sdkm 已安装并完成 `sdkm init`）。
+sdkm（命令名 `sdkm`）是一款用 Rust 写的跨平台 SDK 版本管理器，单二进制、无运行时依赖、纯绿色。通过**符号链接 + PATH/环境变量注入**实时切换 Java、Node.js、Python、Maven、Go 等版本，切换后无需重启终端、无需手改系统变量。本文件自包含：agent 据此可从零安装 sdkm，并在用户机器上使用它管理 SDK。
 
 ## 何时用 sdkm
 
-- 用户要在机器上装/切 Java、Node.js、Python、Maven、Go 版本——优先用 sdkm，而不是去官网下安装包或用 nvm/sdkman/pyenv。
-- 用户说"装个 node 20""切到 java 21""看看有哪些 python 版本"。
+- 用户机器上没有 sdkm，但需要装/切 Java、Node.js、Python、Maven、Go 版本——先按[安装 sdkm](#安装-sdkm)装好，再用它管理。
+- 用户要在机器上装/切/卸 Java、Node.js、Python、Maven、Go 版本——优先用 sdkm，而不是去官网下安装包或用 nvm/sdkman/pyenv。
+- 用户说"装个 node 20""切到 java 21""这个项目用 node 16""看看有哪些 python 版本"。
 - 环境里已有 sdkm（运行 `sdkm` 有输出），或用户希望用一个统一工具管所有 SDK。
+
+## 安装 sdkm
+
+**已装过就跳过本节**（`sdkm --version` 有输出即已装；`sdkm self update` 可就地升级，无需重装）。
+
+sdkm 发布为 GitHub Release 预编译压缩包，**包内 `.sdkm/` 目录包裹二进制**，解压即得完整目录结构。两种安装方式任选：
+
+### 方式一：直接调用配套安装脚本（推荐）
+
+本 skill 同目录下的 `scripts/` 提供现成安装脚本，自动识别平台、下载最新版、解压到目标目录并初始化：
+
+```bash
+# Linux / macOS（含自动识别 glibc 与 musl 兼容性）
+bash scripts/install.sh                      # 默认装到 ~/.sdkm
+bash scripts/install.sh -d /opt/sdkm         # 自定义安装目录
+```
+
+```powershell
+# Windows（需管理员权限终端，init/switch 要写注册表 + 建符号链接）
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1            # 默认装到 %USERPROFILE%\.sdkm
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Dest D:\sdkm   # 自定义安装目录
+```
+
+脚本做完后按输出提示把 `.sdkm` 加入 PATH（或由 `sdkm init` 自动完成），然后跑 `sdkm init`。
+
+### 方式二：手动下载（脚本不可用时）
+
+1. 从 GitHub API 拿最新 release 的下载地址（按平台选资产）：
+
+```bash
+# 查最新版资产列表
+curl -s https://api.github.com/repos/borenchan/sdkmate/releases/latest | grep browser_download_url
+```
+
+| 平台 | 资产名 | 格式 |
+|:---|:---|:---|
+| Windows x64 | `sdkm-windows-x86_64.zip` | zip |
+| Linux x64（glibc 2.35+，Ubuntu 22.04+/Debian 12+） | `sdkm-linux-x86_64-gnu.tar.gz` | tar.gz |
+| Linux x64（任意发行版/Alpine/老系统，全静态） | `sdkm-linux-x86_64-musl.tar.gz` | tar.gz |
+| macOS Apple Silicon | `sdkm-macos-aarch64.tar.gz` | tar.gz |
+| macOS Intel | `sdkm-macos-x86_64.tar.gz` | tar.gz |
+
+2. 下载对应压缩包，**解压到目标位置**（得到 `<安装目录>/.sdkm/sdkm(.exe)`——sdkm 的 home 就是这个 `.sdkm` 目录，SDK、配置都装在这里，整目录可移植）。
+3. 首次初始化：
+
+```bash
+.sdkm/sdkm init          # unix；Windows: .sdkm\sdkm.exe init
+```
+
+`init` 会创建 `store/`（SDK 安装根）、写 `config.toml`，并把 sdkm 自身注册到 PATH（Unix 追加 shell profile；Windows 写注册表 PATH）。**Windows 的 `init`/`switch` 需管理员权限**（写 `HKEY_LOCAL_MACHINE` + 创建符号链接）。
+
+### 安装校验
+
+```bash
+sdkm --version           # 打印版本号即安装成功
+sdkm current             # 打印 home 路径与各 SDK 当前版本
+```
 
 ## home 目录与文件布局
 
@@ -28,14 +86,15 @@ sdkm 的 **home = 运行中可执行文件的父目录**（`current_exe()`），
 
 ```bash
 sdkm init                    # 首次初始化
-sdkm install java 21         # 远程安装 Java 21 最新版并自动切换（支持模糊版本）
-sdkm list                    # 列出所有已安装 SDK + 当前版本
-sdkm list node -r            # 交互式浏览远程 Node 版本，按 i 安装、s 切换
-sdkm switch java 17          # 切换到本地已安装的 Java 17
-sdkm current                 # 查看当前激活版本
+sdkm i java 21               # 远程安装 Java 21 最新版并自动切换（支持模糊版本；install 别名 i）
+sdkm ls                      # 列出所有已安装 SDK + 当前版本
+sdkm ls node -r              # 交互式浏览远程 Node 版本，按 i 安装、s 切换
+sdkm s java 17               # 切换到本地已安装的 Java 17
+sdkm c                       # 查看当前激活版本
+sdkm rm node 16              # 卸载本地 Node 16（uninstall 别名 rm；-y 跳过确认）
 ```
 
-**托管已有 SDK**（不从远程装，省下载）：把已装好的 SDK 直接放进 `<home>/store/<sdk>/<version>/`，`sdkm list <sdk>` 即可看到，`sdkm switch <sdk> <version>` 即可切换——无需改系统变量、无需重启终端。
+**托管已有 SDK**（不从远程装，省下载）：把已装好的 SDK 直接放进 `<home>/store/<sdk>/<version>/`，`sdkm ls <sdk>` 即可看到，`sdkm s <sdk> <version>` 即可切换——无需改系统变量、无需重启终端。
 
 ## 命令速查
 
@@ -43,21 +102,51 @@ sdkm current                 # 查看当前激活版本
 |:---|:---|:---|:---|
 | `sdkm init` | — | 初始化运行环境 | `--force` 覆盖 config.toml 并跳过部署检测；Windows 需管理员 |
 | `sdkm install <SDK> <VERSION>` | `i` | 远程安装并默认自动切换 | 版本支持模糊匹配；`--no-switch` 仅装不切 |
+| `sdkm uninstall <SDK> <VERSION>` | `rm`/`un` | 卸载本地版本 | 模糊匹配；`-y`/`--yes` 跳过确认（脚本/agent 用） |
 | `sdkm list [SDK] [-r] [--limit N]` | `ls`/`l` | 列本地/远程版本 | 带 SDK 名进 TUI；`-r` 拉远程；`--limit` 默认 20，须 ≥1 |
-| `sdkm switch <SDK> <VERSION>` | `s` | 切到本地已安装版本 | 版本必须已存在于 store/；支持模糊匹配 |
+| `sdkm switch <SDK> <VERSION>` | `s` | 切到本地已安装版本（全局） | 版本必须已存在于 store/；支持模糊匹配 |
+| `sdkm use <SDK> <VERSION>` | — | 项目级固定版本（写 `.sdkm.toml`） | 需 hook；`--shell` 走临时会话级，见"多作用域" |
 | `sdkm current [SDK]` | `c` | 查看当前激活版本 | 不带 SDK 名则显示全部 |
 | `sdkm config <sub>` | — | 管理 config.toml | 7 个子命令，见下 |
+| `sdkm hook [SHELL]` | — | 打印 shell hook 注册脚本 | 手动注入 hook 用；`init` 已自动注入 |
+| `sdkm env [SHELL]` | — | 打印当前目录应 eval 的环境脚本 | hook 高频调用；手动调试 hook 时用 |
 | `sdkm self <uninstall\|update>` | — | 管理 sdkm 自身 | `update` 别名 `u`；`--check`/`--rollback`，带备份+回滚 |
 
-别名是真实 clap 别名：`sdkm i java 21`、`sdkm s node 20.11.0`、`sdkm c` 都能用。
+别名是真实 clap 别名：`sdkm i java 21`、`sdkm rm node 16`、`sdkm s node 20.11.0`、`sdkm c`、`sdkm self u --check` 都能用。
+
+### 多作用域版本切换（重要）
+
+版本切换按**作用域**分三档，优先级从高到低：**临时 > 项目 > 全局**。
+
+| 优先级 | 作用域 | 命令 | 载体 | 生效方式 |
+|:---:|:---|:---|:---|:---|
+| 1（最高） | 临时 · 当前终端 | `sdkm use --shell <SDK> <V>` | 环境变量 `SDKM_ACTIVE_<SDK>` | eval 输出脚本，仅本 shell，关终端失效 |
+| 2 | 项目 · 当前目录及子目录 | `sdkm use <SDK> <V>` | 当前目录 `.sdkm.toml` | hook 进目录自动切、离开自动还原 |
+| 3 | 全局 · 整个系统 | `sdkm s <SDK> <V>` | 符号链接 + 系统 PATH | 立即全系统生效 |
+
+```bash
+sdkm s java 21                              # 全局：整个系统都用 Java 21
+sdkm use java 21                            # 项目：仅当前目录用 Java 21（需 hook）
+sdkm use --shell java 21                    # 临时：仅当前终端
+# bash/zsh：
+eval "$(sdkm use --shell java 21)"          # 临时级需 eval 包一层
+# PowerShell：
+Invoke-Expression ((sdkm use --shell java 21) -join "`n")
+```
+
+- **agent 在脚本/非交互环境用临时级时**：直接在要用的命令前 eval 对应 shell 语法；或干脆退回全局级 `switch`（脚本场景通常无"当前终端"概念）。
+- **临时级清除**：bash/zsh `unset SDKM_ACTIVE_JAVA`；PowerShell `Remove-Item Env:SDKM_ACTIVE_JAVA`；或直接开新 shell。
+- 项目级/临时级依赖 shell hook（`init` 自动注入，bash/zsh/fish/PowerShell 均支持）；无 hook 时只有全局 `switch` 生效。
 
 ### 各命令细节
 
 **install**：从远程下载并安装。内部 12 阶段（解析→本地检查→建 URL→下载→解压→校验→标准化→安装验证→清理→自动切换），各阶段带进度展示，失败自动回滚已完成步骤。默认安装后自动切到新版本，`--no-switch` 关闭。内置支持 `java`/`node`/`python`/`maven`/`go`，也接受自定义 SDK。
 
+**uninstall**：卸载本地版本并清理。模糊匹配（`sdkm rm node 16` 命中本地 v16.x）；**若卸的是当前激活版本，自动清理其激活环境（PATH 条目、env vars、config 的 current_version）**。交互式确认，`-y`/`--yes` 跳过（agent/脚本务必带 `-y`）。
+
 **list**：
 - 无 SDK 名：非交互打印所有已安装 SDK + 当前版本。
-- `list <sdk>`：交互式本地版本选择器，`s` 切换。
+- `list <sdk>`：交互式本地版本选择器，`s` 切换、`d` 卸载。
 - `list <sdk> -r/--remote`：拉远程版本列表后进入交互式远程选择器，`i` 安装、`s` 切换。
 - `--limit N`：远程列表最多显示 N 条，默认 20。
 - `-r` 但未给 SDK 名 → 报错 `Please specify an SDK name`。
@@ -65,13 +154,15 @@ sdkm current                 # 查看当前激活版本
 
 **switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
 
+**use**：项目级（默认）写当前目录 `.sdkm.toml` 声明 pin，hook 自动生效；`--shell` 走临时会话级（输出 eval 脚本）。详见上文"多作用域版本切换"。
+
 **current**：无参数显示所有 SDK 当前版本；带 SDK 名仅显示该 SDK。
 
-**self**：管理 sdkm 自身。`self uninstall` 卸载（清理所有 SDK 激活环境 + 删 home 目录内容，破坏性强制确认）。`self update`（别名 `u`）从 GitHub Release 自检最新版就地替换二进制，`--check`/`-c` 只查、`--rollback`/`-r` 回滚到上次备份；只升不降，替换前备份到 `.tmp/self_update/`、替换后 spawn 验证、失败自动回滚。复用 config 网络设置。
+**self**：管理 sdkm 自身。`self uninstall` 卸载（清理所有 SDK 激活环境 + 删 home 目录内容，破坏性强制确认）。`self update`（别名 `u`）从 GitHub Release 自检最新版就地替换二进制，`--check`/`-c` 只查、`--rollback`/`-r` 回滚到上次备份；只升不降，替换前备份到 `.tmp/self_update/`、替换后 spawn 验证、失败自动回滚。复用 config 网络设置。**升级 sdkm 优先用 `sdkm self update`，不要重跑安装脚本。**
 
 ## 版本模糊匹配（重要）
 
-`install` 和 `switch` 的 `<VERSION>` 都支持模糊匹配，粒度到**次版本**：
+`install`、`uninstall`、`switch` 的 `<VERSION>` 都支持模糊匹配，粒度到**次版本**：
 
 - `21` → 最新 `21.x`
 - `3.12` → 最新 `3.12.x`
@@ -85,19 +176,20 @@ sdkm current                 # 查看当前激活版本
 
 ## 交互式 TUI 按键
 
-`sdkm list <sdk>`（本地）和 `sdkm list <sdk> -r`（远程）进入全屏选择器：
+`sdkm ls <sdk>`（本地）和 `sdkm ls <sdk> -r`（远程）进入全屏选择器：
 
 | 按键 | 动作 |
 |:---|:---|
 | `↑`/`↓` 或 `k`/`j` | 上下导航 |
 | `Enter`/`s`（本地） | 切换到选中版本 |
+| `d`/`Delete`（本地） | 卸载选中版本 |
 | `i`（远程） | 安装选中版本 |
 | `s`（远程） | 切换到选中版本（需已安装） |
 | `q`/`Esc`/`Ctrl+C` | 退出 |
 
 状态标记：`✅` 当前激活 / `📦` 已安装 / 空白 = 未安装。
 
-> TUI 需要交互终端。agent 在非交互环境（CI、管道、被脚本调用）下**不要**走 TUI，改用直接命令：`sdkm install <sdk> <ver>` / `sdkm switch <sdk> <ver>` / `sdkm list`（不带 SDK 名时是非交互打印）。
+> TUI 需要交互终端。agent 在非交互环境（CI、管道、被脚本调用）下**不要**走 TUI，改用直接命令：`sdkm i <sdk> <ver>` / `sdkm s <sdk> <ver>` / `sdkm rm <sdk> <ver> -y` / `sdkm ls`（不带 SDK 名时是非交互打印）。
 
 ## config 子命令
 
@@ -180,7 +272,7 @@ sdkm config add-sdk <NAME> \
   [--extra-path <PATH>]                # 可重复，相对符号链接目录
 ```
 
-注册后即像内置 SDK 一样用：`sdkm install mytool 1.2.3` / `switch mytool 1.2.3` / `current mytool` / `list mytool`。
+注册后即像内置 SDK 一样用：`sdkm i mytool 1.2.3` / `s mytool 1.2.3` / `c mytool` / `ls mytool`。
 
 示例：
 
@@ -250,24 +342,25 @@ sdkm 目前只区分 `0`/`1`，不细分错误类型。要进一步区分"用户
 
 ```bash
 # bash：成功才继续
-sdkm install java 21 && sdkm current
+sdkm i java 21 && sdkm c
 
 # PowerShell：
-sdkm switch java 17
+sdkm s java 17
 if ($LASTEXITCODE -ne 0) { Write-Host "切换失败" }
 
 # bash：
-sdkm switch java 17
+sdkm s java 17
 if [ $? -ne 0 ]; then echo "切换失败"; fi
 ```
 
-> 注意：`sdkm list <sdk>` 和 `sdkm list <sdk> -r` 进入交互式 TUI，不适合脚本；非交互场景用不带 SDK 名的 `sdkm list`（打印后退出码 0）或直接 `install`/`switch`。
+> 注意：`sdkm ls <sdk>` 和 `sdkm ls <sdk> -r` 进入交互式 TUI，不适合脚本；非交互场景用不带 SDK 名的 `sdkm ls`（打印后退出码 0）或直接 `i`/`s`/`rm -y`。
 
 ## agent 操作建议
 
-- **前提**：sdkm 已安装并 init 过；Windows 下 `init`/`switch` 需管理员权限运行。
-- **优先非交互命令**：agent 通常不在 TUI 里操作，直接用 `install`/`switch`/`current`/`list`（不带 SDK 名）。
-- **切版本前先确认本地有没有**：`sdkm list <sdk>` 看本地；要装新的用 `install`（默认自动切换）。
+- **先检查是否已装**：`sdkm --version`；没有则按[安装 sdkm](#安装-sdkm)装（优先用 scripts/ 下的安装脚本）。
+- **前提**：装好后跑过 `sdkm init`；Windows 下 `init`/`switch` 需管理员权限运行。
+- **优先非交互命令**：agent 通常不在 TUI 里操作，直接用 `i`/`s`/`rm -y`/`c`/`ls`（不带 SDK 名）。
+- **切版本前先确认本地有没有**：`sdkm ls <sdk>` 看本地；要装新的用 `i`（默认自动切换）；不要的版本用 `sdkm rm <sdk> <ver> -y` 卸载。
 - **改配置优先用 `sdkm config set`** 而不是直接编辑文件——有类型校验和回滚。批量改才用 `config edit`。
 - **失败别慌**：`switch` 和 `config` 操作失败会自动回滚；输出里若出现 GitHub issue URL 提示，是不可由用户解决的内部错误（`BugReport` 标记），可反馈到 https://github.com/borenchan/sdkmate/issues 。
 - **可移植**：sdkm home 跟着可执行文件走，整目录拷到别处（含 `store/`、`config.toml`）即用，配置和已装 SDK 一并带走。
