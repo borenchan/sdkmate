@@ -12,7 +12,7 @@
 use anyhow::Result;
 use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
 use sdkcore::env::EnvOperation;
-use sdkcore::hook_cache::{CACHE_SCHEMA_VERSION, HookCache, HookEntry};
+use sdkcore::hook_cache::{CACHE_SCHEMA_VERSION, HookCache, HookEntry, current_session_fingerprint};
 use sdkcore::manager::SdkManager;
 use sdkcore::project_config::ProjectConfig;
 use std::collections::{BTreeMap, HashMap};
@@ -258,6 +258,65 @@ fn env_script_cached_idempotent() {
     assert_eq!(first, second, "缓存命中应输出一致脚本");
 }
 
+/// 会话变量中途设置：缓存条目必须失效重算（会话 > 项目）——回归用户 bug：
+/// 先 `sdkm use`（项目 pin 入缓存）→ `use --shell`（设 SDKM_ACTIVE_*）→
+/// hook 再调 env 时缓存命中吐旧脚本，项目版本压过会话版本。
+#[test]
+fn env_script_recomputes_when_session_var_set() {
+    let config = SdkmConfig {
+        symlink_dir: None,
+        network: NetworkConfig::default(),
+        sdks: vec![java_config()],
+    };
+    let env = setup(&config);
+    let v21_dir = make_version_dir(&env, "java", "21.0.2+9");
+    let v25_dir = make_version_dir(&env, "java", "25.0.0");
+    let proj = env.temp.join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    let pins = BTreeMap::from([("java".to_string(), "21".to_string())]);
+    fs::write(
+        proj.join(PROJECT_CONFIG_FILE_NAME),
+        toml::to_string_pretty(&ProjectConfig { pins }).unwrap(),
+    )
+    .unwrap();
+    env::set_current_dir(&proj).unwrap();
+
+    // 防御：清掉测试环境可能残留的真实 SDKM_ACTIVE_JAVA（同 shell 跑过 use --shell 的场景）
+    unsafe {
+        env::remove_var("SDKM_ACTIVE_JAVA");
+    }
+
+    let manager = make_manager(config);
+    let before = manager.generate_env_script_cached(Shell::Bash, &proj);
+    assert!(
+        before.contains(&v21_dir.join("bin").to_string_lossy().replace('/', "\\"))
+            || before.contains(&v21_dir.join("bin").to_string_lossy().into_owned()),
+        "无会话变量时应选项目 pin（21），got: {before}"
+    );
+
+    // 中途设会话变量（模拟 `sdkm use --shell java 25`）——Drop 守卫恢复，防泄给后续测试
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            unsafe {
+                env::remove_var("SDKM_ACTIVE_JAVA");
+            }
+        }
+    }
+    let _guard = Guard;
+    unsafe {
+        env::set_var("SDKM_ACTIVE_JAVA", "25.0.0");
+    }
+
+    let after = manager.generate_env_script_cached(Shell::Bash, &proj);
+    let v25_bin_win = after.contains(&v25_dir.join("bin").to_string_lossy().replace('/', "\\"))
+        || after.contains(&v25_dir.join("bin").to_string_lossy().into_owned());
+    let v21_bin_win = after.contains(&v21_dir.join("bin").to_string_lossy().replace('/', "\\"))
+        || after.contains(&v21_dir.join("bin").to_string_lossy().into_owned());
+    assert!(v25_bin_win, "会话变量已设，应重算并选会话版本（25），got: {after}");
+    assert!(!v21_bin_win, "会话 > 项目，项目 pin（21）不应出现在脚本中");
+}
+
 // ===================== HookCache（跨 shell 串扰 + schema 失效）=====================
 
 /// 同 PWD 不同 shell：put(bash) 后 resolve(bash) 命中、resolve(fish) miss（防串扰）
@@ -281,6 +340,8 @@ fn hook_cache_cross_shell_miss() {
             env_script: "echo bash".to_string(),
             schema_version: CACHE_SCHEMA_VERSION,
             shell: Shell::Bash as u8,
+            // 跟随当前进程会话指纹，模拟「与 resolve 时同状态」的正常命中
+            session_fingerprint: current_session_fingerprint(),
         },
     );
 
@@ -311,6 +372,7 @@ fn hook_cache_schema_mismatch_miss() {
             env_script: "stale".to_string(),
             schema_version: CACHE_SCHEMA_VERSION - 1, // 旧 schema
             shell: Shell::Bash as u8,
+            session_fingerprint: current_session_fingerprint(),
         },
     );
 

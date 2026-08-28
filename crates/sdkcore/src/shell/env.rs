@@ -13,7 +13,7 @@
 //! 等 stdout 宏；诊断一律走 stderr（error! 宏或 eprintln!）。
 
 use crate::config::SdkConfig;
-use crate::hook_cache::{CACHE_SCHEMA_VERSION, HookCache, HookEntry, file_mtime_nanos};
+use crate::hook_cache::{CACHE_SCHEMA_VERSION, HookCache, HookEntry, current_session_fingerprint, file_mtime_nanos};
 use crate::manager::SdkManager;
 use crate::project_config::find_project_config;
 use crate::version::fuzzy_match_version_core;
@@ -54,6 +54,9 @@ impl SdkManager {
                     schema_version: CACHE_SCHEMA_VERSION,
                     // 记录 shell：同一 PWD 跨 shell 调用时命中校验不符当 miss，防脚本串扰
                     shell: shell as u8,
+                    // 记录会话指纹：use --shell 改 SDKM_ACTIVE_* 后命中校验不符当 miss，
+                    // 防缓存吐旧脚本压过会话层
+                    session_fingerprint: current_session_fingerprint(),
                 },
             );
             cache.save();

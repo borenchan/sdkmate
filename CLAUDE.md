@@ -97,9 +97,21 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-08-27）
+## 当前开发进度（2026-08-28）
 
-### 本次改动 —— 修 `env/unix.rs` 两个 PATH 持久化 bug
+### 本次改动 —— 修 hook 缓存打破「会话 > 项目」优先级（会话指纹判据）
+
+用户实测暴露：项目 pin（`sdkm use node 16` 写 `.sdkm.toml`）后跑 `sdkm use --shell node 25`（父 shell 设 `SDKM_ACTIVE_NODE`），同目录下 `node -v` 仍是项目版本，`cd` 出去才变 v25——与文档「临时 > 项目 > 全局」矛盾。定位：**不是解析逻辑错**（`shell/env.rs` 三层解析本就 session 先查、project 遇 session 已覆盖直接跳过），而是 **hook 缓存 key 漏了会话状态**：`hook_cache.rs` 命中判据只有 PWD + `.sdkm.toml` mtime + shell + schema，`use --shell` 只在父 shell 设环境变量、不碰缓存 → 下一条 prompt hook 命中旧缓存吐项目版本脚本。同 PWD 缓存 miss 的时机（首次 cd 进 / mtime 变）反而"碰巧"正确，故用户看到"项目目录里 shell 覆盖不生效、离开目录才生效"。
+
+**修法（指纹比对）**：`HookEntry` 增 `session_fingerprint` 字段（当前进程所有 `SDKM_ACTIVE_*` 变量按名排序拼 `name=value;` 连接，空集=空串；`current_session_fingerprint()` 公开函数，env.rs put 时采样、测试直接引用）。`resolve` 增判据：条目指纹 ≠ 当前指纹 → miss 重算。覆盖 set/改/unset 全路径，不依赖各 setter 记得失效缓存。**schema 3→4 bump 必要**：旧条目 `serde(default)` 指纹为空串，与"当前无会话变量"指纹相同，不 bump 会误命中 bug 时期旧条目。
+
+**回归测试**：`env_script_recomputes_when_session_var_set`（shell_integration.rs）——先缓存项目 pin(21) 脚本 → 设 `SDKM_ACTIVE_JAVA=25` → 断言重算出 25 bins 且无 21（复现用户 bug 场景）；Drop 守卫 + 前置 remove_var 防真实会话变量污染测试。既有 `hook_cache_cross_shell_miss`/`hook_cache_schema_mismatch_miss` 的 HookEntry 字面量补指纹字段（跟随当前指纹 = 模拟同状态命中）。
+
+**验证**：workspace 全量 59 passed 无回归（sdkcore lib 23 + shell_integration 8 + 其余）；clippy 本次改动文件零警告（既有警告非本次引入）。已 build release 并覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（备份 .bak），用户可直接复测原日志场景。**未发版**。
+
+**改动文件**（3）：`crates/sdkcore/src/hook_cache.rs`（指纹函数+判据+schema bump）、`crates/sdkcore/src/shell/env.rs`（put 采样指纹）、`crates/sdkcore/tests/shell_integration.rs`（回归测试+字面量补字段）。
+
+### 上次改动 —— 修 `env/unix.rs` 两个 PATH 持久化 bug（2026-08-27）
 
 承接上次（文档补全 v0.4.0），本次代码改动（WSL 用户排查"项目级版本切换重启后失效"时定位出的两个 bug）：
 
