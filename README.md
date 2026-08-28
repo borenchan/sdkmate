@@ -312,6 +312,11 @@ Made with ❤️ by the sdkm team
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=borenchan/sdkmate&type=Date)](https://star-history.com/#borenchan/sdkmate&Date)
-
+<a href="https://star-history.dera.page/#borenchan/sdkmate&type=date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=borenchan/sdkmate&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=borenchan/sdkmate&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=borenchan/sdkmate&type=date&legend=top-left" />
+ </picture>
+</a>
 </div>
