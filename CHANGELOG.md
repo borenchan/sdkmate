@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.4.2 - 2026-08-28
+
+
+### 🐛 Bug Fixes
+
+- hook cache invalidates on session env changes to preserve session-over-project priority — [`cb63d9f`](https://github.com/borenchan/sdkmate/commit/cb63d9f)
+
+### 📝 Documentation
+
+- add skill scripts — [`28a211a`](https://github.com/borenchan/sdkmate/commit/28a211a)
+- update readme — [`9494c55`](https://github.com/borenchan/sdkmate/commit/9494c55)
+- update star history — [`b4906e1`](https://github.com/borenchan/sdkmate/commit/b4906e1)
+
+### 🧰 Chore
+
+- release 0.4.2 — [`901eebc`](https://github.com/borenchan/sdkmate/commit/901eebc)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.1...v0.4.2
+
+
+
 ## v0.4.1 - 2026-08-27
 
 
