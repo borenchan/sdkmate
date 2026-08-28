@@ -205,12 +205,15 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 | 命令 | 别名 | 说明 | 示例 |
 |:---|:---|:---|:---|
 | `sdkm init` | — | 初始化 sdkm | `sdkm init --force` |
-| `sdkm install` | `i` | 安装 SDK 版本（模糊匹配，自动切换） | `sdkm install java 21` |
-| `sdkm list` | `ls`, `l` | 列出/浏览 SDK 版本（含交互式 TUI） | `sdkm list node -r` |
-| `sdkm switch` | `s` | 切换 SDK 版本（全局） | `sdkm switch java 21` |
-| `sdkm use` | — | 项目级 / 临时级固定版本 | `sdkm use java 21` |
-| `sdkm current` | `c` | 显示当前版本 | `sdkm current java` |
+| `sdkm install <SDK> <V>` | `i` | 安装 SDK 版本（模糊匹配，自动切换） | `sdkm i java 21` |
+| `sdkm uninstall <SDK> <V>` | `rm`, `un` | 卸载本地 SDK 版本 | `sdkm rm node 16` |
+| `sdkm list [SDK] [-r]` | `ls`, `l` | 列出/浏览 SDK 版本（含交互式 TUI） | `sdkm ls node -r` |
+| `sdkm switch <SDK> <V>` | `s` | 切换 SDK 版本（全局） | `sdkm s java 21` |
+| `sdkm use <SDK> <V>` | — | 项目级 / 临时级（`--shell`）固定版本 | `sdkm use java 21` |
+| `sdkm current [SDK]` | `c` | 显示当前版本 | `sdkm c java` |
 | `sdkm config` | — | 配置管理 | `sdkm config edit` |
+| `sdkm self update` | `u` | 升级 sdkm 自身（`--check`/`--rollback`） | `sdkm self u --check` |
+| `sdkm self uninstall` | — | 卸载 sdkm（清理环境 + 删 home） | `sdkm self uninstall` |
 
 ---
 
@@ -264,14 +267,12 @@ cargo test
 ./target/release/sdkm init
 ./target/release/sdkm list
 ./target/release/sdkm switch java 21
-```
 
-### 代码规范
-
-```bash
+# 代码规范检查
 cargo fmt                                              # 格式化代码
 cargo clippy --all-targets --all-features              # 代码检查
 ```
+
 
 ---
 
@@ -283,8 +284,13 @@ cargo clippy --all-targets --all-features              # 代码检查
 
 1. Fork 仓库并创建分支：`git checkout -b feature/your-feature-name`
 2. 编写代码并确保通过所有测试：`cargo test`
-3. 提交代码，使用清晰的提交信息：`git commit -m "feat: add xxx"`
-4. 推送分支并创建 Pull Request：`git push origin feature/your-feature-name`
+3. 保证代码风格一致（提交前必跑）：
+   ```bash
+   cargo fmt                                  # 格式化代码
+   cargo clippy --all-targets --all-features  # 代码检查，零警告为准
+   ```
+4. 提交代码，使用清晰的提交信息：`git commit -m "feat: add xxx"`
+5. 推送分支并创建 Pull Request：`git push origin feature/your-feature-name`
 
 ### 📖 开发约定
 

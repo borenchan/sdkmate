@@ -199,12 +199,15 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 | Command | Alias | What it does | Example |
 |:---|:---|:---|:---|
 | `sdkm init` | — | Initialize sdkmate | `sdkm init --force` |
-| `sdkm install` | `i` | Install a version (fuzzy match, auto-switch) | `sdkm install java 21` |
-| `sdkm list` | `ls`, `l` | List/browse versions (interactive TUI) | `sdkm list node -r` |
-| `sdkm switch` | `s` | Switch to a locally installed version (global) | `sdkm switch java 21` |
-| `sdkm use` | — | Pin a version for the project / temp session | `sdkm use java 21` |
-| `sdkm current` | `c` | Show the active version | `sdkm current java` |
+| `sdkm install <SDK> <V>` | `i` | Install a version (fuzzy match, auto-switch) | `sdkm i java 21` |
+| `sdkm uninstall <SDK> <V>` | `rm`, `un` | Uninstall a local SDK version | `sdkm rm node 16` |
+| `sdkm list [SDK] [-r]` | `ls`, `l` | List/browse versions (interactive TUI) | `sdkm ls node -r` |
+| `sdkm switch <SDK> <V>` | `s` | Switch to a locally installed version (global) | `sdkm s java 21` |
+| `sdkm use <SDK> <V>` | — | Pin a version for the project / temp session (`--shell`) | `sdkm use java 21` |
+| `sdkm current [SDK]` | `c` | Show the active version | `sdkm c java` |
 | `sdkm config` | — | Configuration management | `sdkm config edit` |
+| `sdkm self update` | `u` | Upgrade sdkmate itself (`--check`/`--rollback`) | `sdkm self u --check` |
+| `sdkm self uninstall` | — | Uninstall sdkmate (cleans env + home dir) | `sdkm self uninstall` |
 
 
 ---
@@ -259,11 +262,7 @@ cargo test
 ./target/release/sdkm init
 ./target/release/sdkm list
 ./target/release/sdkm switch java 21
-```
-
-### Code quality
-
-```bash
+# Code quality check
 cargo fmt                                              # Format code
 cargo clippy --all-targets --all-features              # Lint code
 ```
@@ -278,8 +277,13 @@ Contributions of any kind are welcome — bug reports, feature ideas, or code.
 
 1. Fork the repo and create a branch: `git checkout -b feature/your-feature-name`
 2. Write code and make sure all tests pass: `cargo test`
-3. Commit with a clear message: `git commit -m "feat: add xxx"`
-4. Push and open a Pull Request: `git push origin feature/your-feature-name`
+3. Keep the code style consistent (required before committing):
+   ```bash
+   cargo fmt                                  # Format code
+   cargo clippy --all-targets --all-features  # Lint code, zero warnings
+   ```
+4. Commit with a clear message: `git commit -m "feat: add xxx"`
+5. Push and open a Pull Request: `git push origin feature/your-feature-name`
 
 ### 📖 Conventions
 
