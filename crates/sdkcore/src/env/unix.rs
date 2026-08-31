@@ -153,14 +153,15 @@ impl UnixEnvOperation {
             PathModel::PerDirCommand => {
                 let add = p.add_dir_command.context("PerDirCommand 缺 add_dir_command")?;
                 let line = add(&expanded);
-                let mut content = Self::read_profile(file_path);
-                if !content.is_empty() && !content.ends_with('\n') {
-                    content.push('\n');
+                let mut lines: Vec<String> = Self::read_profile(file_path).lines().map(String::from).collect();
+                // relocate：删旧位置同串行（含旧 bug 错位在 hook 后的行），重插到 hook marker 之前
+                // ——插到 hook 之后会让 base 快照缺 sdk bin，env 重建 PATH 时把 bin 冲掉（fish 实测）。
+                lines.retain(|l| l.trim() != line);
+                match Self::find_hook_marker_line(&lines, p.shell) {
+                    Some(idx) => lines.insert(idx, line),
+                    None => lines.push(line),
                 }
-                content.push_str(&line);
-                content.push('\n');
-                fs::write(file_path, content)?;
-                Ok(())
+                Self::write_profile(file_path, &lines)
             }
         }
     }

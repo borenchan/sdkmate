@@ -97,9 +97,19 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-08-28）
+## 当前开发进度（2026-08-31）
 
-### 本次改动 —— 修 hook 缓存打破「会话 > 项目」优先级（会话指纹判据）
+### 本次改动 —— 修 fish PerDirCommand PATH 行错位到 hook 行之后（Bug 2 同型，v0.4.3）
+
+用户 WSL fish 实测：`sdkm s node 16` 后 config.fish 里 `fish_add_path` 行落在 `sdkm hook fish | source` 之后，重启终端 `node -v` 仍 not found。机理与 bash Bug 2 同型：hook 行先跑 → `_SDKM_BASE_PATH` 快照固化时不含 node bin → 每次 prompt 触发 `sdkm env` 重建 PATH（`set -gx PATH $_SDKM_BASE_PATH`）把 bin 冲掉。上次修复只改了 RebuildLine 分支，PerDirCommand（fish）分支漏掉——两分支代码路径独立，同类改动必须两边都看。
+
+**修法（relocate 语义）**：PerDirCommand 分支由「追加末尾」改为「删旧位置同串行 + 插到 hook marker 之前（`find_hook_marker_line` 复用，无 marker 则追加）」。一步解决三件事：新插入位置正确、重复 init 不再累积重复行、已污染 profile 重跑 switch 即自愈（错位行被删重插）。
+
+**验证**：临时放开门控（env/mod.rs + unix.rs 测试门控改 `any(unix, temp_verify)`，RUSTFLAGS `--cfg temp_verify`）在 Windows 实跑 unix 测试 7 passed（含 2 个新 fish 回归测试：插到 hook 前 / relocate 自愈）。按用户规矩 bug 回归测试用临时文件验证后删除、不提交，本次 diff 只剩修复本身（15 行）。workspace 全量 16 个测试目标 ok 无回归；clippy 本次改动文件零警告（既有警告在 config_helper.rs/discovery.rs 非 本次引入）；fmt 干净。已 build release 并覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（先备份 .bak）。
+
+**改动文件**（1）：`crates/sdkcore/src/env/unix.rs`（PerDirCommand relocate；`env/mod.rs` 临时改动已恢复无净变化）。**发版 v0.4.3**（bump 根 Cargo.toml + Cargo.lock，patch：纯代码修复）。
+
+### 上次改动 —— 修 hook 缓存打破「会话 > 项目」优先级（会话指纹判据）（2026-08-28）
 
 用户实测暴露：项目 pin（`sdkm use node 16` 写 `.sdkm.toml`）后跑 `sdkm use --shell node 25`（父 shell 设 `SDKM_ACTIVE_NODE`），同目录下 `node -v` 仍是项目版本，`cd` 出去才变 v25——与文档「临时 > 项目 > 全局」矛盾。定位：**不是解析逻辑错**（`shell/env.rs` 三层解析本就 session 先查、project 遇 session 已覆盖直接跳过），而是 **hook 缓存 key 漏了会话状态**：`hook_cache.rs` 命中判据只有 PWD + `.sdkm.toml` mtime + shell + schema，`use --shell` 只在父 shell 设环境变量、不碰缓存 → 下一条 prompt hook 命中旧缓存吐项目版本脚本。同 PWD 缓存 miss 的时机（首次 cd 进 / mtime 变）反而"碰巧"正确，故用户看到"项目目录里 shell 覆盖不生效、离开目录才生效"。
 
@@ -111,7 +121,7 @@ bin_dir = "bin"
 
 **改动文件**（3）：`crates/sdkcore/src/hook_cache.rs`（指纹函数+判据+schema bump）、`crates/sdkcore/src/shell/env.rs`（put 采样指纹）、`crates/sdkcore/tests/shell_integration.rs`（回归测试+字面量补字段）。
 
-### 上次改动 —— 修 `env/unix.rs` 两个 PATH 持久化 bug（2026-08-27）
+### 2026-08-27 —— 修 `env/unix.rs` 两个 PATH 持久化 bug
 
 承接上次（文档补全 v0.4.0），本次代码改动（WSL 用户排查"项目级版本切换重启后失效"时定位出的两个 bug）：
 
@@ -141,7 +151,9 @@ bin_dir = "bin"
 - **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`。改 `unix.rs` 后**必须**验证类型——Windows 上临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use` 避免冲突），跑 `cargo check -p sdkcore` 强制编译暴露错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行（aws-lc-rs build.rs 找不到 `x86_64-linux-gnu-gcc`）；或直接 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用）**——`split()` 的 item 是 `&str`，闭包参数是 `&&str`，必须用 `|&p|` 解构才能跟 `&str` 比较；`&String` 用 `.as_str()` 转 `&str`
 - **SDKM_HOME 环境变量可覆盖 home**：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME`，未设回退 `current_exe().parent()`，行为兼容。主要解锁 in-process 集成测试——`SdkManager::new()` 等路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入），注入后测试可全部指向临时目录。`tests/uninstall.rs` 等用：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录
 - **改完代码先 review 再交付**（编译通过 ≠ 代码干净）：每次改完、build/test/通知用户/提交前，对本次 diff 逐文件自审——(1) 逻辑/边界 bug（空集、None、并发、`panic=abort` 下后台线程无 unwrap）；(2) 因改动变孤儿的 import/变量/函数一并清；(3) 风格违规（标准库别用 `std::fs::` 全路径，优先 `use` 短名，歧义才加包名）；(4) 冗余/可简化处。复核通过再 build/test/交付
-- **WSL + Windows 双装 sdkm 的跨平台污染**（排查"项目级切换重启失效"教训）：WSL 默认 `appendWindowsPath=true` 继承 Windows PATH，但 **WSL bash 不补 `.exe` 后缀**（[WSL#2003](https://github.com/microsoft/WSL/issues/2003)）——bare `sdkm`/`node` 只命中文件名恰好叫 `sdkm`/`node`（无后缀）的条目，Windows 目录里的 `sdkm.exe`/`node.exe` **不匹配**。所以 Windows PATH 里的 `/mnt/d/.../sdkm` 是纯干扰，不能让 bare 命令生效。用户若在 WSL 敲 `sdkm.exe`（带后缀）则跑的是 **Windows sdkm**，操作 Windows home（`D:\...\sdkm`）、写 PowerShell profile/注册表，**完全不碰 Linux `.bashrc`**。排查要点：让用户 `command -v sdkm` + `file $(command -v sdkm)` 确认命中 Linux ELF 还是 Windows PE。`init` 的 PATH 持久化靠 `add_sdk_path`→`add_path_entry` 写 profile 行，但 `source_profile` 只把新 PATH 设进 **sdkm 子进程**（`env::set_var`），**不回传交互 shell**——所以 init/switch 后必须新开 shell 或 `source ~/.bashrc` 才生效。已修两 bug：dedup 不再回退进程 `$PATH`（Bug 1）、新建 PATH 行插到 hook 行之前（Bug 2，避免 source 时 hook 找不到 sdkm）。详见进度段本次改动。
+- **env/unix.rs 的 RebuildLine 与 PerDirCommand 是两条独立代码路径**：改 PATH 持久化行为时（插入位置、去重、删除），bash/zsh 走 RebuildLine 分支、fish 走 PerDirCommand 分支，**修一处必须检查另一处是否同型遗漏**——bash Bug 2（PATH 行错位到 hook 后）修了 RebuildLine、漏了 PerDirCommand，fish 用户 WSL 实测才暴露（v0.4.3 补修）
+- **bug 回归测试用临时文件验证后删除，不提交**：用户规矩——测试代码跑通证明修复生效即可，diff 里只留修复本身
+- **WSL + Windows 双装 sdkm 的跨平台污染**（排查"项目级切换重启失效"教训）：WSL 默认 `appendWindowsPath=true` 继承 Windows PATH，但 **WSL bash 不补 `.exe` 后缀**（[WSL#2003](https://github.com/microsoft/WSL/issues/2003)）——bare `sdkm`/`node` 只命中文件名恰好叫 `sdkm`/`node`（无后缀）的条目，Windows 目录里的 `sdkm.exe`/`node.exe` **不匹配**。所以 Windows PATH 里的 `/mnt/d/.../sdkm` 是纯干扰，不能让 bare 命令生效。用户若在 WSL 敲 `sdkm.exe`（带后缀）则跑的是 **Windows sdkm**，操作 Windows home（`D:\...\sdkm`）、写 PowerShell profile/注册表，**完全不碰 Linux `.bashrc`**。排查要点：让用户 `command -v sdkm` + `file $(command -v sdkm)` 确认命中 Linux ELF 还是 Windows PE。`init` 的 PATH 持久化靠 `add_sdk_path`→`add_path_entry` 写 profile 行，但 `source_profile` 只把新 PATH 设进 **sdkm 子进程**（`env::set_var`），**不回传交互 shell**——所以 init/switch 后必须新开 shell 或 `source ~/.bashrc` 才生效。已修三 bug：dedup 不再回退进程 `$PATH`（Bug 1）、新建 PATH 行插到 hook 行之前（Bug 2，避免 source 时 hook 找不到 sdkm）、fish PerDirCommand 分支同型错位 relocate 自愈（v0.4.3）。详见进度段本次改动。
 
 ## 发布流程
 
