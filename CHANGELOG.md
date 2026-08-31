@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.4 - 2026-08-31
+
+
+### 🐛 Bug Fixes
+
+- fish path line idempotent no-op when present and inserted above hook comment — [`923faad`](https://github.com/borenchan/sdkmate/commit/923faad)
+
+### 🧰 Chore
+
+- release 0.4.4 — [`067a4cf`](https://github.com/borenchan/sdkmate/commit/067a4cf)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.3...v0.4.4
+
+
+
 ## v0.4.3 - 2026-08-31
 
 
