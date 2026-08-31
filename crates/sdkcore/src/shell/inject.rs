@@ -7,6 +7,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use util::consts::HOOK_COMMENT_LINE;
 use util::shell::{Shell, detect_shell};
 use util::{detail, info, warning};
 
@@ -80,7 +81,9 @@ fn inject_into_profile_file(profile_path: &Path, hook_line: &str, shell: Shell) 
     if !new_content.is_empty() && !new_content.ends_with('\n') {
         new_content.push('\n');
     }
-    new_content.push_str("\n# sdkm project-level version hook\n");
+    new_content.push('\n');
+    new_content.push_str(HOOK_COMMENT_LINE);
+    new_content.push('\n');
     new_content.push_str(hook_line);
     new_content.push('\n');
     fs::write(profile_path, new_content)?;

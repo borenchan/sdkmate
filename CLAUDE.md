@@ -99,7 +99,17 @@ bin_dir = "bin"
 
 ## 当前开发进度（2026-08-31）
 
-### 本次改动 —— 修 fish PerDirCommand PATH 行错位到 hook 行之后（Bug 2 同型，v0.4.3）
+### 本次改动 —— fish PATH 行幂等化 + 插到 hook 注释之上（v0.4.4）
+
+用户复测 v0.4.3 relocate 修复暴露两个体验问题：(1) PATH 行插在 `# sdkm project-level version hook` 注释与 hook 调用行之间，应落在注释上面更清晰；(2) 重复 switch 时 node 行与 root 行相对顺序来回翻转——上轮 relocate 语义无条件删行重插的副作用，用户指出应「已存在就不写入」。
+
+**修法**：① 新增 `find_hook_block_start`（marker 行向上回溯过固定注释；注释字面量抽成 `util::consts::HOOK_COMMENT_LINE`，inject.rs 写入与 unix.rs 回溯共用同一常量防漂移），RebuildLine 与 PerDirCommand 两分支统一改用它插行。② PerDirCommand 增幂等判据：同串行已存在且在 hook 块之前 → no-op + warning（与 bash `already_in_profile` 行为对齐）；仅错位在 hook 之后的旧污染行仍 relocate 自愈；行存在但无 hook 块 → 视为已就位。
+
+**验证**：临时放开门控（RUSTFLAGS `--cfg temp_verify`）Windows 实跑 unix 测试 9 passed（4 个临时测试：插到注释之上/fish 幂等 no-op/错位行仍自愈/bash 同步受益），按规矩验完删除、diff 只留修复。workspace 16 个测试目标 ok；clippy 本次改动文件零警告（修掉本次引入的 `single_char_add_str`）；fmt 干净；release 已覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（.bak 备份）。
+
+**改动文件**（3）：`crates/sdkcore/src/env/unix.rs`（find_hook_block_start + PerDirCommand 幂等判据）、`crates/sdkcore/src/shell/inject.rs`（注释行走共享常量）、`crates/util/src/consts.rs`（HOOK_COMMENT_LINE）。**发版 v0.4.4**。
+
+### 2026-08-31 —— 修 fish PerDirCommand PATH 行错位到 hook 行之后（Bug 2 同型，v0.4.3）
 
 用户 WSL fish 实测：`sdkm s node 16` 后 config.fish 里 `fish_add_path` 行落在 `sdkm hook fish | source` 之后，重启终端 `node -v` 仍 not found。机理与 bash Bug 2 同型：hook 行先跑 → `_SDKM_BASE_PATH` 快照固化时不含 node bin → 每次 prompt 触发 `sdkm env` 重建 PATH（`set -gx PATH $_SDKM_BASE_PATH`）把 bin 冲掉。上次修复只改了 RebuildLine 分支，PerDirCommand（fish）分支漏掉——两分支代码路径独立，同类改动必须两边都看。
 
@@ -109,7 +119,7 @@ bin_dir = "bin"
 
 **改动文件**（1）：`crates/sdkcore/src/env/unix.rs`（PerDirCommand relocate；`env/mod.rs` 临时改动已恢复无净变化）。**发版 v0.4.3**（bump 根 Cargo.toml + Cargo.lock，patch：纯代码修复）。
 
-### 上次改动 —— 修 hook 缓存打破「会话 > 项目」优先级（会话指纹判据）（2026-08-28）
+### 2026-08-28 —— 修 hook 缓存打破「会话 > 项目」优先级（会话指纹判据）
 
 用户实测暴露：项目 pin（`sdkm use node 16` 写 `.sdkm.toml`）后跑 `sdkm use --shell node 25`（父 shell 设 `SDKM_ACTIVE_NODE`），同目录下 `node -v` 仍是项目版本，`cd` 出去才变 v25——与文档「临时 > 项目 > 全局」矛盾。定位：**不是解析逻辑错**（`shell/env.rs` 三层解析本就 session 先查、project 遇 session 已覆盖直接跳过），而是 **hook 缓存 key 漏了会话状态**：`hook_cache.rs` 命中判据只有 PWD + `.sdkm.toml` mtime + shell + schema，`use --shell` 只在父 shell 设环境变量、不碰缓存 → 下一条 prompt hook 命中旧缓存吐项目版本脚本。同 PWD 缓存 miss 的时机（首次 cd 进 / mtime 变）反而"碰巧"正确，故用户看到"项目目录里 shell 覆盖不生效、离开目录才生效"。
 

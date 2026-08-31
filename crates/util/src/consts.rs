@@ -34,6 +34,9 @@ pub const ENV_HOOK_BASE_PATH: &str = "_SDKM_BASE_PATH";
 /// 会话层版本覆盖的环境变量前缀（SDKM_ACTIVE_JAVA 等，非持久 → 新 shell 丢失）
 pub const SDKM_SESSION_ENV_PREFIX: &str = "SDKM_ACTIVE_";
 
+/// init 往 profile 注入 hook 块时的固定注释（inject.rs 写入；unix.rs 插 PATH 行时用它向上回溯到 hook 块之上）
+pub const HOOK_COMMENT_LINE: &str = "# sdkm project-level version hook";
+
 /// 目录树中各目录的用途说明
 pub const DIR_DESC_STORE: &str = "SDK versions storage";
 pub const DIR_DESC_TMP: &str = "download temp (created on install)";

@@ -14,7 +14,7 @@ use std::process::Command;
 use std::slice;
 
 use anyhow::{Context, Result};
-use util::consts::ENV_PATH;
+use util::consts::{ENV_PATH, HOOK_COMMENT_LINE};
 use util::shell::{PathModel, ProfilePersistence, Shell, detect_shell};
 use util::{detail, info, warning};
 
@@ -72,11 +72,21 @@ impl UnixEnvOperation {
         lines.iter().position(|l| l.trim().starts_with(REBUILD_PATH_PREFIX))
     }
 
-    /// profile 内含 hook marker 的行索引（把 export PATH 行插到 hook 之前，
+    /// profile 内含 hook marker 的行索引（把 PATH 行插到 hook 之前，
     /// 确保 source 时 sdkm 先进 PATH 再跑 hook 的 eval，否则 hook 启动期 `sdkm` 找不到）
     fn find_hook_marker_line(lines: &[String], shell: Shell) -> Option<usize> {
         let marker = shell.syntax().inject_marker;
         lines.iter().position(|l| l.contains(marker))
+    }
+
+    /// hook 块的起始行索引：marker 行向上回溯过固定注释（HOOK_COMMENT_LINE），
+    /// 让 PATH 行落在注释上面而不是注释与 hook 调用行之间（更清晰）
+    fn find_hook_block_start(lines: &[String], shell: Shell) -> Option<usize> {
+        let mut idx = Self::find_hook_marker_line(lines, shell)?;
+        while idx > 0 && lines[idx - 1].trim() == HOOK_COMMENT_LINE {
+            idx -= 1;
+        }
+        Some(idx)
     }
 
     /// 设置/替换一个赋值行（已存在则替换，无则追加）。行形态走 backend（bash `export K="v"` / fish `set -gx K "v"`）
@@ -109,8 +119,9 @@ impl UnixEnvOperation {
     /// 把 new_path 前置到 PATH（按 path_model 分发；p 由调用方传入便于测试直测两种模型）
     ///
     /// RebuildLine（bash/zsh）：解析现有 PATH 行 → 前置插入 → 整行重建（已存在则跳过并 warning）。
-    /// PerDirCommand（fish）：直接追加一行 `fish_add_path --path "<dir>"`——幂等由 fish_add_path
-    /// 自身保证，无需预先去重检查（含空格路径由引号参数原生支持）。
+    /// PerDirCommand（fish）：`fish_add_path --path "<dir>"` 逐行模型——已存在（hook 前）则跳过
+    /// 并 warning；错位在 hook 后的旧污染行 relocate 自愈；新行插到 hook 块之前（含空格路径
+    /// 由引号参数原生支持）。
     fn add_path_entry(file_path: &Path, p: &'static ProfilePersistence, new_path: &str) -> Result<()> {
         let expanded = Self::expand_path(new_path);
         match p.path_model {
@@ -143,7 +154,7 @@ impl UnixEnvOperation {
                     // 否则 hook 行若在 PATH 行之前，source 时 `sdkm` 找不到 → PROMPT_COMMAND 注册失败。
                     // 无 marker 则追加末尾。
                     let new_line = build(slice::from_ref(&expanded), true);
-                    match Self::find_hook_marker_line(&lines, p.shell) {
+                    match Self::find_hook_block_start(&lines, p.shell) {
                         Some(idx) => lines.insert(idx, new_line),
                         None => lines.push(new_line),
                     }
@@ -154,11 +165,26 @@ impl UnixEnvOperation {
                 let add = p.add_dir_command.context("PerDirCommand 缺 add_dir_command")?;
                 let line = add(&expanded);
                 let mut lines: Vec<String> = Self::read_profile(file_path).lines().map(String::from).collect();
-                // relocate：删旧位置同串行（含旧 bug 错位在 hook 后的行），重插到 hook marker 之前
-                // ——插到 hook 之后会让 base 快照缺 sdk bin，env 重建 PATH 时把 bin 冲掉（fish 实测）。
+
+                // 已存在且在 hook 之前 → no-op（重复 switch 不来回翻转行序，幂等）；
+                // 仅错位在 hook 之后的旧污染行才 relocate 自愈。
+                let hook_start = Self::find_hook_block_start(&lines, p.shell);
+                let existing_idx = lines.iter().position(|l| l.trim() == line);
+                match (existing_idx, hook_start) {
+                    (Some(i), Some(h)) if i < h => {
+                        warning!("path exists. sdk_path: {}", new_path);
+                        return Ok(());
+                    }
+                    // 行已存在且无 hook 块（位置无从谈起）→ 视为已就位
+                    (Some(_), None) => return Ok(()),
+                    _ => {}
+                }
+
+                // 删旧位置同串行（含错位在 hook 后的行），插到 hook 块之前；无 hook 块则追加末尾。
+                // 到达此处时同串行要么不存在、要么在 hook 块之后（索引 > h），删行不影响 h。
                 lines.retain(|l| l.trim() != line);
-                match Self::find_hook_marker_line(&lines, p.shell) {
-                    Some(idx) => lines.insert(idx, line),
+                match hook_start {
+                    Some(h) => lines.insert(h, line),
                     None => lines.push(line),
                 }
                 Self::write_profile(file_path, &lines)
