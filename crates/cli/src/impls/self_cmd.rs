@@ -56,7 +56,7 @@ impl CommandHandler for SelfUninstallHandler {
         let confirmed = prompt_confirm(concat!(
             "This will clean up ALL managed SDK environments (symlink/PATH/env/current)\n",
             "and remove the sdkm home directory (store/links/config/cache).\n",
-            "The sdkm binary itself and any PATH entry must be removed manually.\n",
+            "The sdkm binary itself must be removed manually.\n",
             "Continue?",
         ))?;
         if !confirmed {
