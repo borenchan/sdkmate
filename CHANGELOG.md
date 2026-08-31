@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.4.3 - 2026-08-31
+
+
+### 🐛 Bug Fixes
+
+- fish path line relocated before hook to prevent base snapshot missing sdk bin — [`c110ade`](https://github.com/borenchan/sdkmate/commit/c110ade)
+
+### 📝 Documentation
+
+- simplify self uninstall confirmation message — [`52a9a35`](https://github.com/borenchan/sdkmate/commit/52a9a35)
+
+### 🧰 Chore
+
+- release 0.4.3 — [`b4caaba`](https://github.com/borenchan/sdkmate/commit/b4caaba)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.2...v0.4.3
+
+
+
 ## v0.4.2 - 2026-08-28
 
 
