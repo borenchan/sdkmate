@@ -4,7 +4,8 @@
 //! `{ "<PWD 绝对路径>": { config_path, mtime_nanos, env_script, ... } }`。
 //! 新鲜度判据 = 命中的 `.sdkm.toml` 的 mtime（纳秒，防同秒编辑盲区）+ shell +
 //! schema 版本 + 会话指纹（`SDKM_ACTIVE_*` 变量集合——中途 `use --shell` 改会话
-//! 变量必须触发重算，否则吐旧脚本压过会话层）：
+//! 变量必须触发重算）+ 全局指纹（symlink_dir + active SDK 集合——switch/uninstall
+//! 改 `current_version` 必须触发重算，否则吐旧脚本、新 bin 不生效）：
 //! 全部不变 → 直接吐缓存里的完整 env_script；任一变了 → 重新解析并回写。
 //! 损坏自愈：解析失败删缓存文件当空表。全程 best-effort，读写失败静默
 //! 降级到实时解析（缓存纯优化，不影响正确性）。
@@ -18,8 +19,10 @@ use std::time::UNIX_EPOCH;
 use util::consts::SDKM_SESSION_ENV_PREFIX;
 use util::path::get_hook_cache_path;
 
+use crate::config::SdkmConfig;
+
 /// 缓存 schema 版本：脚本模板/生成逻辑/新鲜度判据变化时 bump，旧缓存条目整体失效（自动重建）
-pub const CACHE_SCHEMA_VERSION: u128 = 4;
+pub const CACHE_SCHEMA_VERSION: u128 = 5;
 
 /// 单条 hook 缓存：命中的配置文件路径 + 采样时 mtime（纳秒）+ 已生成好的完整 env 脚本
 #[derive(Serialize, Deserialize, Default)]
@@ -42,6 +45,11 @@ pub struct HookEntry {
     /// 否则缓存吐旧脚本压过会话层（会话 > 项目的优先级文档会被缓存打破）
     #[serde(default)]
     pub session_fingerprint: String,
+    /// 生成此条目时的全局指纹（symlink_dir + 各 SDK current_version 集合）。命中时与
+    /// 当前指纹不符当 miss——switch/uninstall 改 `current_version` 后必须重算，
+    /// 否则缓存吐旧脚本，全局层 PATH 不含新 bin（switch 后按回车不生效）
+    #[serde(default)]
+    pub global_fingerprint: String,
 }
 
 /// 缓存表：PWD 绝对路径字符串 → hook 条目（transparent 序列化为裸 JSON object）
@@ -80,11 +88,12 @@ impl HookCache {
     }
 
     /// 查缓存是否命中：PWD 有记录、shell 相符、schema 版本一致、会话指纹一致、
-    /// 且其锚定的配置文件 mtime 未变
+    /// 全局指纹一致、且其锚定的配置文件 mtime 未变
     ///
-    /// 返回命中条目的 env_script 引用；未命中/无记录/shell 不符/schema 不符/
-    /// 指纹不符/mtime 变了 → None（触发实时解析）。
-    pub fn resolve(&self, pwd: &Path, shell: u8) -> Option<&HookEntry> {
+    /// `global_fp` 由调用方传入（同一次进程调用内 config 不会变，复用同一份指纹，
+    /// 避免判据 + put 采样各读一次盘）。返回命中条目的 env_script 引用；未命中/
+    /// 无记录/shell 不符/schema 不符/指纹不符/mtime 变了 → None（触发实时解析）。
+    pub fn resolve(&self, pwd: &Path, shell: u8, global_fp: &str) -> Option<&HookEntry> {
         let key = pwd.to_string_lossy();
         let entry = self.map.0.get(key.as_ref())?;
         if entry.shell != shell {
@@ -94,6 +103,9 @@ impl HookCache {
             return None;
         }
         if entry.session_fingerprint != current_session_fingerprint() {
+            return None;
+        }
+        if entry.global_fingerprint != global_fp {
             return None;
         }
         if entry.config_path.is_empty() {
@@ -165,6 +177,28 @@ pub fn current_session_fingerprint() -> String {
         .collect();
     pairs.sort();
     pairs.join(";")
+}
+
+/// 全局层指纹：`symlink_dir|<name>=<version>;...`（active SDK 按名排序拼接，无 active → `symlink_dir|`）
+///
+/// 影响 env 脚本全局层 PATH 输出的 config 状态都在里面：symlink_dir（决定 bin 路径前缀）、
+/// 各 SDK 的 current_version（决定哪些 bin 条目、先后由名字排序保证确定性）。switch/uninstall
+/// 改任一 SDK 的 current_version → 指纹变 → 缓存 miss 重算。
+///
+/// config 解析失败 → 空串（指纹判据失效，靠 schema/mtime 兜底——缓存纯优化，静默降级）。
+pub fn global_fingerprint() -> String {
+    let config = match SdkmConfig::read_from_disk() {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+    let symlink_dir = config.resolved_symlink_dir().unwrap_or_default();
+    let mut pairs: Vec<String> = config
+        .sdks
+        .iter()
+        .filter_map(|s| s.current_version.as_ref().map(|v| format!("{}={}", s.name, v)))
+        .collect();
+    pairs.sort();
+    format!("{}|{}", symlink_dir, pairs.join(";"))
 }
 
 /// 供外部获取指定文件的纳秒 mtime（生成缓存条目时锚定用）

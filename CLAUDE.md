@@ -99,7 +99,26 @@ bin_dir = "bin"
 
 ## 当前开发进度（2026-08-31）
 
-### 本次改动 —— fish PATH 行幂等化 + 插到 hook 注释之上（v0.4.4）
+### 本次改动 —— hook 全局层动态化：switch 后按回车即生效，无需重启终端（未发版未 bump）
+
+用户指出：既然已有 hook 机制（每次 prompt 触发 `sdkm env` 重建 PATH），全局层理应动态反映当前 active 状态，而不是每次都要求重启终端。定位：三层解析里会话层/项目层都是动态的，唯独全局层是静态残留——输出「还原启动 base 快照」（`set -gx PATH $_SDKM_BASE_PATH`），switch 中途新写入的 symlink bin 不在快照里，每次回车反而被冲掉（WSL fish「switch 后 node not found」的根因之一）。机理背景：任何外部 CLI 子进程都无法修改父 shell 环境（`source_profile` 的 `env::set_var` 只改 sdkm 自己进程），hook 的 source 是用户 shell 执行的、能改 PATH——所以「自动生效」的正道是让 env 输出正确的 PATH，而不是让程序去 source。
+
+**修法（三件套）**：
+1. **全局层动态化**（`shell/env.rs`）：新增 `global_active_sdks(covered)`——config 里 `current_version` 已设且未被会话/项目层覆盖的 SDK → `SelectedSdk{bins: <symlink_dir>/<sdk>[/<bin_dir>] + extra_paths, env_vars: extra_vars 渲染（{sdk_dir}=symlink 目录，与 switch 持久化语义一致）}`，`selected.extend` 追加在会话/项目层之后（同 SDK 多层被 covered 去重，各 SDK 只出现一次，PATH 顺序无功能冲突）。效果链：switch 改 config + symlink → 按回车 → hook 触发 env → 全局层输出新 bin → **立即生效**。java 全局 active 时 JAVA_HOME 也不再被 known-unset 冲掉（顺带修复：旧实现全局层不出 extra_vars，known 集合每次回车 unset JAVA_HOME）。项目层同 SDK 重复 pin 加 `pinned_names.insert` 去重（取第一个）。
+2. **缓存全局指纹**（`hook_cache.rs`）：`global_fingerprint()` = `symlink_dir|name=version;...`（active SDK 按名排序；config 读失败返空串静默降级）。`resolve` 增判据（指纹由调用方传入，本进程只算一次，判据+put 采样复用）+ `HookEntry.global_fingerprint` 字段（serde default）+ **schema 4→5 bump**（旧条目指纹空串会与「无 active」状态误命中）。与上轮会话指纹同款模式。
+3. **提示语**（`switch.rs`）：`Please restart your terminal` → `Press Enter to apply, or restart your terminal if hooks are not installed.`。init 提示保持不变（首次 init 后 hook 尚未在本会话生效，重启仍必要）。
+
+**IO 性能核查**（用户要求确认）：hook 命中热路径新增 IO 只有 `global_fingerprint()` 读 config.toml + TOML 解析（<1ms，典型 config 2~5KB；resolve 短路顺序 shell/schema 在前，前三项不匹配不付此成本）；对比 sdkm 进程 spawn 本身 5~20ms、调用频率 ≤1 次/秒，无感知。缓存 miss 路径原实现指纹算两次（resolve+put），已改为调用方算一次传入 `resolve(pwd, shell, &gf)` 复用。hook_cache.json 仅多存一个几十字节字段，prune 机制不变。
+
+**验证**：临时集成测试 2 个（全局层 bins+JAVA_HOME 出现在脚本 / switch 改 config 写盘后同 PWD 缓存重算出新 bin——测试里重建 manager 忠实模拟 hook 新进程重读 config），按规矩验证后已删除。Windows 真机端到端（用户验证）：`sdkm env --shell powershell` 输出优先级正确（项目层 node=store 真实目录 + 全局层 java/go=links bins + JAVA_HOME=links\java），终端输出正确。workspace 16 测试目标 ok；clippy 改动文件零警告。
+
+**自审修正的两处**（初版方案的错误，review 发现）：① 初版把全局 bins 放 PATH **最前**——违反「项目 > 全局」优先级语义，改为全局层 extend 到 selected 尾部；② 初版全局层只出 bins 不出 extra_vars——java 全局 active 时 JAVA_HOME 每次回车被 unset，补渲染。
+
+**改动文件**（4）：`crates/sdkcore/src/shell/env.rs`（global_active_sdks + 优先级拼接 + 指纹复用）、`crates/sdkcore/src/hook_cache.rs`（全局指纹 + schema 5）、`crates/sdkcore/src/switch.rs`（提示语）、`crates/sdkcore/tests/shell_integration.rs`（字面量补字段）。release 已覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（.bak 备份）。**未发版未 bump**（等 WSL fish 实测后再 bump）。
+
+### 2026-08-31 —— fish PATH 行幂等化 + 插到 hook 注释之上（v0.4.4）
+
+### 2026-08-31 —— fish PATH 行幂等化 + 插到 hook 注释之上（v0.4.4）
 
 用户复测 v0.4.3 relocate 修复暴露两个体验问题：(1) PATH 行插在 `# sdkm project-level version hook` 注释与 hook 调用行之间，应落在注释上面更清晰；(2) 重复 switch 时 node 行与 root 行相对顺序来回翻转——上轮 relocate 语义无条件删行重插的副作用，用户指出应「已存在就不写入」。
 

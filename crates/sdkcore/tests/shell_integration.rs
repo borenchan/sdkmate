@@ -12,7 +12,9 @@
 use anyhow::Result;
 use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
 use sdkcore::env::EnvOperation;
-use sdkcore::hook_cache::{CACHE_SCHEMA_VERSION, HookCache, HookEntry, current_session_fingerprint};
+use sdkcore::hook_cache::{
+    CACHE_SCHEMA_VERSION, HookCache, HookEntry, current_session_fingerprint, global_fingerprint,
+};
 use sdkcore::manager::SdkManager;
 use sdkcore::project_config::ProjectConfig;
 use std::collections::{BTreeMap, HashMap};
@@ -340,15 +342,20 @@ fn hook_cache_cross_shell_miss() {
             env_script: "echo bash".to_string(),
             schema_version: CACHE_SCHEMA_VERSION,
             shell: Shell::Bash as u8,
-            // 跟随当前进程会话指纹，模拟「与 resolve 时同状态」的正常命中
+            // 跟随当前进程会话/全局指纹，模拟「与 resolve 时同状态」的正常命中
             session_fingerprint: current_session_fingerprint(),
+            global_fingerprint: global_fingerprint(),
         },
     );
 
-    assert!(cache.resolve(&pwd, Shell::Bash as u8).is_some(), "同 shell 应命中");
-    assert!(cache.resolve(&pwd, Shell::Fish as u8).is_none(), "跨 shell 应 miss（防串扰）");
-    assert!(cache.resolve(&pwd, Shell::Zsh as u8).is_none(), "跨 shell 应 miss");
-    assert!(cache.resolve(&pwd, Shell::PowerShell as u8).is_none(), "跨 shell 应 miss");
+    let gf = global_fingerprint();
+    assert!(cache.resolve(&pwd, Shell::Bash as u8, &gf).is_some(), "同 shell 应命中");
+    assert!(
+        cache.resolve(&pwd, Shell::Fish as u8, &gf).is_none(),
+        "跨 shell 应 miss（防串扰）"
+    );
+    assert!(cache.resolve(&pwd, Shell::Zsh as u8, &gf).is_none(), "跨 shell 应 miss");
+    assert!(cache.resolve(&pwd, Shell::PowerShell as u8, &gf).is_none(), "跨 shell 应 miss");
 }
 
 /// 旧 schema 条目：resolve 当 miss（强制重建，防模板变更后吐旧脚本）
@@ -373,11 +380,12 @@ fn hook_cache_schema_mismatch_miss() {
             schema_version: CACHE_SCHEMA_VERSION - 1, // 旧 schema
             shell: Shell::Bash as u8,
             session_fingerprint: current_session_fingerprint(),
+            global_fingerprint: global_fingerprint(),
         },
     );
 
     assert!(
-        cache.resolve(&pwd, Shell::Bash as u8).is_none(),
+        cache.resolve(&pwd, Shell::Bash as u8, &global_fingerprint()).is_none(),
         "旧 schema 应 miss，即使 shell 相符"
     );
 }

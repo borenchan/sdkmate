@@ -190,7 +190,8 @@ impl SdkManager {
         );
 
         // ── Phase 4: 成功完成 ──
-        info!("PATH has been updated. Please restart your terminal for changes to take effect.");
+        // hook 已注入时按回车（prompt 触发 sdkm env 重建 PATH）即生效；未注入（手动 eval 场景）仍需重启
+        info!("PATH has been updated. Press Enter to apply, or restart your terminal if hooks are not installed.");
         success!("switch sdk `{}` to version `{}` success!", sdk, target_version);
         Ok(())
     }
