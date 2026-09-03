@@ -14,7 +14,7 @@
 
 - [项目级版本管理](#项目级版本管理) — `.sdkm.toml` + `sdkm use`，版本随目录自动切换
 - [Shell 支持与 Hook 注册](#shell-支持与-hook-注册) — 4 种 shell 支持与手动注入 / 重置
-- [工作原理](#工作原理) — hook 生效流程图、三层优先级、关键机制（技术参考）
+- [工作原理](#工作原理) — hook 生效流程图、四层优先级、关键机制（技术参考）
 
 ## 30 秒快速上手
 
@@ -238,7 +238,9 @@ sdkm config add-sdk mytool \
 
 ### 整体协作
 
-sdkm 的版本切换靠三件事协作：**符号链接**（`switch` 全局生效）+ **shell hook**（`use` 项目/临时生效）+ **环境变量**（临时覆盖）。全局层由 `switch` 写符号链接并改系统 PATH；项目层和临时层由 shell hook 在每次提示符渲染时调用 `sdkm env` 重新计算环境。
+sdkm 的版本切换靠三件事协作：**符号链接**（`switch` 全局生效）+ **shell hook**（`use` 项目/临时生效、`switch` 后按回车立即生效）+ **环境变量**（临时覆盖）。
+
+核心洞察：**任何外部命令都无法修改父 shell 的环境变量**（子进程只拿到环境副本），所以 sdkm 不试图"帮你改当前终端"，而是让 shell 自己改——hook 注入到 profile 后，每次提示符渲染都由**你的 shell** 调用 `sdkm env`、把输出脚本 `eval` 进当前 shell。`sdkm env` 输出「此刻应有的完整环境」，全部四层（见下）动态计算，因此**任何版本变更（`switch`/`use`/改 `.sdkm.toml`）后按一下回车即生效，无需重启终端**。
 
 ### hook 生效流程
 
@@ -247,49 +249,60 @@ sdkm 的版本切换靠三件事协作：**符号链接**（`switch` 全局生�
 ```mermaid
 flowchart TD
     A["提示符渲染"] --> B["shell 调用 sdkm hook 注册的钩子"]
-    B --> C["sdkm env：从当前目录向上找 .sdkm.toml"]
-    C --> D{"找到项目配置?"}
-    D -->|"是"| E["读 pins，模糊匹配本地已装版本"]
-    D -->|"否"| F["不注入项目 bins"]
-    E --> G{"版本本地已装?"}
-    G -->|"是"| H["bin 目录前置到 PATH<br/>设置 JAVA_HOME 等"]
-    G -->|"否"| I["stderr 警告，跳过该 SDK"]
-    F --> J["生成环境脚本<br/>PATH 重建 + 幂等 unset/export"]
-    H --> J
-    I --> J
-    J --> K["shell eval 脚本，环境生效"]
-    K --> L["cd 到别的目录 → 下一轮提示符重新解析"]
+    B --> C["sdkm env：四层解析当前环境"]
+    C --> D{"临时变量 SDKM_ACTIVE_*<br/>已设?"}
+    D -->|"是"| E["用会话版本（最高优先）"]
+    D -->|"否"| F{"向上递归找到 .sdkm.toml<br/>且 pin 了该 SDK?"}
+    F -->|"是"| G["读 pins，模糊匹配本地已装版本"]
+    F -->|"否"| H["跳过项目层"]
+    G --> I{"版本本地已装?"}
+    I -->|"是"| J["store 真实版本目录前置到 PATH<br/>设置 JAVA_HOME 等"]
+    I -->|"否"| K["stderr 警告，该 SDK 回退全局"]
+    E --> L{"会话版本本地仍已装?"}
+    L -->|"是"| E2["store 真实版本目录前置到 PATH"]
+    L -->|"否"| K
+    E2 --> M["拼接全局层（兜底）"]
+    H --> M
+    J --> M
+    K --> M
+    M --> N["生成环境脚本<br/>PATH 重建 + 幂等 unset/export"]
+    N --> O["shell eval 脚本，环境生效"]
+    O --> P["cd / switch / 改配置 → 下一轮提示符重新解析"]
 ```
 
-### 三层优先级解析
+### 四层优先级解析
 
-`sdkm env` 对每个已注册 SDK 按以下顺序决定该用哪个版本，取第一个命中的：
+`sdkm env` 输出的 PATH = 四段拼接（同 SDK 只取最高命中层，不会重复出现）：
+
+| 优先级 | 作用域 | 谁设置 | 载体 | PATH 条目来源 |
+|:---:|:---|:---|:---|:---|
+| 1（最高） | 临时 · 当前终端 | `sdkm use --shell` | `SDKM_ACTIVE_<SDK>` 环境变量 | store 真实版本目录 |
+| 2 | 项目 · 当前目录及子目录 | `sdkm use` | `.sdkm.toml` pins | store 真实版本目录（绕过 symlink） |
+| 3 | 全局 · 整个系统 | `sdkm switch` | `config.toml` 的 `current_version` | symlink 目录（`<symlink_dir>/<sdk>/bin`） |
+| 4（兜底） | — | — | — | `_SDKM_BASE_PATH`（启动时的 PATH 快照，保住系统/用户路径） |
 
 ```mermaid
 flowchart TD
     A["对每个已注册 SDK 解析版本"] --> B{"SDKM_ACTIVE_* 已设?<br/>(临时级)"}
     B -->|"是"| C["用临时环境变量的值"]
-    B -->|"否"| D{"向上递归找到 .sdkm.toml?<br/>(项目级)"}
+    B -->|"否"| D{"向上递归找到 .sdkm.toml 且 pin 了该 SDK?"}
     D -->|"是"| E["用项目 pin 的值"]
-    D -->|"否"| F["用 switch 符号链接的全局版本<br/>(全局级)"]
-    C --> G["输出该 SDK 的环境脚本"]
-    E --> G
-    F --> G
+    D -->|"否"| F{"config.toml 里 current_version 已设?"}
+    F -->|"是"| G["用全局 symlink 版本"]
+    F -->|"否"| H["该 SDK 不注入（PATH 靠 base 兜底）"]
+    C --> I["输出该 SDK 的环境脚本"]
+    E --> I
+    G --> I
+    H --> I
 ```
 
-三层对照：
-
-| 优先级 | 作用域 | 实现方式 | 谁设置 | 载体 |
-|:---:|:---|:---|:---|:---|
-| 1（最高） | 临时 · 当前终端 | shell 环境变量 | `sdkm use --shell` | `SDKM_ACTIVE_<SDK>` |
-| 2 | 项目 · 当前目录及子目录 | shell hook 读配置文件 | `sdkm use` | `.sdkm.toml` |
-| 3（最低） | 全局 · 整个系统 | 符号链接 + 系统 PATH | `sdkm switch` | `config.toml` + symlink |
+**关键点**：全局层不再是「还原启动快照」——sdkm 从 `config.toml` 权威状态（哪些 SDK 有 `current_version`）确定性推导出 symlink bin 路径，动态拼进 PATH。这保证了 `sdkm switch` 后**按一下回车**（hook 触发 `sdkm env`）新版本立即生效，不用重启终端；同 SDK 的项目 pin 依旧优先于全局（`covered` 去重保证每 SDK 只命中一层）。
 
 ### 关键机制
 
-- **幂等重建 + base PATH**：hook 首次运行时把启动 PATH 存到 `_SDKM_BASE_PATH`；之后每次 `sdkm env` 都从 base 重建 PATH（项目 bins 前置到 base），离开项目目录自然还原全局。未选中的全局 env vars 幂等 `unset`、选中的 `export`——重复执行不累积、不残留。
+- **幂等重建 + base PATH**：hook 首次运行时把启动 PATH 存到 `_SDKM_BASE_PATH`；之后每次 `sdkm env` 都从 base 重建 PATH（四层 bins 前置到 base）。未选中的全局 env vars 幂等 `unset`、选中的 `export`（全局层选中的 SDK 也渲染 `{sdk_dir}`=symlink 目录的 extra_vars，如 JAVA_HOME）——重复执行不累积、不残留、离开目录自然还原。
 - **stdout 纯净**：`sdkm env` / `sdkm hook` / `sdkm use --shell` 的 stdout 只吐脚本（供 `eval`/`source`/`IEX`），诊断信息一律走 stderr，不会污染 eval 出来的环境。
-- **mtime 缓存**：`sdkm env` 按 PWD + shell 缓存生成的脚本，以 `.sdkm.toml` 的 mtime 为 key——配置未改时直接吐缓存，改了才重新解析。缓存读写失败静默降级为实时解析。
+- **双指纹缓存**：`sdkm env` 按 PWD + shell 缓存生成的脚本，新鲜度判据 = `.sdkm.toml` mtime + **会话指纹**（`SDKM_ACTIVE_*` 变量集合）+ **全局指纹**（symlink_dir + 各 SDK `current_version` 集合，读自 config.toml）——任一变化即重算。这保证 `use --shell` 与 `switch` 后 hook 不会吐旧缓存脚本压过新状态。缓存读写失败静默降级为实时解析。
 - **未装降级**：项目/临时级版本本地未装时，`sdkm env` 跳过该 SDK 并 stderr 警告，PATH/env 回退全局，不阻断 shell；临时级 `use --shell` 则要求必须已装，否则报错退出。
 - **父级配置冲突检测**：`sdkm use` 写 `.sdkm.toml` 前向上探测父级是否已有配置，命中则 warning 提示覆盖关系（只提示不阻断）。
 - **会话级无 unset 入口**：`SDKM_ACTIVE_*` 目前只有 set 路径，清除靠手敲——bash/zsh `unset SDKM_ACTIVE_JAVA`、fish `set -e SDKM_ACTIVE_JAVA`、PowerShell `Remove-Item Env:SDKM_ACTIVE_JAVA`。
@@ -302,6 +315,8 @@ flowchart TD
 | zsh | `precmd`（`add-zsh-hook`） | 单行重建（同 bash） |
 | fish | `fish_prompt` 事件 | 逐行 `fish_add_path --path` |
 | PowerShell | 包装 `prompt` 函数 | 走注册表（Windows） |
+
+> **为什么 profile 里持久化的 PATH 行不会与 hook 冲突**：hook 每次回车重建的 PATH（全局层 symlink bins + base）覆盖了持久化条目的语义——`switch` 维护 `config.toml` 的 `current_version` 与 profile 的 PATH 行一致，两者指向相同的 symlink 目录。profile 行只在「hook 未注入/首次启动」时兜底。
 
 ---
 

@@ -122,7 +122,7 @@ sdkm rm node 16              # 卸载本地 Node 16（uninstall 别名 rm；-y �
 |:---:|:---|:---|:---|:---|
 | 1（最高） | 临时 · 当前终端 | `sdkm use --shell <SDK> <V>` | 环境变量 `SDKM_ACTIVE_<SDK>` | eval 输出脚本，仅本 shell，关终端失效 |
 | 2 | 项目 · 当前目录及子目录 | `sdkm use <SDK> <V>` | 当前目录 `.sdkm.toml` | hook 进目录自动切、离开自动还原 |
-| 3 | 全局 · 整个系统 | `sdkm s <SDK> <V>` | 符号链接 + 系统 PATH | 立即全系统生效 |
+| 3 | 全局 · 整个系统 | `sdkm s <SDK> <V>` | 符号链接 + config `current_version` | 已注入 hook 时按一下回车即生效（hook 每次回车从 config 动态重建 PATH）；未注入 hook 需重启终端 |
 
 ```bash
 sdkm s java 21                              # 全局：整个系统都用 Java 21
@@ -152,7 +152,7 @@ Invoke-Expression ((sdkm use --shell java 21) -join "`n")
 - `-r` 但未给 SDK 名 → 报错 `Please specify an SDK name`。
 - `list maven -r` → 报错（Maven 不支持远程版本列表）。
 
-**switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
+**switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。**已注入 hook 时切换后按一下回车即生效**（hook 每次回车触发 `sdkm env` 从 config 动态重建 PATH）；未注入 hook 需重启终端。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
 
 **use**：项目级（默认）写当前目录 `.sdkm.toml` 声明 pin，hook 自动生效；`--shell` 走临时会话级（输出 eval 脚本）。详见上文"多作用域版本切换"。
 

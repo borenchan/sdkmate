@@ -118,6 +118,8 @@ sdkm s node 20.11.0          # 切换到 Node.js 20.11.0
 
 切换机制：创建/更新符号链接 `<symlink_dir>/<sdk_name>` → `store/<sdk>/<version>`，将符号链接的 bin 目录加入 PATH，并通过平台特定方式设置额外环境变量（如 `JAVA_HOME`），最后更新 `config.toml` 的 `current_version`。
 
+**生效时机**：已注入 shell hook 时，切换完成**按一下回车**（提示符渲染触发 hook → `sdkm env` 重建 PATH）即生效，无需重启终端；未注入 hook 时需重启终端（或重新 source profile）。
+
 **安全特性**：
 
 - **PATH 冲突检测**：切换前检测 PATH 中是否已有同 SDK 的其他版本路径，避免冲突。
@@ -147,7 +149,7 @@ sdkm use java 21          # 在当前目录写 .sdkm.toml：java = "21"
 - 在当前目录生成（或合并进已有的）`.sdkm.toml`，把 SDK → 期望版本作为 KV 摊平写入（如 `java = "21"`）。
 - **声明意图，不强制安装**：若该版本本地未装，仍写入，但 `sdkm env` 会自动降级回全局版本，并提示你 `sdkm install java 21`。
 - 写入前若检测到上层目录已有 `.sdkm.toml`，会 warning 提示覆盖关系（只提示不阻断）。
-- 写入后**开一个新 shell**（或 `cd` 出去再进来）即激活——hook 会在每次提示符渲染时读 `.sdkm.toml` 热更新。
+- 写入后**按一下回车**（hook 触发 `sdkm env` 重读配置）即激活，无需重启终端或重新 cd。
 
 ### 会话级（`--shell`）
 
@@ -161,11 +163,11 @@ Invoke-Expression ((sdkm use --shell java 21) -join [Environment]::NewLine)  # P
 - 会话级**优先级最高**，覆盖项目级与全局。
 - 会话级版本**必须本地已安装**，否则报错退出（不像项目级那样宽容降级）。
 
-### 三层优先级
+### 四层优先级
 
-> **临时环境变量**（`use --shell`）> **项目 `.sdkm.toml`**（`use`）> **全局符号链接**（`switch`）——`sdkm env` 对每个 SDK 取第一个命中的。
+> **临时环境变量**（`use --shell`）> **项目 `.sdkm.toml`**（`use`）> **全局符号链接**（`switch`，hook 每次回车从 config 动态推导）> **base 快照**（启动时的 PATH，兜底系统路径）——`sdkm env` 对每个 SDK 取第一个命中的层。
 >
-> 临时级 / 项目级依赖 shell hook 才会自动激活，**未注入 hook 时 `use` 不生效**，只能靠 `switch` 改全局。先跑 `sdkm init` 注入 hook。三层解析流程、hook 生效机制与流程图见 [工作原理](./usage.md#工作原理)。
+> 临时级 / 项目级依赖 shell hook 才会自动激活，**未注入 hook 时 `use` 不生效**，只能靠 `switch` 改全局。先跑 `sdkm init` 注入 hook。四层解析流程、hook 生效机制与流程图见 [工作原理](./usage.md#工作原理)。
 
 ---
 
@@ -178,9 +180,9 @@ sdkm env [--shell <shell>]
 ```
 
 - `--shell <shell>`：指定目标 shell（`bash`/`zsh`/`fish`/`powershell`）；省略则自动检测当前 shell。
-- 输出内容：PATH 重建行（项目 bins 前置到 `_SDKM_BASE_PATH`）+ 全局 known env vars 的幂等 unset + 本次选中 SDK 的 export（如 `JAVA_HOME`）。
+- 输出内容：PATH 重建行（四层 bins 前置到 `_SDKM_BASE_PATH`：临时/项目 = store 真实版本目录，全局 = symlink 目录）+ 全局 known env vars 的幂等 unset + 本次选中 SDK 的 export（如 `JAVA_HOME`）。
 - **幂等重建**：每次调用都从 base PATH 重建，离开项目目录即还原全局；无项目配置时输出幂等还原脚本。
-- 带 mtime 缓存：`.sdkm.toml` 未改动时直接吐缓存脚本，未装降级等诊断走 stderr，不污染 stdout（stdout 必须纯净供 eval）。
+- 带双指纹缓存：`.sdkm.toml` 未改、会话变量与全局 active 状态未变时直接吐缓存脚本；任一变化（改配置 / `use --shell` / `switch`）即重算。未装降级等诊断走 stderr，不污染 stdout（stdout 必须纯净供 eval）。
 
 手动验证当前目录会注入什么（不会改动环境）：
 

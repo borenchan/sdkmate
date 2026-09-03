@@ -122,7 +122,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 全栈工程师在 Java、Node.js、Python、Go、Maven 等 SDK 版本之间来回切换是常态——以往要同时装 nvm、jenv、pyenv、sdkman 多套脚本工具，各管一摊、互不通气。**sdkm 用一个 Rust 二进制把这件事做完。**
 
 - **🟢 纯绿色，可移植**：单二进制就是全部，不装后台服务。sdkm 的「`HOME`」就是可执行文件所在目录——拷到 U 盘、另一台机器，配置和已装 SDK 一并带走。把已有 JDK / Node / Python 直接放进 `store/` 目录，sdkm 自动发现并托管。
-- **⚡ 三种作用域，按需切换**：全局（`switch` 符号链接 + 系统 PATH，一次切换全系统生效，Windows 下 `WM_SETTINGCHANGE` 广播让已开程序可感知）、项目（`use` 写 `.sdkm.toml`，shell hook 进目录自动切、离开还原）、临时（`use --shell` 当前终端覆盖）三种作用域同时支持，同一套机制按需选用。
+- **⚡ 三种作用域，按需切换**：全局（`switch` 改符号链接与 config，shell hook 每次回车动态重建 PATH——切换后**按回车即生效**，Windows 下 `WM_SETTINGCHANGE` 广播让已开程序可感知）、项目（`use` 写 `.sdkm.toml`，shell hook 进目录自动切、离开还原）、临时（`use --shell` 当前终端覆盖）三种作用域同时支持，同一套机制按需选用。
 - **🛡️ 透明可回滚，出错不翻车**：每一步操作都逐步打印做了什么、为什么；`switch` 任一步骤失败自动恢复到切换前状态；`config` 采用原子写入 + 快照回滚，配置文件绝不会写到一半损坏。
 - **🦀 Rust 驱动，类型安全更可靠**：由 Rust 编写，所有权与类型系统在编译期消除悬垂指针、缓冲区溢出、数据竞争等整类内存安全问题；相比无类型检查的 bash 脚本，多一层编译期兜底，不易因拼写或空值静默出错。配合原子写入 + 快照回滚，操作失败也不会把环境搞坏。
 - **🧩 可扩展，一个工具管所有**：内置 Java / Node.js / Python / Maven / Go / Any Sdk，任何能从 URL 下载解压的工具都能一行命令注册为自定义 SDK。配置按类型校验，改错当场报错——**告别"为每个语言学一套版本管理器"**。
@@ -186,7 +186,7 @@ sdkm 的版本切换按**作用域**分三种，按优先级从高到低：
 
 - **临时 · 当前终端**：`sdkm use --shell java 21` 设一个临时环境变量，只影响这个 shell 进程，关掉终端即失效。
 - **项目 · 某个目录（推荐）**：`sdkm use java 21` 在当前目录写 `.sdkm.toml`，由 shell 钩子在进目录时自动切、离开时自动还原——改完按回车即热更新。
-- **全局 · 整个系统**：`sdkm switch java 21` 改系统 PATH 与符号链接，所有终端、所有目录都生效。
+- **全局 · 整个系统**：`sdkm switch java 21` 改符号链接与 `config.toml`，hook 每次回车从 config 动态重建 PATH——**切换后按一下回车即生效**，所有目录都生效。
 
 ```bash
 sdkm switch java 21                      # 全局：整个系统都用 Java 21
