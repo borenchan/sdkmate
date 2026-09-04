@@ -55,9 +55,10 @@ fn export_line(k: &str, v: &str) -> String {
     format!("$env:{k} = \"{v}\"")
 }
 
-/// 取消行（对不存在变量静默）
+/// 取消行：赋 null 即删除（PS 5.1/7 语义一致），比 Remove-Item Env: 快两个数量级
+/// （后者走 PSDrive provider 每行 37-150ms，前者 0.3ms——hook 热路径实测）
 fn unset_line(k: &str) -> String {
-    format!("Remove-Item Env:{k} -ErrorAction SilentlyContinue")
+    format!("$env:{k} = $null")
 }
 
 pub const SYNTAX: ShellSyntax = ShellSyntax {

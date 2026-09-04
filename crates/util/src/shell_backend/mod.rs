@@ -49,7 +49,7 @@ pub struct ShellSyntax {
     pub path_line: fn(&[String]) -> String,
     /// env / use --shell 赋值行（bash `export K="v"` / fish `set -gx K "v"` / PS `$env:K = "v"`）
     pub export_line: fn(&str, &str) -> String,
-    /// env 脚本取消行（bash `unset K` / fish `set -q K; and set -e K` / PS `Remove-Item Env:K`）
+    /// env 脚本取消行（bash `unset K` / fish `set -q K; and set -e K` / PS `$env:K = $null`）
     pub unset_line: fn(&str) -> String,
 }
 

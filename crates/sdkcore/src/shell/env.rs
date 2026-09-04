@@ -358,7 +358,7 @@ mod tests {
             format!(
                 "if (-not $env:{e}) {{ $env:{e} = $env:PATH }}\n\
                  $env:PATH = \"bin/a;bin/b;\" + $env:{e}\n\
-                 Remove-Item Env:EXTRA -ErrorAction SilentlyContinue\n\
+                 $env:EXTRA = $null\n\
                  $env:JAVA_HOME = \"/sdk/java\"\n"
             )
         );
