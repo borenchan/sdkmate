@@ -14,6 +14,7 @@ use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};
 use std::iter::once;
 use std::path::PathBuf;
+use std::str::FromStr;
 use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE};
 use util::path::{format_bytes, get_installed_sdks_dir, get_sdkm_home};
@@ -63,6 +64,20 @@ pub enum InstallStatus {
     Installed,
     /// 已安装且为当前激活版本
     Active,
+}
+
+/// 已注册 SDK 概览条目(第一层 SDK 选择 TUI / 非 TTY 概览共用)
+#[derive(Debug)]
+pub struct RegisteredSdkItem {
+    pub sdk: Sdk,
+    /// config 注册名
+    pub name: String,
+    /// store 中是否已安装(存在版本目录)
+    pub installed: bool,
+    /// 当前激活版本(config current_version,未激活为 None)
+    pub current: Option<String>,
+    /// 有版本发现源 → 支持远程列表(TUI 跳转 -r)
+    pub has_version_url: bool,
 }
 
 // ─── 本地列表 ────────────────────────────────────────────────────
@@ -283,6 +298,28 @@ impl SdkManager {
         }
         info!("SDK '{}' not found in store. Please install a version first.", sdk);
         Ok(vec![])
+    }
+
+    /// 收集所有已注册 SDK 概览(config.sdks 全量 + store 安装状态 + current + 可否远程)
+    ///
+    /// 供第一层 SDK 选择 TUI 与非 TTY 概览共用;不依赖 store 目录遍历判断注册(自定义 SDK 未安装也列出)
+    pub fn list_registered_sdks(&self) -> Result<Vec<RegisteredSdkItem>> {
+        let sdks_root_dir = get_installed_sdks_dir()?;
+        let mut items = Vec::with_capacity(self.config.sdks.len());
+        for sdk_conf in &self.config.sdks {
+            let sdk = Sdk::from_str(&sdk_conf.name)?;
+            let installed = sdks_root_dir.join(&sdk_conf.name).is_dir();
+            let current = sdk_conf.current_version.clone();
+            let has_version_url = sdk_conf.version_url.as_deref().is_some_and(|u| !u.is_empty());
+            items.push(RegisteredSdkItem {
+                sdk,
+                name: sdk_conf.name.clone(),
+                installed,
+                current,
+                has_version_url,
+            });
+        }
+        Ok(items)
     }
 
     /// 打印本地版本列表(带 ✅ 激活标记,非 TUI 的回退展示)

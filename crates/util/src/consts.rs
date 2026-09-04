@@ -46,6 +46,8 @@ pub const DIR_DESC_LINKS: &str = "active SDK symlinks";
 
 /// Visual divider line for terminal output (50 box-drawing chars)
 pub const DIVIDER: &str = "──────────────────────────────────────────────────";
+/// 软分隔虚点线（同 DIVIDER 宽度；用于 TUI 内分组等弱分隔场景）
+pub const DIVIDER_DOT: &str = "· · · · · · · · · · · · · · · · · · · · · · · · ·";
 
 /// Status markers for version display
 pub const STATUS_ACTIVE: &str = "✅";
@@ -69,6 +71,14 @@ pub const TUI_TIPS: &[&str] = &[
     "Press Enter or 's' to switch (only installed versions)",
     "Press del/d to uninstall an installed version (with confirm)",
     "✅ active  📦 installed — installed rows highlighted in green",
+];
+
+/// Tips for the first-layer SDK selector（已注册 SDK 概览，按键与版本选择器不同）
+pub const SDK_SELECTOR_TIPS: &[&str] = &[
+    "Press ↑↓ or j/k to navigate, Ctrl+C or q to quit",
+    "Press Enter on an installed SDK to browse its local versions",
+    "Press r to browse remote versions (Enter on an uninstalled SDK does the same)",
+    "✅ active — installed SDKs on top, registered-but-not-installed below",
 ];
 
 /// 默认符号链接目录名（位于 sdkm home 下，运行时拼成 <home>/links）
