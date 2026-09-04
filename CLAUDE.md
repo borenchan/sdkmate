@@ -97,7 +97,15 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-08-31）
+## 当前开发进度（2026-09-04）
+
+### 2026-09-04 —— PS unset 行 Remove-Item → $null 赋值（v0.4.5）
+
+用户反馈 Windows PowerShell profile 加载 803ms 疑似 hook 耗时。实测定位：803ms = PS 5.1 基线 ~310ms + spawn sdkm hook ~150ms + IEX hook ~140ms + hook 内 spawn sdkm env ~150ms + IEX env 输出 ~140ms；spawn 慢的主因是机器装有奇安信天擎实时防护（裸 cmd spawn 都要 130-200ms）。代码侧可做的优化点：`Remove-Item Env:X` 每行 37-150ms（走 PSDrive provider）→ `$env:X = $null` 0.3ms（PS 5.1/7 语义一致：赋 null 即删除），extra_vars 多时 unset 行数线性放大收益。
+
+**改动文件**（3）：`crates/util/src/shell_backend/pwsh.rs`（unset_line）、`crates/util/src/shell_backend/mod.rs`（注释）、`crates/sdkcore/src/shell/env.rs`（PS golden 测试）。**发版 v0.4.5**。
+
+**性能分析结论备忘**（本机实测）：IEX 单次固定开销 35-150ms（PS 5.1 逐次编译无缓存）；`$env:X = $null` 与 `Remove-Item Env:X` 语义等价已端到端验证。剩余大头在环境侧：天擎白名单（收益最大）、装 PS 7。profile 内联 hook 函数可再省 ~200-350ms 但放弃模板热更新，未采纳。
 
 ### 本次改动 —— hook 全局层动态化：switch 后按回车即生效，无需重启终端（未发版未 bump）
 
