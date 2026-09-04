@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.4.5 - 2026-09-04
+
+
+### ✨ Features
+
+- two-layer ls TUI with registered SDK browser and TTY-aware fallbacks — [`262e1df`](https://github.com/borenchan/sdkmate/commit/262e1df)
+- global layer dynamically reflects active sdks so enter applies switch instantly — [`be8934e`](https://github.com/borenchan/sdkmate/commit/be8934e)
+
+### ⚡ Performance
+
+- replace PS Remove-Item unset with null assignment — [`e4f36b4`](https://github.com/borenchan/sdkmate/commit/e4f36b4)
+
+### 📝 Documentation
+
+- update how-it-works for dynamic global layer and enter-to-apply — [`eae22c6`](https://github.com/borenchan/sdkmate/commit/eae22c6)
+
+### 🧰 Chore
+
+- release 0.4.5 — [`30003e1`](https://github.com/borenchan/sdkmate/commit/30003e1)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.4...v0.4.5
+
+
+
 ## v0.4.4 - 2026-08-31
 
 
