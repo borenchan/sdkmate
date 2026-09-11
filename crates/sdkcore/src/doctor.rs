@@ -159,11 +159,12 @@ fn section_health_check(config: &crate::config::SdkmConfig) {
         }
     }
 
-    // 2. PATH 中是否有 <links>\ 前缀条目（switch 注入的是 links\<sdk>\bin 等子目录，不是 links 本体）
+    // 2. PATH 中是否有 <links>/ 前缀条目（switch 注入的是 links/<sdk>/bin 等子目录，不是 links 本体；
+    //    分隔符用 MAIN_SEPARATOR 兼容 Windows 反斜杠与 Unix 正斜杠）
     if let Ok(links) = config.resolved_symlink_dir() {
-        let links_norm = format!("{}\\", Path::new(&links).to_string_lossy().to_lowercase());
+        let links_norm = format!("{}{}", Path::new(&links).to_string_lossy(), std::path::MAIN_SEPARATOR);
         let in_path = env::var("PATH")
-            .map(|p| env::split_paths(&p).any(|seg| seg.to_string_lossy().to_lowercase().starts_with(&links_norm)))
+            .map(|p| env::split_paths(&p).any(|seg| seg.to_string_lossy().starts_with(&links_norm)))
             .unwrap_or(false);
         if in_path {
             success("PATH: sdkm links entries present");

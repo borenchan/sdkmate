@@ -97,17 +97,17 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-09-10）
+## 当前开发进度（2026-09-11）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-09-10 —— sdkm doctor 诊断命令 + issue 规范
+### 2026-09-11 —— fish 下报错双打印修复 + doctor PATH 跨平台前缀
 
-GitHub issue 缺信息排查成本高。三件套：(1) 新增 `sdkm doctor` 诊断命令，分节打印版本/平台、home 与路径、配置摘要（proxy/token 脱敏只报 set/unset）、已装 SDK 概览、健康检查（symlink 目标有效性、PATH 中 `<links>\` 前缀条目、JAVA_HOME 是否指向 sdkm 管理路径——store 或 links 均算、SDKM_HOME 与 exe 目录一致性）；探测失败打 ❌ 继续不中断，退出码 0。(2) `.github/ISSUE_TEMPLATE/`（中文 YAML 表单：bug_report 四段式——前置确认 checkbox/环境诊断 doctor 输出/问题描述/复现步骤与补充信息；feature_request 简版两段；config.yml 禁空白 issue 指向 Discussions）。(3) 置顶 issue 全文（含可复制模板，另行手工贴到 GitHub）。另外 `build_bug_report_url` 预填 body 追加 Doctor output 小节，`os_version`/`platform_info` 改 pub。
+用户 WSL fish 报 `sdkm i java 17` 错误输出两行。strace 复现：fish 读 config.fish → `sdkm hook fish | source` → hook 里的 `sdkm env --shell fish`（config 缺失时报第 1 行）+ 用户命令（报第 2 行）——不是同一处打两遍，是 env 在 hook 链路额外报一次。**修复**：`EnvHandler` 读不到 config 时静默吐空脚本退出（env 是 hook 每次提示符高频调用，config 缺失/损坏时每次开 shell 都喷 🦀 属于体验 bug；诊断留给用户主动命令）。另 doctor PATH 检查硬编码 `\` 分隔符在 WSL fish 永不命中——改 `std::path::MAIN_SEPARATOR` 且去掉 to_lowercase（Unix 路径大小写敏感）。
 
-**关键踩坑**：PATH 检查项「links 目录本体在 PATH 中」是错的——switch 注入的是 `links\<sdk>\bin`、`links\<sdk>\Scripts` 等子目录，必须查 `<links>\` 前缀条目（用 starts_with），否则健康用户全部误报。`sdkcore::doctor` 里 match 臂调 `error!` 等宏必须用 `{}` 块包裹（宏展开含 `let` 语句不能当 match 表达式臂）。**`os_version` 不能用 `cmd /c ver`**——中文系统输出 GBK，`String::from_utf8` 解析失败恒为 unknown；改读注册表 `CurrentVersion` 的 `ProductName`/`CurrentBuildNumber`（后者是 REG_SZ 字符串"19043"不是 u32，按整数读报 os error 222）。**用户反馈三轮定稿**：installed 报 yes/no（set/unset 难懂）、JAVA_HOME 判断检查项撤销，改为循环打印各 SDK `extra_vars` 在当前 shell 的实际值（如 `java[JAVA_HOME]: ...`）。
+**关键排查方法**：`wsl -e strace -f -e trace=execve fish -c "..."` 看子进程链——双行错误先怀疑「多个 sdkm 进程各打一次」（hook 链路 + 用户命令），不是同一进程重复打印。WSL 里验证 sdkm 修复必须 Linux ELF，但 WSL 无 Rust 工具链、Windows 交叉编译被 aws-lc-rs build.rs 拦（见注意事项），用 Windows 同构场景模拟（`$env:SDKM_HOME='空目录'; sdkm env --shell fish` 应静默 exit 0）验证逻辑。
 
-**改动文件**（8）：`crates/sdkcore/src/doctor.rs`（新）、`crates/cli/src/impls/doctor.rs`（新）、`crates/cli/src/lib.rs`、`crates/cli/src/impls/mod.rs`、`crates/sdkcore/src/lib.rs`、`crates/util/src/terminal.rs`、`.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml`（新）。未发版。
+**改动文件**（2）：`crates/cli/src/impls/env.rs`（静默降级）、`crates/sdkcore/src/doctor.rs`（MAIN_SEPARATOR + 去 lowercase）。未发版。
 
 ## 已知问题与注意事项
 

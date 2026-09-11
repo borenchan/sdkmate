@@ -26,7 +26,11 @@ impl CommandHandler for EnvHandler {
             None => detect_shell(),
         };
         let pwd = env::current_dir()?;
-        let manager = SdkManager::new()?;
+        // config 缺失/损坏 → 静默吐空脚本：env 被 hook 每次提示符高频调用，
+        // 此处报错会让未 init/损坏的场每次开 shell 都被喷 🦀（诊断留给用户主动命令）
+        let Ok(manager) = SdkManager::new() else {
+            return Ok(());
+        };
         // 纯脚本输出（缓存命中零解析；无项目配置输出幂等 PATH 重建 + unset 行）
         print!("{}", manager.generate_env_script_cached(shell, &pwd));
         Ok(())
