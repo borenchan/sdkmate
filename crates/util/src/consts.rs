@@ -10,6 +10,8 @@ pub const BANNER: &str = r"
 pub const ABOUT: &str = r"
     SDKM - An SDK version manager for full-stack engineers
     Create By borenchan<boren1007@qq.com>.
+
+    If sdkm is helpful to you, give us a star 🌟, thanks: https://github.com/borenchan/sdkmate
 ";
 pub const UNKNOWN: &str = "unknown";
 

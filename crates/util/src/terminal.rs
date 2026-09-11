@@ -3,6 +3,8 @@ use anyhow::Result;
 use crossterm::style::Stylize;
 use std::env;
 use std::io::{self, Write};
+// os_version 的 unix 分支用；Windows 走注册表无需子进程
+#[cfg(unix)]
 use std::process::Command;
 use unicode_width::UnicodeWidthStr;
 use url::Url;
@@ -211,6 +213,7 @@ pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
          **Steps to reproduce**:\n\
          1. \n\n\
          **Expected behavior**:\n\n\
+         **Doctor output** (run `sdkm doctor` and paste here):\n\n\
          **Additional context**:\n",
         version = env!("CARGO_PKG_VERSION"),
         os = os_version(),
@@ -227,8 +230,8 @@ pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
     url.to_string()
 }
 
-/// 平台信息：操作系统 + 架构
-fn platform_info() -> String {
+/// 平台信息：操作系统 + 架构（doctor 诊断命令复用）
+pub fn platform_info() -> String {
     let os = env::var("OS").unwrap_or_else(|_| {
         if cfg!(windows) {
             "windows".to_string()
@@ -246,17 +249,38 @@ fn platform_info() -> String {
     format!("{} ({})", os, arch)
 }
 
-/// 操作系统版本号（Windows build / Unix 内核版本），用于 bug report 区分环境
-fn os_version() -> String {
-    let output = if cfg!(windows) {
-        Command::new("cmd").args(["/c", "ver"]).output()
-    } else {
-        Command::new("uname").args(["-sr"]).output()
-    };
-    output
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
+/// 操作系统版本号（Windows build / Unix 内核版本），用于 bug report 与 doctor 区分环境
+pub fn os_version() -> String {
+    // Windows 读注册表（UTF-16 无编码问题；`cmd /c ver` 输出 GBK，中文系统 from_utf8 失败变 unknown）
+    #[cfg(windows)]
+    {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
+        if let Ok(cur) = hk.open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            && let (Ok(name), Ok(build)) = (
+                cur.get_value::<String, _>("ProductName"),
+                cur.get_value::<String, _>("CurrentBuildNumber"),
+            )
+        {
+            format!("{name} (build {build})")
+        } else {
+            "unknown".to_string()
+        }
+    }
+    #[cfg(unix)]
+    {
+        Command::new("uname")
+            .args(["-sr"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        "unknown".to_string()
+    }
 }

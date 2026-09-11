@@ -1,5 +1,6 @@
 use crate::impls::config::ConfigHandler;
 use crate::impls::current::CurrentHandler;
+use crate::impls::doctor::DoctorHandler;
 use crate::impls::env::EnvHandler;
 use crate::impls::hook::HookHandler;
 use crate::impls::init::InitHandler;
@@ -75,6 +76,9 @@ pub enum Commands {
     #[command(name = "config", about = "View or edit sdkm configuration")]
     Config(ConfigHandler),
 
+    #[command(name = "doctor", about = "Print diagnostic report (sdkm context for issue reports)")]
+    Doctor(DoctorHandler),
+
     #[command(name = "self", about = "Manage sdkm itself")]
     Self_(SelfHandler),
 }
@@ -108,6 +112,7 @@ impl Commands {
             Commands::Hook(handler) => handler.run(),
             Commands::Current(handler) => handler.run(),
             Commands::Config(handler) => handler.run(),
+            Commands::Doctor(handler) => handler.run(),
             Commands::Uninstall(handler) => handler.run(),
             Commands::Self_(handler) => handler.run(),
         };

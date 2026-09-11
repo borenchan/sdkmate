@@ -1,5 +1,6 @@
 pub mod config;
 pub mod current;
+pub mod doctor;
 pub mod env;
 pub mod hook;
 pub mod init;

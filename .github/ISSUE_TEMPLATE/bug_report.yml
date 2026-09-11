@@ -1,0 +1,64 @@
+name: 🐛 Bug 反馈
+description: sdkm 未按预期工作时报此表单
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！**提示**：如果错误是 sdkm 自身的 bug（如下载解压失败、内置配置损坏），终端会直接打印一个预填好的 issue 链接，点那个链接提交即可，无需填此表单。
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 前置确认
+      description: 请逐项确认
+      options:
+        - label: 我已搜索现有 issue，确认没有相似/重复的问题
+          required: true
+        - label: 我已查阅置顶 issue 和 README 的已知问题
+          required: true
+        - label: 我使用的是最新版本（若非最新，请在问题描述中注明版本号）
+          required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: 环境诊断输出（强烈建议）
+      description: 在终端运行 `sdkm doctor`，完整复制输出粘贴到这里（含版本、配置状态、已装 SDK、健康检查）。
+      placeholder: |
+        $ sdkm doctor
+        （粘贴完整输出）
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 期望的行为 vs 实际的行为，一句话说清现象。
+      placeholder: |
+        期望：
+        实际：
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤与补充信息
+      description: |
+        - 最小复现步骤（按编号列出，命令先后顺序很关键）
+        - 复现性：每次都能复现 / 偶发
+        - 相关报错输出（doctor 之外的终端报错原文）
+        - 影响程度：阻塞（无法工作）/ 严重（有 workaround）/ 一般
+        - 已尝试的解决方法（重装、管理员运行、改配置等）
+      placeholder: |
+        复现步骤：
+        1.
+        复现性：
+        报错输出：
+        影响程度：
+        已尝试：
+    validations:
+      required: true

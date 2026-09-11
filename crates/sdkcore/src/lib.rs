@@ -1,4 +1,5 @@
 pub mod config;
+pub mod doctor;
 pub mod env;
 pub mod hook_cache;
 pub mod init;
