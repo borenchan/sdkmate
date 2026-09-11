@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.4.6 - 2026-09-11
+
+
+### ✨ Features
+
+- add sdkm doctor diagnostic command and issue templates (v0.4.6) — [`94f3b02`](https://github.com/borenchan/sdkmate/commit/94f3b02)
+
+### 📝 Documentation
+
+- keep only latest progress entry in CLAUDE.md — [`7357e67`](https://github.com/borenchan/sdkmate/commit/7357e67)
+- update CLAUDE.md progress for v0.4.5 — [`ffc4d03`](https://github.com/borenchan/sdkmate/commit/ffc4d03)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.5...v0.4.6
+
+
+
 ## v0.4.5 - 2026-09-04
 
 
