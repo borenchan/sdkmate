@@ -7,15 +7,16 @@ use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
+use util::builtin::{JAVA_ASSETS_URL, find_seed, find_seed_by_variant};
 use util::config_helper::{
     ArchStyle, OsStyle, PLACEHOLDER_ARCH, PLACEHOLDER_FEATURE_VERSION, PLACEHOLDER_OS, TemplateRenderer,
     detect_arch_with, detect_os_with, detect_platform_triple,
 };
 use util::sdk::{BuiltinSdk, Sdk};
-use util::sdk_resources::find_builtin_sdk_config;
 
 use super::cache::{VersionSource, fetch_version_data};
 use super::fuzzy::fuzzy_match_version_core;
+use super::github_releases::{GitHubRelease, parse_releases};
 use super::truncate;
 
 // ─── 数据结构 ────────────────────────────────────────────────────
@@ -74,14 +75,26 @@ pub trait VersionDiscovery: Send + Sync {
     fn parse_version_data(&self, body: &str) -> Result<Vec<VersionEntry>>;
 }
 
-pub fn get_version_discovery(sdk: &Sdk) -> Box<dyn VersionDiscovery> {
+/// 版本发现分发：专属路径 SDK 按枚举固定，其余走 ConfigBased 通用解析
+///
+/// ConfigBased 依次识别三种 JSON 形状：扁平字符串数组 / {version} 对象数组 /
+/// GitHub Releases 数组（标准 B，`asset_prefix` 作资产前缀门：内置种子取主可执行
+/// 文件名 claude-code→"claude"，自定义 SDK 取名字本身）。
+/// GH 形状靠 JSON 结构识别而非 URL——本地镜像/代理/测试 server 同样生效。
+pub fn get_version_discovery(sdk: &Sdk, _version_url: &str) -> Box<dyn VersionDiscovery> {
     match sdk {
         Sdk::Built(BuiltinSdk::Java) => Box::new(JavaDiscovery),
         Sdk::Built(BuiltinSdk::Node) => Box::new(NodeDiscovery),
         Sdk::Built(BuiltinSdk::Python) => Box::new(PythonDiscovery),
         Sdk::Built(BuiltinSdk::Maven) => Box::new(MavenDiscovery),
         Sdk::Built(BuiltinSdk::Go) => Box::new(GoDiscovery),
-        Sdk::Custom(_) => Box::new(ConfigBasedDiscovery),
+        _ => {
+            let sdk_name = sdk.to_string();
+            let prefix = find_seed(&sdk_name).map(|s| s.primary_executables[0]).unwrap_or(&sdk_name);
+            Box::new(ConfigBasedDiscovery {
+                asset_prefix: prefix.to_string(),
+            })
+        }
     }
 }
 
@@ -132,12 +145,12 @@ impl VersionDiscovery for JavaDiscovery {
 /// Java 的两步解析逻辑(available_releases → assets API)
 /// 因为 Java 需要两步查询,不能完全套用通用流程,保留独立实现
 pub async fn resolve_java_version(client: &Client, version_input: &str) -> Result<ResolvedVersion> {
-    let config =
-        find_builtin_sdk_config(&BuiltinSdk::Java).context("[Java version resolve] no builtin SDK config for Java")?;
+    let seed =
+        find_seed_by_variant(&BuiltinSdk::Java).context("[Java version resolve] no builtin SDK config for Java")?;
 
     // 第一步:从 Adoptium 解析可用主版本号
     let resp = client
-        .get(config.version_url)
+        .get(seed.version_url)
         .send()
         .await
         .context("[Java version resolve] failed to query Adoptium releases API")?;
@@ -175,11 +188,7 @@ pub async fn resolve_java_version(client: &Client, version_input: &str) -> Resul
         .var(PLACEHOLDER_FEATURE_VERSION, version_input)
         .var(PLACEHOLDER_OS, detect_os_with(OsStyle::Adoptium))
         .var(PLACEHOLDER_ARCH, detect_arch_with(ArchStyle::Adoptium))
-        .render(
-            config
-                .assets_url
-                .context("[Java version resolve] assets_url not configured in builtin SDK config")?,
-        )?;
+        .render(JAVA_ASSETS_URL)?;
 
     let resp = client
         .get(&assets_url)
@@ -442,7 +451,10 @@ fn map_uv_target(platform_triple: &str) -> Result<UvTarget> {
     }
 }
 
-/// 解析 GitHub Releases API 格式(备源)
+/// 解析 GitHub Releases API 格式(Python 备源)
+///
+/// 复用标准 B 引擎的 JSON 结构;资产筛选保留 Python 专属语义
+/// (仅匹配 `{platform}-install_only.tar.gz` 资产,版本号从资产名提取)
 fn parse_github_releases(body: &str) -> Result<Vec<VersionEntry>> {
     let releases: Vec<GitHubRelease> =
         serde_json::from_str(body).context("[Python version sniff] failed to parse GitHub releases data")?;
@@ -484,17 +496,7 @@ fn extract_python_version(name: &str) -> Option<String> {
     Some(after.split('+').next().unwrap_or(after).to_string())
 }
 
-#[derive(Debug, Deserialize)]
-struct GitHubRelease {
-    tag_name: String,
-    assets: Vec<GitHubAsset>,
-}
-#[derive(Debug, Deserialize)]
-struct GitHubAsset {
-    name: String,
-    #[allow(dead_code)]
-    size: u64,
-}
+// GH Releases JSON 结构体复用 github_releases 模块的 GitHubRelease/GitHubAsset
 
 // ─── Maven 版本发现 ─────────────────────────────────────────────
 
@@ -557,22 +559,29 @@ struct GoFile {
 
 // ─── ConfigBased 版本发现(自定义 SDK)──────────────────────────
 
-struct ConfigBasedDiscovery;
+/// 标准 A/B 通用解析：自动识别三种 JSON 版本格式
+struct ConfigBasedDiscovery {
+    /// GH Releases 形状识别时的资产前缀门（主可执行文件名）
+    asset_prefix: String,
+}
 
 impl VersionDiscovery for ConfigBasedDiscovery {
     fn parse_version_data(&self, body: &str) -> Result<Vec<VersionEntry>> {
-        // 自定义 SDK 尝试自动解析常见 JSON 版本格式:
-        // 1. 扁平字符串数组:["3.12.8", "3.12.7", "3.11.12"]
+        // 依次尝试三种 JSON 形状：
+        // 1. 扁平字符串数组:["3.12.8", ...]
         // 2. 对象数组含 version 字段:[{"version": "3.12.8"}, ...]
+        // 3. GitHub Releases 数组（标准 B：tag 剥前缀 + 平台资产直链，asset_prefix 做前缀门）
         if let Ok(entries) = parse_flat_version_array(body) {
             return Ok(entries);
         }
         if let Ok(entries) = parse_version_object_array(body) {
             return Ok(entries);
         }
+        if let Ok(entries) = parse_releases(body, &self.asset_prefix) {
+            return Ok(entries);
+        }
         bail!(
-            "[Custom SDK version validate] failed to auto-parse version data from configured version_url. \
-               Supported formats: flat string array or array of objects with 'version' field"
+            "[Custom SDK version validate] failed to auto-parse version data from configured version_url.              Supported formats: flat string array, objects with 'version' field, or GitHub Releases array"
         );
     }
 }

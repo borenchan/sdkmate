@@ -92,7 +92,13 @@ impl InstallProgress {
                 .unwrap()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
-        pb.set_message(format!("Resolving version '{}' for {}...", version_input, sdk));
+        // ls 浏览模式无版本输入（空串）→ 文案改为拉取远程列表；install 场景保持解析文案
+        let msg = if version_input.is_empty() {
+            format!("Fetching remote versions for {}...", sdk)
+        } else {
+            format!("Resolving version '{}' for {}...", version_input, sdk)
+        };
+        pb.set_message(msg);
         pb.enable_steady_tick(Duration::from_millis(100));
 
         Self { pb }

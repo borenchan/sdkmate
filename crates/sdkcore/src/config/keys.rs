@@ -41,6 +41,8 @@ impl ConfigKey {
                     SdkField::DownloadFallbackUrl => "download_fallback_url",
                     SdkField::CurrentVersion => "current_version",
                     SdkField::BinDir => "bin_dir",
+                    SdkField::OsStyle => "os_style",
+                    SdkField::ArchStyle => "arch_style",
                 };
                 format!("sdk.{}.{}", name, field_name)
             }
@@ -63,6 +65,8 @@ pub enum SdkField {
     DownloadFallbackUrl,
     CurrentVersion,
     BinDir,
+    OsStyle,
+    ArchStyle,
 }
 
 /// 从点分隔字符串解析为 ConfigKey
@@ -126,6 +130,14 @@ pub fn parse_config_key(key: &str) -> Result<ConfigKey> {
                     name: parts[1].to_string(),
                     field: SdkField::BinDir,
                 }),
+                "os_style" => Ok(ConfigKey::Sdk {
+                    name: parts[1].to_string(),
+                    field: SdkField::OsStyle,
+                }),
+                "arch_style" => Ok(ConfigKey::Sdk {
+                    name: parts[1].to_string(),
+                    field: SdkField::ArchStyle,
+                }),
                 "extra_vars" | "extra_paths" => bail!(
                     "Invalid config key '{}'. For extra_vars, use: sdk.{}.extra_vars.<KEY>\nFor extra_paths, use: sdk.{}.extra_paths.<N>",
                     key,
@@ -187,6 +199,8 @@ pub fn known_keys() -> Vec<&'static str> {
         "sdk.<name>.download_fallback_url",
         "sdk.<name>.current_version",
         "sdk.<name>.bin_dir",
+        "sdk.<name>.os_style",
+        "sdk.<name>.arch_style",
         "sdk.<name>.extra_vars.<KEY>",
         "sdk.<name>.extra_paths.<N>",
     ]

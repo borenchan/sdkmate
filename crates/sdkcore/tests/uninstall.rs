@@ -107,6 +107,8 @@ fn java_sdk(current: Option<&str>, bin_dir: Option<&str>, extra_vars: &[(&str, &
         bin_dir: bin_dir.map(|s| s.to_string()),
         extra_vars: vars,
         extra_paths: Vec::new(),
+        os_style: None,
+        arch_style: None,
     }
 }
 

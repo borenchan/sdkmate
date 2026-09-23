@@ -75,7 +75,7 @@ sdkm config add-sdk mylocal --bin-dir bin
 sdkm config remove-sdk <NAME>
 ```
 
-内置 SDK（java/node/python/maven/go）不可移除。移除只删除 `config.toml` 中的条目，不会删除 `store/` 下已下载的文件。
+内置 SDK（java/node/python/go/maven/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform）不可移除。移除只删除 `config.toml` 中的条目，不会删除 `store/` 下已下载的文件。
 
 ## URL 模板占位符
 
@@ -121,3 +121,39 @@ sdkm config remove-sdk <NAME>
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
 | Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
 | Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
+
+## GitHub Releases 接入标准（标准 B）
+
+任何通过 GitHub Releases 分发压缩包的工具，只需一条 `version_url` 即可接入，**无需配置下载模板**：
+
+```bash
+sdkm config add-sdk <name> --version-url "https://api.github.com/repos/<owner>/<repo>/releases"
+```
+
+引擎自动完成（零配置）：
+
+- **版本解析**：从 `tag_name` 剥离前缀取版本号（`bun-v1.4.2` / `v2.9.6` / `0.12.11` 等形态通吃），
+  自动过滤 `prerelease` / `draft`，自动补 `per_page=100`
+- **平台资产选择**：从 `assets` 中按"OS 词 + arch 词 + 压缩包后缀"自动识别当前平台的 zip/tar.gz 直链
+  （windows/win32、darwin/macos、x64/x86_64/amd64、arm64/aarch64 等命名惯例内置同义词表；
+  `baseline`/`profile` 修饰变体与 musl/gnu 按运行环境自动取舍）
+- **直链下载**：选中的 `browser_download_url` 直接作为下载地址，无需 `download_url` 模板
+
+### 镜像与备源
+
+GH 直链下载失败时自动回落 `download_fallback_url` 模板（国内网络建议配置）：
+
+```bash
+sdkm config set sdk.<name>.download_fallback_url \
+  "https://ghfast.top/https://github.com/<owner>/<repo>/releases/download/v{version}/<name>-{os}-{arch}.zip"
+```
+
+`{version}` 为剥离前缀后的版本号；`{os}`/`{arch}` 风格可用 `sdk.<name>.os_style`（default/short/adoptium）
+与 `sdk.<name>.arch_style`（default/adoptium/python/go）调整。
+
+### 适用条件
+
+- 资产为 zip 或 tar.gz（裸 exe 单文件暂不支持）
+- 解压后二进制位于压缩包根目录或 `bin/` 子目录（`--bin-dir` 按实际布局指定）
+- 主命令名与资产前缀一致（如 `bun` 前缀资产内的 `bun.exe`）；主命令名不同时用内置种子登记
+  （如 claude-code 的资产前缀是 `claude`）

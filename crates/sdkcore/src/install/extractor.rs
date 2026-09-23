@@ -194,8 +194,11 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 验证解压结果：检查关键目录/文件是否存在
-pub fn verify_extraction(target_dir: &Path, sdk_name: &str) -> Result<()> {
+/// 验证解压结果：按 SDK 配置的 bin_dir 期望检查布局
+///
+/// - `Some(dir)`：要求 `<version_dir>/<dir>/` 子目录存在（如 java/go 的 "bin"）
+/// - `None`：二进制应在版本目录根（如 Windows Node、bun），目录非空即可
+pub fn verify_extraction(target_dir: &Path, bin_dir: Option<&str>) -> Result<()> {
     if !target_dir.exists() {
         bail!(
             "Extraction verification failed: directory {} does not exist",
@@ -208,13 +211,13 @@ pub fn verify_extraction(target_dir: &Path, sdk_name: &str) -> Result<()> {
         bail!("Extraction verification failed: directory {} is empty", target_dir.display())
     }
 
-    if sdk_name != "node" && sdk_name != "python" {
-        let bin_dir = target_dir.join("bin");
-        if !bin_dir.exists() {
+    if let Some(dir) = bin_dir {
+        let bin_path = target_dir.join(dir);
+        if !bin_path.exists() {
             bail!(
-                "Extraction verification failed: {} bin directory not found at {}",
-                sdk_name,
-                bin_dir.display()
+                "Extraction verification failed: bin directory '{}' not found at {}",
+                dir,
+                bin_path.display()
             )
         }
     }

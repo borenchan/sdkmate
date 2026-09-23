@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use util::consts::BugReportError;
+use util::terminal::build_bug_report_url;
 
 /// 测试 BugReportError 包装与检测机制
 #[test]
@@ -52,7 +53,7 @@ fn test_bug_report_url_contains_title_and_body() {
 
     // 构建预期的 URL 基础路径
     let base = "https://github.com/borenchan/sdkmate/issues/new";
-    let url = util::terminal::build_bug_report_url(command, error_msg);
+    let url = build_bug_report_url(command, error_msg);
     println!("Url:{}", url);
     // URL 应以 base 开头
     assert!(url.starts_with(base), "URL should start with base path");
@@ -87,7 +88,7 @@ fn test_bug_report_url_contains_title_and_body() {
 #[test]
 fn test_bug_report_url_truncates_long_error() {
     let long_error = "A very long error message that exceeds the 80 character limit for the title and should be truncated with ellipsis at the end";
-    let url = util::terminal::build_bug_report_url("install node 18", long_error);
+    let url = build_bug_report_url("install node 18", long_error);
 
     // 解析 URL 获取 title 参数值
     let parsed = url::Url::parse(&url).expect("URL should be valid");

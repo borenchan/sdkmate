@@ -7,7 +7,8 @@ pub enum Sdk {
     Built(BuiltinSdk),
     Custom(String),
 }
-/// builtin sdk
+/// builtin sdk（专属路径 SDK：Java 两步查询、Node v 前缀、Python 双源等）
+/// 引擎型内置 SDK（bun/pnpm 等）不在枚举中，以 Sdk::Custom 形态由 builtin::SDK_SEEDS 种子驱动
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BuiltinSdk {
     ///java programming language development environment
@@ -61,38 +62,6 @@ impl Display for BuiltinSdk {
             BuiltinSdk::Node => write!(f, "node"),
             BuiltinSdk::Python => write!(f, "python"),
             BuiltinSdk::Go => write!(f, "go"),
-        }
-    }
-}
-impl BuiltinSdk {
-    /// get sdk bin directory
-    /// - Java/Maven：解压后可执行文件在 bin/ 子目录（全平台一致）
-    /// - Node：Windows zip 解压后 node.exe 在根目录；Linux/macOS tar.gz 解压后 node/npm 在 bin/ 子目录
-    /// - Python install_only: after double-lift normalization,
-    ///   Windows has python.exe at root, Unix has python3 in bin/
-    pub fn get_sdk_bin_dir(&self) -> &str {
-        match self {
-            BuiltinSdk::Node => {
-                // Windows zip 解压后扁平（node.exe 在根）；Unix tar.gz 解压后 node/npm 在 bin/
-                if cfg!(target_os = "windows") { "" } else { "bin" }
-            }
-            BuiltinSdk::Python => {
-                // install_only 二次提升后：Windows 扁平结构，Unix bin/ 子目录
-                if cfg!(target_os = "windows") { "" } else { "bin" }
-            }
-            _ => "bin",
-        }
-    }
-
-    /// PATH 冲突检测：返回该 SDK 的主可执行文件名（不含扩展名）
-    /// Windows 运行时会自动追加 .exe / .cmd；Unix 使用原始名
-    pub fn primary_executables(&self) -> &[&str] {
-        match self {
-            BuiltinSdk::Java => &["java", "javac"],
-            BuiltinSdk::Node => &["node", "npm"],
-            BuiltinSdk::Python => &["python", "python3"],
-            BuiltinSdk::Maven => &["mvn"],
-            BuiltinSdk::Go => &["go", "gofmt"],
         }
     }
 }

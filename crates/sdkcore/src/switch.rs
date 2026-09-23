@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use util::builtin::primary_executables_for;
 use util::config_helper::PLACEHOLDER_SDK_DIR;
 use util::consts::BugReportError;
 use util::sdk::Sdk;
@@ -204,16 +205,11 @@ impl SdkManager {
         Ok(actual_extra_vars)
     }
 
-    /// 检测 PATH 中非 sdkm 来源的同名 SDK 路径（仅对内置 SDK）
+    /// 检测 PATH 中非 sdkm 来源的同名 SDK 路径
     fn detect_path_conflicts(&self, sdk: &Sdk, path: &str) -> Result<Vec<String>> {
-        let builtin = match sdk {
-            Sdk::Built(b) => b,
-            Sdk::Custom(_) => return Ok(Vec::new()),
-        };
-
         let symlink_root = self.config.resolved_symlink_dir()?;
         let entries = split_path_entries(path);
-        let executables = builtin.primary_executables();
+        let executables = primary_executables_for(&sdk.to_string());
 
         // Windows 检查 .exe 和 .cmd；Unix 检查原始名
         let extensions: &[&str] = if cfg!(windows) { &[".exe", ".cmd"] } else { &[""] };

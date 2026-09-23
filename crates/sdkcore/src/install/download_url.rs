@@ -11,10 +11,19 @@ use util::config_helper::{
 };
 use util::sdk::{BuiltinSdk, Sdk};
 
+use crate::config::SdkConfig;
 use crate::version::ResolvedVersion;
 
 /// 按 SDK 构建下载 URL(模板渲染或使用直链)
-pub fn build_download_url(sdk: &Sdk, template: &str, resolved: &ResolvedVersion) -> Result<String> {
+///
+/// `sdk_conf` 供 Custom 分支读取用户配置的 os_style/arch_style（标准 A 自定义 SDK 的
+/// 风格配置化；未配置时保持 Default 风格的历史行为）
+pub fn build_download_url(
+    sdk: &Sdk,
+    sdk_conf: &SdkConfig,
+    template: &str,
+    resolved: &ResolvedVersion,
+) -> Result<String> {
     match sdk {
         Sdk::Built(BuiltinSdk::Java) => {
             let mut r = TemplateRenderer::new()
@@ -57,12 +66,48 @@ pub fn build_download_url(sdk: &Sdk, template: &str, resolved: &ResolvedVersion)
             .var(PLACEHOLDER_OS_EXT, detect_ext())
             .var(PLACEHOLDER_VERSION, &resolved.full_version)
             .render(template),
-        // custom SDK 沿用原 ConfigBasedStrategy::default() 的 Default 风格
-        Sdk::Custom(_) => TemplateRenderer::new()
-            .var(PLACEHOLDER_OS, detect_os_with(OsStyle::Default))
-            .var(PLACEHOLDER_ARCH, detect_arch_with(ArchStyle::Default))
-            .var(PLACEHOLDER_OS_EXT, detect_ext())
-            .var(PLACEHOLDER_VERSION, &resolved.full_version)
-            .render(template),
+        // custom SDK（含引擎型内置种子）：os/arch 风格可由 config 配置（如 helm/terraform 的
+        // amd64 命名配 arch_style="go"），未配置时保持 Default 风格的历史行为
+        Sdk::Custom(_) => {
+            let os_style = sdk_conf
+                .os_style
+                .as_deref()
+                .map(parse_os_style)
+                .transpose()?
+                .unwrap_or(OsStyle::Default);
+            let arch_style = sdk_conf
+                .arch_style
+                .as_deref()
+                .map(parse_arch_style)
+                .transpose()?
+                .unwrap_or(ArchStyle::Default);
+            TemplateRenderer::new()
+                .var(PLACEHOLDER_OS, detect_os_with(os_style))
+                .var(PLACEHOLDER_ARCH, detect_arch_with(arch_style))
+                .var(PLACEHOLDER_OS_EXT, detect_ext())
+                .var(PLACEHOLDER_VERSION, &resolved.full_version)
+                .render(template)
+        }
+    }
+}
+
+/// 解析用户配置的 os 风格字符串
+fn parse_os_style(s: &str) -> Result<OsStyle> {
+    match s {
+        "default" => Ok(OsStyle::Default),
+        "short" => Ok(OsStyle::Short),
+        "adoptium" => Ok(OsStyle::Adoptium),
+        _ => anyhow::bail!("Invalid os_style '{}'. Valid values: default, short, adoptium", s),
+    }
+}
+
+/// 解析用户配置的 arch 风格字符串
+fn parse_arch_style(s: &str) -> Result<ArchStyle> {
+    match s {
+        "default" => Ok(ArchStyle::Default),
+        "adoptium" => Ok(ArchStyle::Adoptium),
+        "python" => Ok(ArchStyle::Python),
+        "go" => Ok(ArchStyle::Go),
+        _ => anyhow::bail!("Invalid arch_style '{}'. Valid values: default, adoptium, python, go", s),
     }
 }

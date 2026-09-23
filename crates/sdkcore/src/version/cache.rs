@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use util::consts::SDKM_CACHE_DIR;
 use util::path::get_sdkm_home;
-use util::sdk_resources::SdkSourceConfig;
 use util::warning;
 
 use super::truncate;
@@ -17,15 +16,6 @@ use super::truncate;
 pub struct VersionSource {
     pub primary_url: String,
     pub secondary_url: Option<String>,
-}
-
-impl VersionSource {
-    pub fn from_config(config: &SdkSourceConfig) -> Self {
-        VersionSource {
-            primary_url: config.version_url.to_string(),
-            secondary_url: config.version_fallback_url.map(|s: &str| s.to_string()),
-        }
-    }
 }
 
 // ─── 通用缓存(缓存优先 + TTL 过期) ─────────────────────────────

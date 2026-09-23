@@ -9,6 +9,7 @@ use sdkcore::manager::SdkManager;
 use std::collections::HashMap;
 use std::env;
 use std::process::Command;
+use util::path::get_sdkm_config_path;
 use util::{detail, info, success, warning};
 
 #[derive(Debug, Parser)]
@@ -244,7 +245,7 @@ impl ConfigDeleteHandler {
 }
 
 fn run_edit() -> Result<()> {
-    let config_path = util::path::get_sdkm_config_path()?;
+    let config_path = get_sdkm_config_path()?;
 
     // 检测编辑器
     let editor = detect_editor();
@@ -369,6 +370,8 @@ impl AddSdkHandler {
             bin_dir,
             extra_vars,
             extra_paths: self.extra_path.clone(),
+            os_style: None,
+            arch_style: None,
         };
 
         manager.config.add_sdk(sdk_config)?;

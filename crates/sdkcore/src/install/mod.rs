@@ -4,7 +4,6 @@ pub mod extractor;
 pub mod progress;
 
 use anyhow::{Context, Result, bail};
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use util::consts::SDKM_TMP_DIR;
@@ -14,6 +13,7 @@ use util::terminal::prompt_confirm;
 use util::{bail_bug, detail, info, try_bug, warning};
 
 use crate::manager::SdkManager;
+use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{
     ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
 };
@@ -21,7 +21,7 @@ use download_url::build_download_url;
 use downloader::{build_reqwest_client, download_with_retry};
 use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
 use progress::InstallProgress;
-use util::sdk_resources::find_builtin_sdk_config;
+use util::builtin::find_seed_by_variant;
 
 impl SdkManager {
     /// 安装 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）
@@ -54,18 +54,10 @@ impl SdkManager {
             // Java 有两步查询逻辑（available_releases → assets API），独立处理
             resolve_java_version(&client, version_input).await?
         } else {
-            // 通用流程：主备切换 + 缓存兜底 + 模糊匹配（所有 SDK 包括自定义）
-            let (version_url, version_fallback_url) = match sdk {
-                Sdk::Built(b) => {
-                    let cfg = find_builtin_sdk_config(b).context(format!("no builtin config for {}", sdk_name))?;
-                    // 内置配置缺失属于程序 bug，标记 BugReportError
-                    (cfg.version_url.to_string(), cfg.version_fallback_url.map(|s| s.to_string()))
-                }
-                Sdk::Custom(_) => (
-                    sdk_conf.version_url.clone().unwrap_or_default(),
-                    sdk_conf.version_fallback_url.clone(),
-                ),
-            };
+            // 通用流程：版本源统一读 config（内置 SDK 的种子已由 ensure_builtin_sdks 物化，
+            // 用户可 config set sdk.<name>.version_url 换源/镜像）+ 缓存兜底 + 模糊匹配
+            let version_url = sdk_conf.version_url.clone().unwrap_or_default();
+            let version_fallback_url = sdk_conf.version_fallback_url.clone();
 
             if version_url.is_empty() && version_fallback_url.as_ref().is_none_or(|s| s.is_empty()) {
                 // 无版本发现源 → 仅支持精确版本
@@ -84,21 +76,23 @@ impl SdkManager {
                     fuzzy_matched: false,
                 }
             } else {
-                let source = VersionSource {
-                    primary_url: version_url,
-                    secondary_url: version_fallback_url,
-                };
+                // GH 版本源自动补 per_page=100（GH 默认 30 条，高频发版工具不够）
+                let version_url = ensure_per_page(&version_url);
                 let cache_key = sdk_name.to_lowercase();
-                // 备源是 GitHub API 时需要 Accept header
-                let headers = if let Sdk::Built(BuiltinSdk::Python) = sdk {
-                    Some(HashMap::from([(
-                        "Accept".to_string(),
-                        "application/vnd.github+json".to_string(),
-                    )]))
+                // GitHub API 请求统一注入 Accept header（主源或备源任一为 GH API 即注入，
+                // 覆盖 Python 的 GH 备源与全部标准 B SDK）
+                let headers = if is_github_releases_url(&version_url)
+                    || version_fallback_url.as_ref().is_some_and(|u| is_github_releases_url(u))
+                {
+                    Some(github_api_headers())
                 } else {
                     None
                 };
-                let discovery = get_version_discovery(sdk);
+                let source = VersionSource {
+                    primary_url: version_url.clone(),
+                    secondary_url: version_fallback_url,
+                };
+                let discovery = get_version_discovery(sdk, &version_url);
                 resolve_sdk_version(
                     &client,
                     discovery.as_ref(),
@@ -159,7 +153,7 @@ impl SdkManager {
                     sdk_name
                 )
             })?;
-            build_download_url(sdk, template, &resolved)?
+            build_download_url(sdk, sdk_conf, template, &resolved)?
         };
         detail!("Download URL (primary): {}", download_url);
 
@@ -170,19 +164,15 @@ impl SdkManager {
                 // 内置 SDK 的静态备源
                 match sdk {
                     Sdk::Built(b) => {
-                        find_builtin_sdk_config(b).and_then(|c| c.download_fallback_url.map(|s| s.to_string()))
+                        find_seed_by_variant(b).and_then(|c| c.download_fallback_url.map(|s| s.to_string()))
                     }
                     _ => None,
                 }
             })
             .map(|fallback_template| {
-                // 备源 URL 模板也需要渲染
-                if resolved.download_url.is_some() {
-                    // 有直链时，备源逻辑不同（暂不支持直链备源）
-                    fallback_template
-                } else {
-                    build_download_url(sdk, &fallback_template, &resolved).unwrap_or(fallback_template)
-                }
+                // 备源 URL 模板一律渲染（含直链场景：{version} 取解析后的版本号，
+                // 支持国内 gh-proxy 类镜像模板作为 GH 直链失败的备源）
+                build_download_url(sdk, sdk_conf, &fallback_template, &resolved).unwrap_or(fallback_template)
             });
 
         // ── Phase 4: 创建临时目录 ─────────────────────────────────
@@ -244,7 +234,7 @@ impl SdkManager {
 
         // ── Phase 9: 验证安装 ────────────────────────────────────
         let verify_pb = InstallProgress::new_verify();
-        if let Err(e) = verify_extraction(&version_dir, &sdk_name) {
+        if let Err(e) = verify_extraction(&version_dir, sdk_conf.bin_dir.as_deref()) {
             let _ = fs::remove_dir_all(&version_dir);
             cleanup_temp(&tmp_dir)?;
             bail_bug!("Installation verification failed: {}. Rolled back.", e);

@@ -114,6 +114,8 @@ fn java_config() -> SdkConfig {
         bin_dir: Some("bin".to_string()),
         extra_vars: vars,
         extra_paths: Vec::new(),
+        os_style: None,
+        arch_style: None,
     }
 }
 

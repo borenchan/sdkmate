@@ -27,6 +27,10 @@ pub enum ValueType {
     NonEmptyString,
     /// 自由字符串（允许空值，如 bin_dir="" 表示二进制在根目录）→ 禁止路径分隔符
     FreeString,
+    /// 下载模板 {os} 命名风格 → 枚举白名单（default/short/adoptium）
+    OsStyle,
+    /// 下载模板 {arch} 命名风格 → 枚举白名单（default/adoptium/python/go）
+    ArchStyle,
 }
 
 /// 校验后的值容器（携带具体类型，用于 set 操作）
@@ -116,6 +120,14 @@ pub fn field_type(key: &ConfigKey) -> ValueType {
             field: SdkField::BinDir,
             ..
         } => ValueType::FreeString,
+        ConfigKey::Sdk {
+            field: SdkField::OsStyle,
+            ..
+        } => ValueType::OsStyle,
+        ConfigKey::Sdk {
+            field: SdkField::ArchStyle,
+            ..
+        } => ValueType::ArchStyle,
         ConfigKey::SdkExtraVar { .. } => ValueType::NonEmptyString,
         ConfigKey::SdkExtraPath { .. } => ValueType::Path,
     }
@@ -209,6 +221,22 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
             value_type: ValueType::FreeString,
             default_desc: "(empty = binaries in SDK root dir)".to_string(),
         },
+        ConfigKey::Sdk {
+            field: SdkField::OsStyle,
+            ..
+        } => KeyMeta {
+            deletable: sdk_deletable,
+            value_type: ValueType::OsStyle,
+            default_desc: "default".to_string(),
+        },
+        ConfigKey::Sdk {
+            field: SdkField::ArchStyle,
+            ..
+        } => KeyMeta {
+            deletable: sdk_deletable,
+            value_type: ValueType::ArchStyle,
+            default_desc: "default".to_string(),
+        },
         ConfigKey::SdkExtraVar { .. } => KeyMeta {
             deletable: sdk_deletable,
             value_type: ValueType::NonEmptyString,
@@ -237,6 +265,17 @@ pub fn validate_by_type(raw: &str, ty: &ValueType) -> Result<ValidatedValue> {
         ValueType::Token => validate_token(raw),
         ValueType::NonEmptyString => validate_non_empty_string(raw),
         ValueType::FreeString => validate_free_string(raw),
+        ValueType::OsStyle => validate_style_name(raw, &["default", "short", "adoptium"]),
+        ValueType::ArchStyle => validate_style_name(raw, &["default", "adoptium", "python", "go"]),
+    }
+}
+
+/// 风格名白名单校验（os_style/arch_style 的合法取值）
+fn validate_style_name(raw: &str, allowed: &[&str]) -> Result<ValidatedValue> {
+    if allowed.contains(&raw) {
+        Ok(ValidatedValue::NonEmptyString(raw.to_string()))
+    } else {
+        bail!("Invalid style '{}'. Valid values: {}", raw, allowed.join(", "))
     }
 }
 

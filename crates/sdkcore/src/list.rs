@@ -2,6 +2,7 @@ use crate::install::downloader::build_reqwest_client;
 use crate::install::progress::InstallProgress;
 use crate::manager::SdkManager;
 use crate::size_cache::SizeCache;
+use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
 use anyhow::{Context, Result, bail};
 use crossterm::{
@@ -9,7 +10,6 @@ use crossterm::{
     style::Stylize,
     terminal::{Clear, ClearType},
 };
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};
 use std::iter::once;
@@ -19,7 +19,6 @@ use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE};
 use util::path::{format_bytes, get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
-use util::sdk_resources::find_builtin_sdk_config;
 use util::terminal::{ColumnColor, pad_right, print_table};
 use util::{divider, info, try_bug, warning};
 
@@ -347,7 +346,6 @@ impl SdkManager {
     /// 缓存优先 + TTL,确保后续调用即时响应。
     async fn fetch_remote_versions_async(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
-        let strategy = get_version_discovery(sdk);
         let client = build_reqwest_client(&self.config.network)?;
         let sdk_name = sdk.to_string();
         let cache_key = sdk_name.to_lowercase();
@@ -357,49 +355,36 @@ impl SdkManager {
             bail!("Maven does not support remote version listing. Specify an exact version to install.");
         }
 
-        // 构建版本源 URL(主/备 + 用于透明展示的源 URL)
-        let (primary_url, secondary_url, source_display_url) = match sdk {
-            Sdk::Built(b) => {
-                let cfg = find_builtin_sdk_config(b).context(format!("no builtin config for {}", sdk_name))?;
-                // 内置配置缺失属于程序 bug，标记 BugReportError
-                (
-                    cfg.version_url.to_string(),
-                    cfg.version_fallback_url.map(|s| s.to_string()),
-                    if !cfg.version_url.is_empty() {
-                        cfg.version_url.to_string()
-                    } else {
-                        "N/A".to_string()
-                    },
-                )
-            }
-            Sdk::Custom(_) => {
-                let url = sdk_conf.version_url.clone().unwrap_or_default();
-                (
-                    url.clone(),
-                    sdk_conf.version_fallback_url.clone(),
-                    if !url.is_empty() { url } else { "N/A".to_string() },
-                )
-            }
+        // 版本源统一读 config（内置 SDK 种子已由 ensure_builtin_sdks 物化，用户可换源/镜像）
+        let version_url = sdk_conf.version_url.clone().unwrap_or_default();
+        let secondary_url = sdk_conf.version_fallback_url.clone();
+        let source_display_url = if version_url.is_empty() {
+            "N/A".to_string()
+        } else {
+            version_url.clone()
         };
 
         // 无版本发现源 → 无法列出远程版本
-        if primary_url.is_empty() && secondary_url.as_ref().is_none_or(|s| s.is_empty()) {
+        if version_url.is_empty() && secondary_url.as_ref().is_none_or(|s: &String| s.is_empty()) {
             bail!("{} has no version_url configured, cannot list remote versions", sdk_name);
         }
 
-        // 拉取时显示 spinner
+        // 拉取时显示 spinner（GH 版本源自动补 per_page=100）
         let pb = InstallProgress::new_resolve(&sdk_name, "");
+        let primary_url = ensure_per_page(&version_url);
         let source = VersionSource {
             primary_url,
             secondary_url,
         };
 
-        // Python 备源是 GitHub API → 需要 Accept header
-        let headers = if let Sdk::Built(BuiltinSdk::Python) = sdk {
-            Some(HashMap::from([(
-                "Accept".to_string(),
-                "application/vnd.github+json".to_string(),
-            )]))
+        // GitHub API 请求统一注入 Accept header（主源或备源任一为 GH API 即注入）
+        let headers = if is_github_releases_url(&version_url)
+            || sdk_conf
+                .version_fallback_url
+                .as_ref()
+                .is_some_and(|u| is_github_releases_url(u))
+        {
+            Some(github_api_headers())
         } else {
             None
         };
@@ -416,6 +401,7 @@ impl SdkManager {
         .await?;
         pb.finish_with_message(format!("✅ Fetched remote versions for {}", sdk_name));
 
+        let strategy = get_version_discovery(sdk, &version_url);
         let entries = strategy.parse_version_data(&body)?;
 
         // 用本地安装状态补充信息

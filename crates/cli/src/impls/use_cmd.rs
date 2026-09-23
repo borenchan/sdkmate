@@ -9,10 +9,10 @@ use util::shell::detect_shell;
 /// - `--shell`：输出会话级 eval 脚本（stdout 只吐脚本，禁 stdout 宏）
 #[derive(Debug, Parser)]
 pub struct UseHandler {
-    /// SDK name. Built-in: java, node, python, maven, go; custom SDKs from config.toml
+    /// SDK name. Built-in: java, node, python, go, maven, ... (see docs); custom SDKs from config.toml
     #[arg(
         value_name = "SDK",
-        help = "SDK name. Built-in: java, node, python, maven, go. Custom SDKs from config.toml also accepted"
+        help = "SDK name. Built-in: java, node, python, go, maven, ... (see docs). Custom SDKs from config.toml also accepted"
     )]
     sdk: String,
 

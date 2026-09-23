@@ -97,20 +97,29 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-09-11）
+## 当前开发进度（2026-09-22）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-09-11 —— fish 下报错双打印修复 + doctor PATH 跨平台前缀
+### 2026-09-22 —— 两套标准接入引擎（标准 B：GitHub Releases）+ 内置 SDK 扩容到 14 个
 
-用户 WSL fish 报 `sdkm i java 17` 错误输出两行。strace 复现：fish 读 config.fish → `sdkm hook fish | source` → hook 里的 `sdkm env --shell fish`（config 缺失时报第 1 行）+ 用户命令（报第 2 行）——不是同一处打两遍，是 env 在 hook 链路额外报一次。**修复**：`EnvHandler` 读不到 config 时静默吐空脚本退出（env 是 hook 每次提示符高频调用，config 缺失/损坏时每次开 shell 都喷 🦀 属于体验 bug；诊断留给用户主动命令）。另 doctor PATH 检查硬编码 `\` 分隔符在 WSL fish 永不命中——改 `std::path::MAIN_SEPARATOR` 且去掉 to_lowercase（Unix 路径大小写敏感）。
+**架构**：`sdk_resources.rs` 重构为 `crates/util/src/builtin.rs` 统一注册表（`SDK_SEEDS`：旧 5 个带 `variant: Some(BuiltinSdk)` 走专属路径，新 9 个 `variant: None` 纯数据驱动）。标准 B 判定不在分发处而在 `ConfigBasedDiscovery` 的第三种 JSON 形状识别（扁平数组 → {version} 对象数组 → GH Releases 数组）——GH 形状靠 **JSON 结构**识别而非 URL（本地镜像/代理/测试 server 同样生效）。`get_version_discovery(sdk, version_url)` 签名带 version_url。新模块：`version/asset_selector.rs`（纯函数资产打分：同义词表 + 前缀门 + 修饰词/libc 降权）、`version/github_releases.rs`（tag 剥前缀到首个数字、滤 prerelease/draft、per_page=100 追加、直链进 VersionEntry 走现有直链旁路）。资产前缀门取 `primary_executables[0]`（claude-code→"claude"）。
 
-**关键排查方法**：`wsl -e strace -f -e trace=execve fish -c "..."` 看子进程链——双行错误先怀疑「多个 sdkm 进程各打一次」（hook 链路 + 用户命令），不是同一进程重复打印。WSL 里验证 sdkm 修复必须 Linux ELF，但 WSL 无 Rust 工具链、Windows 交叉编译被 aws-lc-rs build.rs 拦（见注意事项），用 Windows 同构场景模拟（`$env:SDKM_HOME='空目录'; sdkm env --shell fish` 应静默 exit 0）验证逻辑。
+**内置扩容**（+9）：bun/pnpm/deno/uv/claude-code/cmake/gh（GH 直链）+ helm/terraform（GH 版本列表 + 官方 CDN 模板组合——GH release 无二进制资产时引擎自然落模板）。codex 除名（包内二进制带平台三元组名，需安装后重命名能力）。配置面：`SdkConfig` + `os_style`/`arch_style`（模板风格配置化，Custom 分支读取）；`is_builtin_sdk`/种子生成全部表驱动；Java 两步查询改 `find_seed_by_variant` + `JAVA_ASSETS_URL` 常量。
 
-**改动文件**（2）：`crates/cli/src/impls/env.rs`（静默降级）、`crates/sdkcore/src/doctor.rs`（MAIN_SEPARATOR + 去 lowercase）。未发版。
+**兼容性修正**：内置 SDK 版本源从编译期常量统一为读 config.toml（Java 例外保留硬编码）；verify_extraction 按配置 `bin_dir` 校验（顺带修复自定义 SDK root 布局被误杀）；GH Accept header 从 Python 硬编码改为"主备 URL 任一含 api.github.com 即注入"；**修复备源渲染 bug**——有直链时 `download_fallback_url` 模板现在正常渲染（`{version}` 可用），国内 gh-proxy 镜像备源实测生效。
+
+**镜像站调研结论**：TUNA/阿里云 nodejs-release 等为路径同构文件镜像（标准 A 换 host 零代码支持）；ghfast.top 等前缀代理经备源模板支持；镜像站无统一版本 API，不构成第三种标准。
+
+**测试**：`tests/core_install_flow.rs` 核心 E2E（改核心下载逻辑必跑）——本地 HTTP server mock 双标准（标准 B 直链+root 布局、标准 A 模板+bin 布局、switch 符号链接）；asset_selector 13 单测 + github_releases 5 单测；全量 80 测试绿。真机沙箱：uv（直链+root）、helm（列表+CDN+rc 滤除）、cmake（直链失败→gh-proxy 备源+bin 布局）全链路验证。
+
+**坑**：测试 mock GH JSON 用 `format!` 时 `{{`/`}}` 转义极易少一层导致 JSON 括号不配对——排查用 python json.loads 字节级定位；模糊匹配测试会触发 TTY 交互确认（CI 无 TTY 自动拒绝），集成测试须用精确版本号。**hook 链路零输出铁律**（v0.4.7 fish 双打印同源第 2 案）：`read_from_disk` 处于 `sdkm env` 高频链路、输出会被 shell eval，`ensure_builtin_sdks` 的 "Detected new built-in SDK" info! 打印导致 PowerShell 启动即报错（老用户首次升级触发补全时）——自动补全类后台行为必须静默，已删打印；凡是 read_from_disk 可达的代码路径禁止任何 stdout。
+
+**改动文件**（22）：util（builtin.rs 新、sdk_resources.rs 删、sdk.rs 精简、lib.rs）；sdkcore（asset_selector.rs 新、github_releases.rs 新、discovery/cache/mod/keys/validation、install/mod+download_url+extractor、switch、list、3 个旧测试补字段）；cli（6 个 help 文案、add-sdk 构造）；tests/core_install_flow.rs 新；docs 3 篇。**未发版**。
 
 ## 已知问题与注意事项
 
+- **使用处禁止跨模块全路径，一律顶部 use 短名**（如 `util::builtin::find_seed(...)` 写体内 → 改 `use util::builtin::find_seed;`）。rustfmt 只管 use 语句、管不了使用处写法，无自动化工具；clippy `absolute_paths` 的 `max-segments=3`（为放过 `tokio::fs` 等第三方 3 段惯用写法，实测降 2 噪音比 4:1）恰好抓不到项目内 3 段路径——**review diff 时人工扫 `util::`/`crate::` 开头的体内全路径**（宏内 `$crate::` 除外，那是正确写法）。CLI help 的内置 SDK 名单固定写 "java, node, python, go, maven, ... (see docs)" 省略号形式，不随名单扩容联动修改
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
 - Rust 完全缺失内置源配置条目
 - **Windows 需管理员运行**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`，符号链接创建需 `SeCreateSymbolicLinkPrivilege`（管理员或开发者模式），`init`/`switch` 需管理员权限

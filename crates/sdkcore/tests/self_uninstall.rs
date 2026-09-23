@@ -103,6 +103,8 @@ fn make_sdk(name: &str, current: &str, bin_dir: &str, extra_vars: &[(&str, &str)
         bin_dir: Some(bin_dir.to_string()),
         extra_vars: vars,
         extra_paths: Vec::new(),
+        os_style: None,
+        arch_style: None,
     }
 }
 

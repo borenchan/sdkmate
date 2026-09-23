@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
+use util::builtin::{SDK_SEEDS, SdkSeed, is_builtin_sdk};
 use util::config_helper::{
-    PLACEHOLDER_SDK_DIR, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
+    ArchStyle, OsStyle, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
 };
-use util::consts::{CONFIG_FILE_NAME, ENV_JAVA_HOME};
+use util::consts::CONFIG_FILE_NAME;
 use util::path::{get_default_symlink_dir, get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
-use util::sdk::{BuiltinSdk, Sdk};
-use util::sdk_resources::BUILTIN_SDK_CONFIG;
+use util::sdk::Sdk;
 
 // ── 子模块声明 + 重新导出（pub use 同时满足内部使用和外部访问） ──
 pub mod keys;
@@ -109,6 +109,12 @@ pub struct SdkConfig {
     //extra paths relative to sdk symlink dir
     #[serde(default)]
     pub extra_paths: Vec<String>,
+    //下载模板 {os} 占位符的命名风格（default/short/adoptium；None = default）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os_style: Option<String>,
+    //下载模板 {arch} 占位符的命名风格（default/adoptium/python/go；None = default）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch_style: Option<String>,
 }
 impl SdkConfig {
     /// 构造 SdkConfig，bin_dir 传 None 表示二进制在 SDK 根目录
@@ -123,6 +129,8 @@ impl SdkConfig {
             current_version: None,
             extra_vars: HashMap::with_capacity(0),
             extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
         }
     }
 
@@ -153,39 +161,7 @@ impl Default for SdkmConfig {
 
 impl SdkmConfig {
     pub fn get_default_builtin_sdks() -> Vec<SdkConfig> {
-        BUILTIN_SDK_CONFIG
-            .iter()
-            .map(|s| {
-                let bin_dir = match s.sdk.get_sdk_bin_dir() {
-                    "" => None,
-                    dir => Some(dir.to_string()),
-                };
-                let mut config = SdkConfig::new(
-                    s.sdk.to_string(),
-                    s.version_url.to_string(),
-                    s.download_url.to_string(),
-                    bin_dir,
-                );
-                config.version_fallback_url = s.version_fallback_url.map(|u| u.to_string());
-                config.download_fallback_url = s.download_fallback_url.map(|u| u.to_string());
-                match s.sdk {
-                    BuiltinSdk::Java => {
-                        config
-                            .extra_vars
-                            .insert(ENV_JAVA_HOME.to_string(), PLACEHOLDER_SDK_DIR.to_string());
-                    }
-                    // Python install_only 版本：二次提升后，pip.exe 在 Scripts 子目录（仅 Windows）
-                    BuiltinSdk::Python => {
-                        if cfg!(target_os = "windows") {
-                            config.extra_paths.push("Scripts".to_string());
-                        }
-                        // Unix 的 pip 在 bin/ 下，已由 bin_dir 覆盖
-                    }
-                    _ => {}
-                }
-                config
-            })
-            .collect()
+        SDK_SEEDS.iter().map(seed_to_config).collect()
     }
 
     /// 检查并自动补全缺失的内置 SDK 条目（对比编译期 BUILTIN_SDK_CONFIG，开销极小）
@@ -200,9 +176,8 @@ impl SdkmConfig {
         if missing.is_empty() {
             return Ok(());
         }
-        for sdk in &missing {
-            util::info!("Detected new built-in SDK '{}', auto-updated config.toml", sdk.name);
-        }
+        // 静默补全——不打印任何提示：read_from_disk 处于 hook 高频链路（sdkm env 的输出
+        // 会被 shell Invoke-Expression/eval 执行，任何 stdout 都是毒药，参考 v0.4.7 fish 修复）
         self.sdks.extend(missing);
         self.atomic_write_to_disk()?;
         Ok(())
@@ -285,9 +260,9 @@ impl SdkmConfig {
         self.find_sdk(sdk).is_some()
     }
 
-    /// 判断 SDK 名称是否为内置 SDK
+    /// 判断 SDK 名称是否为内置 SDK（统一注册表判定）
     pub fn is_builtin_sdk(name: &str) -> bool {
-        matches!(name, "java" | "maven" | "node" | "python" | "go")
+        is_builtin_sdk(name)
     }
 
     // ── 配置操作 API ──
@@ -317,6 +292,8 @@ impl SdkmConfig {
                     SdkField::DownloadFallbackUrl => Ok(sdk.download_fallback_url.clone().unwrap_or_default()),
                     SdkField::CurrentVersion => Ok(sdk.current_version.clone().unwrap_or_default()),
                     SdkField::BinDir => Ok(sdk.bin_dir.clone().unwrap_or_default()),
+                    SdkField::OsStyle => Ok(sdk.os_style.clone().unwrap_or_default()),
+                    SdkField::ArchStyle => Ok(sdk.arch_style.clone().unwrap_or_default()),
                 }
             }
             ConfigKey::SdkExtraVar { name, var_key } => {
@@ -371,6 +348,8 @@ impl SdkmConfig {
                         SdkField::DownloadFallbackUrl => sdk.download_fallback_url = Some(value),
                         SdkField::CurrentVersion => sdk.current_version = Some(value),
                         SdkField::BinDir => sdk.bin_dir = Some(value),
+                        SdkField::OsStyle => sdk.os_style = Some(value),
+                        SdkField::ArchStyle => sdk.arch_style = Some(value),
                     }
                 }
             }
@@ -434,6 +413,8 @@ impl SdkmConfig {
                         SdkField::VersionFallbackUrl => sdk.version_fallback_url = None,
                         SdkField::DownloadFallbackUrl => sdk.download_fallback_url = None,
                         SdkField::DownloadUrl => sdk.download_url = None,
+                        SdkField::OsStyle => sdk.os_style = None,
+                        SdkField::ArchStyle => sdk.arch_style = None,
                         SdkField::CurrentVersion => sdk.current_version = None,
                         SdkField::BinDir => {
                             // bin_dir 不可删除（已在 delete_value 中校验，不应到达）
@@ -519,6 +500,14 @@ impl SdkmConfig {
             entries.push((
                 format!("{}.bin_dir", prefix),
                 sdk.bin_dir.clone().unwrap_or("(root dir)".to_string()),
+            ));
+            entries.push((
+                format!("{}.os_style", prefix),
+                sdk.os_style.clone().unwrap_or("default".to_string()),
+            ));
+            entries.push((
+                format!("{}.arch_style", prefix),
+                sdk.arch_style.clone().unwrap_or("default".to_string()),
             ));
 
             // extra_vars
@@ -607,5 +596,48 @@ impl SdkmConfig {
     /// 按 SDK name 字符串可变查找
     fn find_sdk_mut_by_name(&mut self, name: &str) -> Option<&mut SdkConfig> {
         self.sdks.iter_mut().find(|s| s.name == name)
+    }
+}
+
+/// 内置种子 → config 条目（统一注册表到 [[sdk]] 的物化）
+///
+/// os_style/arch_style/v 前缀加工是"下载模板"的属性：模板型 SDK（maven/go/helm/terraform 等）
+/// 从种子透传写入 config（用户可 config set 覆盖）；直链型 SDK（bun/pnpm 等）无模板，留空
+fn seed_to_config(seed: &SdkSeed) -> SdkConfig {
+    // 风格字符串化（与 build_download_url 的 parse_*_style 取值约定一致）
+    let os_style = match seed.os_style {
+        OsStyle::Default => None,
+        OsStyle::Short => Some("short".to_string()),
+        OsStyle::Adoptium => Some("adoptium".to_string()),
+    };
+    let arch_style = match seed.arch_style {
+        ArchStyle::Default => None,
+        ArchStyle::Adoptium => Some("adoptium".to_string()),
+        ArchStyle::Python => Some("python".to_string()),
+        ArchStyle::Go => Some("go".to_string()),
+    };
+
+    let mut extra_vars = HashMap::with_capacity(seed.extra_vars.len());
+    for (k, v) in seed.extra_vars {
+        extra_vars.insert(k.to_string(), v.to_string());
+    }
+    let extra_paths = seed.extra_paths.iter().map(|s| s.to_string()).collect();
+
+    SdkConfig {
+        name: seed.name.to_string(),
+        version_url: if seed.version_url.is_empty() {
+            None
+        } else {
+            Some(seed.version_url.to_string())
+        },
+        version_fallback_url: seed.version_fallback_url.map(|u| u.to_string()),
+        download_url: seed.download_url.map(|u| u.to_string()),
+        download_fallback_url: seed.download_fallback_url.map(|u| u.to_string()),
+        current_version: None,
+        bin_dir: seed.bin_dir.map(|s| s.to_string()),
+        extra_vars,
+        extra_paths,
+        os_style,
+        arch_style,
     }
 }

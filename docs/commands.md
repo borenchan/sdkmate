@@ -260,7 +260,7 @@ sdkm config edit                                      # 用编辑器打开 confi
 
 **写入安全**：`set` / `delete` / `add-sdk` / `remove-sdk` 均采用**原子写入**（写入临时文件再重命名），操作失败时自动**快照回滚**到操作前的配置内容。
 
-**内置 SDK 保护**：内置 SDK（java/node/python/maven/go）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
+**内置 SDK 保护**：内置 SDK（java/node/python/go/maven/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
 
 ---
 

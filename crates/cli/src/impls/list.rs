@@ -9,10 +9,10 @@ use util::sdk::Sdk;
 
 #[derive(Debug, Parser)]
 pub struct ListHandler {
-    /// SDK name. Built-in: java, node, python, maven, go; omit to browse all registered SDKs
+    /// SDK name. Built-in: java, node, python, go, maven, ... (see docs); omit to browse all registered SDKs
     #[arg(
         value_name = "SDK",
-        help = "SDK name. Built-in: java, node, python, maven, go. Omit to browse all registered SDKs (TUI)"
+        help = "SDK name. Built-in: java, node, python, go, maven, ... (see docs). Omit to browse all registered SDKs (TUI)"
     )]
     sdk: Option<String>,
 

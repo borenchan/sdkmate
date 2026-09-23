@@ -7,9 +7,11 @@
 //!
 //! 下载 URL 构建不属于"版本解析",见 `install::download_url`。
 
+pub mod asset_selector;
 pub mod cache;
 pub mod discovery;
 pub mod fuzzy;
+pub mod github_releases;
 
 pub use cache::{VersionSource, fetch_version_data};
 pub use discovery::{
