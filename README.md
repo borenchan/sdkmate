@@ -33,7 +33,7 @@
 
 ## 🎯 一句话简介
 
-> **sdkm** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键安装与切换 Java、Node.js、Python、Maven、Go 等开发环境，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
+> **sdkm** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
 
 ```bash
 sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换，一行搞定
@@ -226,6 +226,7 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 | 🐍 **Python** | ✅ 已支持 | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ 已支持 | Apache Maven (dlcdn) |
 | 🔵 **Go** | ✅ 已支持 | go.dev |
+| 🚀 **uv / bun / claude-code / cmake / ... 40+ more** | ✅ 已支持 | gh |
 | ⚙️ **自定义 SDK** | ✅ 可无限扩展 | 用户配置（任意 URL） |
 
 ---
