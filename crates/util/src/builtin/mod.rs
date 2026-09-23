@@ -56,14 +56,13 @@ pub struct SdkSeed {
 
 impl SdkSeed {
     /// 标准 B（GitHub Releases 直链）种子的快捷构造，覆盖绝大多数 GH 分发工具：
-    /// 版本源 = `api.github.com/repos/{repo}/releases`、资产直链下载、`bin_dir`/`asset_prefix` 可选、
-    /// Default os/arch 风格、无额外变量。特例（模板下载/非 Default 风格/专属路径）用结构体字面量。
+    /// GH 版本源 + 资产直链下载 + 根布局 + 资产前缀取主命令名 + Default os/arch 风格。
+    /// 特例用链式 setter 补：`.bin("bin")`（bin/ 子目录）、`.prefix("ripgrep")`（资产前缀≠主命令名）；
+    /// 模板下载/非 Default 风格/专属路径等更复杂特例用结构体字面量。
     pub const fn gh(
         name: &'static str,
         version_url: &'static str,
         primary_executables: &'static [&'static str],
-        bin_dir: Option<&'static str>,
-        asset_prefix: Option<&'static str>,
     ) -> Self {
         SdkSeed {
             name,
@@ -72,14 +71,26 @@ impl SdkSeed {
             version_fallback_url: None,
             download_url: None,
             download_fallback_url: None,
-            bin_dir,
+            bin_dir: None,
             os_style: OsStyle::Default,
             arch_style: ArchStyle::Default,
             primary_executables,
-            asset_prefix,
+            asset_prefix: None,
             extra_vars: &[],
             extra_paths: &[],
         }
+    }
+
+    /// 覆盖 bin_dir（解压后二进制在子目录，如 cmake/gh 的 "bin"）
+    pub const fn bin(mut self, dir: &'static str) -> Self {
+        self.bin_dir = Some(dir);
+        self
+    }
+
+    /// 覆盖资产前缀门（资产名前缀与主命令名不同的工具，如 ripgrep 资产 ripgrep-* 主命令 rg）
+    pub const fn prefix(mut self, prefix: &'static str) -> Self {
+        self.asset_prefix = Some(prefix);
+        self
     }
 }
 

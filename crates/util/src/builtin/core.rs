@@ -101,43 +101,19 @@ pub const GO: SdkSeed = SdkSeed {
 
 // ── 引擎型（标准 B 直链）─────────────────────────────────────────
 
-pub const BUN: SdkSeed = SdkSeed::gh("bun", "https://api.github.com/repos/oven-sh/bun/releases", &["bun"], None, None);
-pub const PNPM: SdkSeed = SdkSeed::gh("pnpm", "https://api.github.com/repos/pnpm/pnpm/releases", &["pnpm"], None, None);
-pub const DENO: SdkSeed = SdkSeed::gh(
-    "deno",
-    "https://api.github.com/repos/denoland/deno/releases",
-    &["deno"],
-    None,
-    None,
-);
-pub const UV: SdkSeed = SdkSeed::gh(
-    "uv",
-    "https://api.github.com/repos/astral-sh/uv/releases",
-    &["uv", "uvx"],
-    None,
-    None,
-);
+pub const BUN: SdkSeed = SdkSeed::gh("bun", "https://api.github.com/repos/oven-sh/bun/releases", &["bun"]);
+pub const PNPM: SdkSeed = SdkSeed::gh("pnpm", "https://api.github.com/repos/pnpm/pnpm/releases", &["pnpm"]);
+pub const DENO: SdkSeed = SdkSeed::gh("deno", "https://api.github.com/repos/denoland/deno/releases", &["deno"]);
+pub const UV: SdkSeed = SdkSeed::gh("uv", "https://api.github.com/repos/astral-sh/uv/releases", &["uv", "uvx"]);
 // 资产前缀 claude 与 sdk 名 claude-code 不同
 pub const CLAUDE_CODE: SdkSeed = SdkSeed::gh(
     "claude-code",
     "https://api.github.com/repos/anthropics/claude-code/releases",
     &["claude"],
-    None,
-    Some("claude"),
-);
+)
+.prefix("claude");
 // zip 顶层目录提升后 bin/ 保留
-pub const CMAKE: SdkSeed = SdkSeed::gh(
-    "cmake",
-    "https://api.github.com/repos/Kitware/CMake/releases",
-    &["cmake"],
-    Some("bin"),
-    None,
-);
+pub const CMAKE: SdkSeed =
+    SdkSeed::gh("cmake", "https://api.github.com/repos/Kitware/CMake/releases", &["cmake"]).bin("bin");
 // zip 内 bin/gh.exe，顶层单目录提升后 bin/ 保留
-pub const GH: SdkSeed = SdkSeed::gh(
-    "gh",
-    "https://api.github.com/repos/cli/cli/releases",
-    &["gh"],
-    Some("bin"),
-    None,
-);
+pub const GH: SdkSeed = SdkSeed::gh("gh", "https://api.github.com/repos/cli/cli/releases", &["gh"]).bin("bin");

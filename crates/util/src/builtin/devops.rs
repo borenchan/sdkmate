@@ -5,34 +5,18 @@ use crate::config_helper::{ArchStyle, OsStyle};
 
 // ── 构建 & 任务 ──────────────────────────────────────────────────
 
-pub const JUST: SdkSeed = SdkSeed::gh(
-    "just",
-    "https://api.github.com/repos/casey/just/releases",
-    &["just"],
-    None,
-    None,
-);
+pub const JUST: SdkSeed = SdkSeed::gh("just", "https://api.github.com/repos/casey/just/releases", &["just"]);
 // nightly tag 由 prerelease 过滤
-pub const TASK: SdkSeed = SdkSeed::gh(
-    "task",
-    "https://api.github.com/repos/go-task/task/releases",
-    &["task"],
-    None,
-    None,
-);
+pub const TASK: SdkSeed = SdkSeed::gh("task", "https://api.github.com/repos/go-task/task/releases", &["task"]);
 pub const GOLANGCI_LINT: SdkSeed = SdkSeed::gh(
     "golangci-lint",
     "https://api.github.com/repos/golangci/golangci-lint/releases",
     &["golangci-lint"],
-    None,
-    None,
 );
 pub const WATCHEXEC: SdkSeed = SdkSeed::gh(
     "watchexec",
     "https://api.github.com/repos/watchexec/watchexec/releases",
     &["watchexec"],
-    None,
-    None,
 );
 
 // ── 终端 UI ──────────────────────────────────────────────────────
@@ -41,58 +25,30 @@ pub const LAZYGIT: SdkSeed = SdkSeed::gh(
     "lazygit",
     "https://api.github.com/repos/jesseduffield/lazygit/releases",
     &["lazygit"],
-    None,
-    None,
 );
 pub const LAZYDOCKER: SdkSeed = SdkSeed::gh(
     "lazydocker",
     "https://api.github.com/repos/jesseduffield/lazydocker/releases",
     &["lazydocker"],
-    None,
-    None,
 );
-pub const K9S: SdkSeed = SdkSeed::gh(
-    "k9s",
-    "https://api.github.com/repos/derailed/k9s/releases",
-    &["k9s"],
-    None,
-    None,
-);
-pub const STERN: SdkSeed = SdkSeed::gh(
-    "stern",
-    "https://api.github.com/repos/stern/stern/releases",
-    &["stern"],
-    None,
-    None,
-);
+pub const K9S: SdkSeed = SdkSeed::gh("k9s", "https://api.github.com/repos/derailed/k9s/releases", &["k9s"]);
+pub const STERN: SdkSeed = SdkSeed::gh("stern", "https://api.github.com/repos/stern/stern/releases", &["stern"]);
 pub const HELMFILE: SdkSeed = SdkSeed::gh(
     "helmfile",
     "https://api.github.com/repos/helmfile/helmfile/releases",
     &["helmfile"],
-    None,
-    None,
 );
-pub const DIVE: SdkSeed = SdkSeed::gh(
-    "dive",
-    "https://api.github.com/repos/wagoodman/dive/releases",
-    &["dive"],
-    None,
-    None,
-);
+pub const DIVE: SdkSeed = SdkSeed::gh("dive", "https://api.github.com/repos/wagoodman/dive/releases", &["dive"]);
 pub const GRPCURL: SdkSeed = SdkSeed::gh(
     "grpcurl",
     "https://api.github.com/repos/fullstorydev/grpcurl/releases",
     &["grpcurl"],
-    None,
-    None,
 );
 // zip 根多 exe：temporal-server 等
 pub const TEMPORAL: SdkSeed = SdkSeed::gh(
     "temporal",
     "https://api.github.com/repos/temporalio/temporal/releases",
     &["temporal-server"],
-    None,
-    None,
 );
 
 // ── 基础设施（组合模式：GH 版本列表 + 官方 CDN 模板）──────────────

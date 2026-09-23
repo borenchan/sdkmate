@@ -7,6 +7,4 @@ pub const AGE: SdkSeed = SdkSeed::gh(
     "age",
     "https://api.github.com/repos/FiloSottile/age/releases",
     &["age", "age-keygen"],
-    None,
-    None,
 );
