@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.5.0 - 2026-09-23
+
+
+### ✨ Features
+
+- expand builtin SDKs to 33 with categorized dev tools — [`5b397e2`](https://github.com/borenchan/sdkmate/commit/5b397e2)
+- add GitHub Releases engine and expand builtin SDKs to 14 — [`9109099`](https://github.com/borenchan/sdkmate/commit/9109099)
+
+### ♻️ Refactor
+
+- simplify gh() ctor to 3 args with chainable bin/prefix setters — [`ee67d42`](https://github.com/borenchan/sdkmate/commit/ee67d42)
+- split builtin registry into categorized modules with gh() ctor — [`604a164`](https://github.com/borenchan/sdkmate/commit/604a164)
+
+### 📝 Documentation
+
+- update readme — [`5af31c4`](https://github.com/borenchan/sdkmate/commit/5af31c4)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.4.7...v0.5.0
+
+
+
 ## v0.4.7 - 2026-09-11
 
 
