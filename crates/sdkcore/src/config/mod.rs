@@ -161,7 +161,7 @@ impl Default for SdkmConfig {
 
 impl SdkmConfig {
     pub fn get_default_builtin_sdks() -> Vec<SdkConfig> {
-        SDK_SEEDS.iter().map(seed_to_config).collect()
+        SDK_SEEDS.iter().map(|s| seed_to_config(s)).collect()
     }
 
     /// 检查并自动补全缺失的内置 SDK 条目（对比编译期 BUILTIN_SDK_CONFIG，开销极小）

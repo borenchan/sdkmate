@@ -101,20 +101,23 @@ bin_dir = "bin"
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-09-23 —— 分类扩容第二波：内置 SDK 14 → 33 个
+### 2026-09-23 —— builtin 注册表工程化重构：目录拆分 + gh() 快捷构造
 
-标准 B 引擎上纯数据扩容。`SdkSeed` 加 `asset_prefix: Option<&str>` 字段（None = 取 primary_executables[0]；解决资产前缀与主命令名不同的工具，如 ripgrep 资产 `ripgrep-*` 主命令 `rg`）。新增 20 个内置（全部 GH releases 直链，资产命名与 zip 布局逐一 curl+解包实测）：
+回应三个诉求：(1) 冷门度——上一批 20 个工具 star 实测全部 4.8k+（fzf 83k/lazygit 82k/rg 68k，最低 stern 4.8k），无冷门，不撤；**语言类（php/ruby 等源码仓库不发二进制）与中间件类（mysql 无官方 GH 资产/rocketmq 无 windows 二进制/redis 仅源码）不适用标准 B，不纳入**，star 门槛定 5k+ 知名度参考线（写入 builtin/mod.rs 注释）。(2) 构造简化。(3) 文件增长治理。
 
-- **前端/CLI 体验**（6）：fzf、ripgrep（rg）、fd、bat、eza、delta
-- **后端/构建**（4）：just、task、golangci-lint、watchexec
-- **中间件/运维**（8）：lazygit、lazydocker、k9s、stern、helmfile、dive、grpcurl、temporal
-- **安全**（1）：age（age + age-keygen 双 exe）
+**结构**：`builtin.rs`（625 行单文件）拆为 `builtin/` 目录：
 
-**除名记录**：yq（zip 内主 exe 带平台名 `yq_windows_amd64.exe`，敲 yq 打不中 PATH，同 codex——「装完即用」标准的第 2 个牺牲品）。
+- `mod.rs`（~148 行）：SdkSeed 类型 + `gh()` 快捷构造 + SDK_SEEDS 聚合表 + find/is_builtin/primary_executables_for
+- `core.rs`（~140 行）：旧 5 个专属路径（完整字面量，特例字段多）+ bun/pnpm/deno/uv/claude-code/cmake/gh
+- `cli.rs`（~26 行）：fzf/ripgrep/fd/bat/eza/delta
+- `devops.rs`（~115 行）：just/task/golangci-lint/watchexec/lazygit/lazydocker/k9s/stern/helmfile/dive/grpcurl/temporal + helm/terraform（组合模式完整字面量）
+- `security.rs`（~12 行）：age
 
-**已验证**：fzf（根布局）、ripgrep（asset_prefix 新路径 + `rg --version` 实跑）、k9s（根布局）真机沙箱全链路成功；33 种子 init 物化正常；80 测试全绿。上一提交（9109099）含标准 B 引擎本体 + hook 零输出修复（ensure_builtin_sdks 静默化）+ ls 浏览模式 spinner 文案修正（空版本号改为 Fetching remote versions）。
+**`gh()` 快捷构造**：标准 B 直链场景 5 参数一行（name/version_url/primaries/bin_dir/asset_prefix），默认 None/None 即三参数——单种子从 18 行降到 1-5 行。特例（模板下载、非 Default 风格、extra_vars、专属路径）仍用完整字面量。注意 const 上下文不能用 `concat!(const, ...)`（只收字面量），URL 直接写全串（也更利于搜索）。
 
-**改动文件**（3）：`crates/util/src/builtin.rs`（asset_prefix 字段 + 20 种子）、`crates/sdkcore/src/version/discovery.rs`（前缀门读 asset_prefix）。未发版。
+**SDK_SEEDS 改 `&[&SdkSeed]`**：子模块各自 `pub const`，聚合表引用它们——sdkcore 的 `seed_to_config` 签名同步（`.iter().map(|s| seed_to_config(s))`）。
+
+**已验证**：80 测试全绿；沙箱 init 33 种子物化 + age 安装 + `age.exe --version` v1.3.2 实跑成功。未发版。
 
 ## 已知问题与注意事项
 
