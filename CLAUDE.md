@@ -97,25 +97,24 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-09-22）
+## 当前开发进度（2026-09-23）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-09-22 —— 两套标准接入引擎（标准 B：GitHub Releases）+ 内置 SDK 扩容到 14 个
+### 2026-09-23 —— 分类扩容第二波：内置 SDK 14 → 33 个
 
-**架构**：`sdk_resources.rs` 重构为 `crates/util/src/builtin.rs` 统一注册表（`SDK_SEEDS`：旧 5 个带 `variant: Some(BuiltinSdk)` 走专属路径，新 9 个 `variant: None` 纯数据驱动）。标准 B 判定不在分发处而在 `ConfigBasedDiscovery` 的第三种 JSON 形状识别（扁平数组 → {version} 对象数组 → GH Releases 数组）——GH 形状靠 **JSON 结构**识别而非 URL（本地镜像/代理/测试 server 同样生效）。`get_version_discovery(sdk, version_url)` 签名带 version_url。新模块：`version/asset_selector.rs`（纯函数资产打分：同义词表 + 前缀门 + 修饰词/libc 降权）、`version/github_releases.rs`（tag 剥前缀到首个数字、滤 prerelease/draft、per_page=100 追加、直链进 VersionEntry 走现有直链旁路）。资产前缀门取 `primary_executables[0]`（claude-code→"claude"）。
+标准 B 引擎上纯数据扩容。`SdkSeed` 加 `asset_prefix: Option<&str>` 字段（None = 取 primary_executables[0]；解决资产前缀与主命令名不同的工具，如 ripgrep 资产 `ripgrep-*` 主命令 `rg`）。新增 20 个内置（全部 GH releases 直链，资产命名与 zip 布局逐一 curl+解包实测）：
 
-**内置扩容**（+9）：bun/pnpm/deno/uv/claude-code/cmake/gh（GH 直链）+ helm/terraform（GH 版本列表 + 官方 CDN 模板组合——GH release 无二进制资产时引擎自然落模板）。codex 除名（包内二进制带平台三元组名，需安装后重命名能力）。配置面：`SdkConfig` + `os_style`/`arch_style`（模板风格配置化，Custom 分支读取）；`is_builtin_sdk`/种子生成全部表驱动；Java 两步查询改 `find_seed_by_variant` + `JAVA_ASSETS_URL` 常量。
+- **前端/CLI 体验**（6）：fzf、ripgrep（rg）、fd、bat、eza、delta
+- **后端/构建**（4）：just、task、golangci-lint、watchexec
+- **中间件/运维**（8）：lazygit、lazydocker、k9s、stern、helmfile、dive、grpcurl、temporal
+- **安全**（1）：age（age + age-keygen 双 exe）
 
-**兼容性修正**：内置 SDK 版本源从编译期常量统一为读 config.toml（Java 例外保留硬编码）；verify_extraction 按配置 `bin_dir` 校验（顺带修复自定义 SDK root 布局被误杀）；GH Accept header 从 Python 硬编码改为"主备 URL 任一含 api.github.com 即注入"；**修复备源渲染 bug**——有直链时 `download_fallback_url` 模板现在正常渲染（`{version}` 可用），国内 gh-proxy 镜像备源实测生效。
+**除名记录**：yq（zip 内主 exe 带平台名 `yq_windows_amd64.exe`，敲 yq 打不中 PATH，同 codex——「装完即用」标准的第 2 个牺牲品）。
 
-**镜像站调研结论**：TUNA/阿里云 nodejs-release 等为路径同构文件镜像（标准 A 换 host 零代码支持）；ghfast.top 等前缀代理经备源模板支持；镜像站无统一版本 API，不构成第三种标准。
+**已验证**：fzf（根布局）、ripgrep（asset_prefix 新路径 + `rg --version` 实跑）、k9s（根布局）真机沙箱全链路成功；33 种子 init 物化正常；80 测试全绿。上一提交（9109099）含标准 B 引擎本体 + hook 零输出修复（ensure_builtin_sdks 静默化）+ ls 浏览模式 spinner 文案修正（空版本号改为 Fetching remote versions）。
 
-**测试**：`tests/core_install_flow.rs` 核心 E2E（改核心下载逻辑必跑）——本地 HTTP server mock 双标准（标准 B 直链+root 布局、标准 A 模板+bin 布局、switch 符号链接）；asset_selector 13 单测 + github_releases 5 单测；全量 80 测试绿。真机沙箱：uv（直链+root）、helm（列表+CDN+rc 滤除）、cmake（直链失败→gh-proxy 备源+bin 布局）全链路验证。
-
-**坑**：测试 mock GH JSON 用 `format!` 时 `{{`/`}}` 转义极易少一层导致 JSON 括号不配对——排查用 python json.loads 字节级定位；模糊匹配测试会触发 TTY 交互确认（CI 无 TTY 自动拒绝），集成测试须用精确版本号。**hook 链路零输出铁律**（v0.4.7 fish 双打印同源第 2 案）：`read_from_disk` 处于 `sdkm env` 高频链路、输出会被 shell eval，`ensure_builtin_sdks` 的 "Detected new built-in SDK" info! 打印导致 PowerShell 启动即报错（老用户首次升级触发补全时）——自动补全类后台行为必须静默，已删打印；凡是 read_from_disk 可达的代码路径禁止任何 stdout。
-
-**改动文件**（22）：util（builtin.rs 新、sdk_resources.rs 删、sdk.rs 精简、lib.rs）；sdkcore（asset_selector.rs 新、github_releases.rs 新、discovery/cache/mod/keys/validation、install/mod+download_url+extractor、switch、list、3 个旧测试补字段）；cli（6 个 help 文案、add-sdk 构造）；tests/core_install_flow.rs 新；docs 3 篇。**未发版**。
+**改动文件**（3）：`crates/util/src/builtin.rs`（asset_prefix 字段 + 20 种子）、`crates/sdkcore/src/version/discovery.rs`（前缀门读 asset_prefix）。未发版。
 
 ## 已知问题与注意事项
 

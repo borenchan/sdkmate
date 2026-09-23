@@ -90,7 +90,9 @@ pub fn get_version_discovery(sdk: &Sdk, _version_url: &str) -> Box<dyn VersionDi
         Sdk::Built(BuiltinSdk::Go) => Box::new(GoDiscovery),
         _ => {
             let sdk_name = sdk.to_string();
-            let prefix = find_seed(&sdk_name).map(|s| s.primary_executables[0]).unwrap_or(&sdk_name);
+            let prefix = find_seed(&sdk_name)
+                .map(|s| s.asset_prefix.unwrap_or(s.primary_executables[0]))
+                .unwrap_or(&sdk_name);
             Box::new(ConfigBasedDiscovery {
                 asset_prefix: prefix.to_string(),
             })
