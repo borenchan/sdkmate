@@ -69,6 +69,19 @@ jobs:
             asset_name: sdkm-linux-x86_64-musl
             archive_format: tar.gz
             apt_packages: musl-tools cmake perl
+          # Linux ARM64 gnu：原生 arm64 runner（与 x86 gnu 同为 22.04 基线，glibc 2.35）
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact_name: sdkm
+            asset_name: sdkm-linux-aarch64-gnu
+            archive_format: tar.gz
+          # Linux ARM64 musl：全静态，树莓派/ARM 服务器/Alpine 通吃
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+            artifact_name: sdkm
+            asset_name: sdkm-linux-aarch64-musl
+            archive_format: tar.gz
+            apt_packages: musl-tools cmake perl
           # macOS ARM（M1+）：deployment target 11.0 覆盖 Big Sur+，避免绑 runner SDK 版本
           - os: macos-14
             target: aarch64-apple-darwin
