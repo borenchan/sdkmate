@@ -101,19 +101,15 @@ bin_dir = "bin"
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-10-28 —— 下载进度条三连修复（初始 100% / gzip 致恒 0% / 0% 边框不可见）
+### 2026-10-28 —— `sdkm i go 1` 模糊解析劫持修复（go1 裸条目 + 通用防劫持防线）
 
-**症状链**（go 下载实测）：v0.5.2 时代"初始 100% 闪一下→0→正常"（用户偶见正常），修 no_length 后变"全程 0%，最终帧 143.40/143.40 MiB 空条"（node 正常 go 不行）。三层根因，全部修复：
+**症状链**（实测）：`sdkm i go 1` → `Resolved: 1 → 1` → 下载 `go1.windows-amd64.zip` → 404 重试 3 次；node `24 → 24.22.1` 正常。两层根因，都修：
 
-**① `ProgressBar::new(0)` 的 len=Some(0) 假满格**（progress.rs）：indicatif `fraction()` 对 `Some(0)` 返回 1.0（state.rs:282，`(_, Some(0)) => 1.0`），下载条创建到 HTTP 响应头回来（set_length）之间的窗口期每 500ms tick 画成 100% 满格。`new(0)` ≠ "无长度"，"无长度"是 `no_length()`（len=None → fraction=0）。`new_download`/`new_extract_zip` 改 `ProgressBar::no_length()`，附带收益：服务器不回 Content-Length 时显示 0% 而非永假 100%。
+**① go.dev `?mode=json&include=all` 混入裸 `go1` 条目**（discovery.rs，数据层）：2012 年 Go 1.0 的 stable=true、files 仅两个 go1.4-bootstrap 源码包（无任何平台 archive）。GoDiscovery 原来只 `trim_start_matches("go")` 零校验，裸 "1" 进列表；fuzzy 精确匹配优先让输入 "1" 精确命中裸 "1"，短路了前缀模糊（"1." → 1.27.3）。修复：GoDiscovery 按 `files[].kind=="archive" && os/arch 匹配当前平台` 过滤（OsStyle::Default + ArchStyle::Go，与下载 URL 的 {os}/{arch} 渲染同源）——列表能选出的版本 = URL 必然存在。附带收益：`sdkm ls go --remote` 不再显示无安装包的历史版本。
 
-**② gzip 响应致 content_length() 恒 None → set_length 全程不生效**（downloader.rs，真凶）：reqwest gzip feature 启用后 **client 默认 `gzip: true`（client.rs:127），不调 `.gzip(true)` 照样发 `Accept-Encoding: gzip`**——仅"移除调用"无效，必须显式 `.no_gzip()`。服务器真压缩时（dl.google.com 实测 150MB→148MB gzip）tower-http 解码层**同时剥掉 content-encoding 与 content-length 两个头**（decompression/future.rs:71），`resp.content_length()` 恒 None。而 CDN 各节点行为不一（`vary: Accept-Encoding`）：nodejs.org 恒不压缩（进度条一直正常）、dl.google.com 看节点心情（解释同一二进制两次测试现象不同）。修复：拆 `build_download_client()`（`.no_gzip()`）给 install 下载 + self_update；`build_reqwest_client()`（gzip on）保留给版本 API（JSON 压缩率高 ~80% 且无进度条需求）。下载物本就是 zip/tar.gz，gzip 传输仅省 ~1.5% 还毁进度条+白耗 CPU，取舍明确。**手动解析 Content-Length 头是错误方向**：那是压缩字节数，pos 计的是解压字节数，会跑超 100%。
+**② fuzzy 精确匹配防劫持**（fuzzy.rs，机制层通用防线）：精确匹配前先探测输入是否存在 `N.` 家族，存在则跳过精确、直接前缀模糊取最新（`"1"` → 1.27.x、`"1.2"` → 1.2.x 最新而非 2013 年 Go 1.2 本体）。各引擎体检结论：**标准 B `strip_tag_prefix` 要求版本含 "." 天然免疫**（github_releases.rs，裸 v1 被丢弃）；Python 主源平台+url 过滤、备源资产后缀门，免疫；Java 不走 fuzzy；Node/ConfigBased 机制裸奔但数据源健康，由②兜底。裸 major 数据（Java 风格，无家族）仍精确命中，行为不变。
 
-**③ 下载条未填充色 `blue`（深蓝）在黑底终端不可见**（progress.rs）：`{bar:30.▓▒░.green/blue}` → `.green/bright_blue`。此前被①的假 100% 掩盖，暴露后 0% 状态整条隐形。
-
-**排查方法论**（本轮沉淀）：① indicatif/reqwest/tower-http 源码本地 registry 直读（`~/.cargo/registry/src/.../crate-x.y.z/`）；② reqwest 行为存疑时用**临时探针工程**（/tmp 独立 Cargo.toml 复刻 client 构造 + 真实 URL 打印 content_length()/headers，`Policy::none()` 分跳看 302、本地 TCP echo dump 原始请求头），验证完删除；③ curl 对照要带相同请求头（`-H "Accept-Encoding: gzip"`、`-A` UA）否则结论相反。
-
-**已验证**：探针实测 `.no_gzip()` 后 go.dev=Some(150367305)、nodejs.org=Some(29701389) 全精确；84 测试全绿；用户实测 node 全程正常、go 待回归。未发版。
+**已验证**：86 测试全绿（sdkcore 47 单测，fuzzy 12 旧用例全兼容 + 2 新回归用例）；用户实测 `sdkm i go 1` 正常解析到最新版。版本缓存无需清理（缓存的是原始 body，解析每次重做）。未发版。
 
 ## 已知问题与注意事项
 

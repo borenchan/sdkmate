@@ -522,10 +522,19 @@ impl VersionDiscovery for GoDiscovery {
         let versions: Vec<GoVersion> =
             serde_json::from_str(body).context("[Go version lookup] failed to parse go.dev version data")?;
 
-        // 只保留稳定版,去掉 go 前缀；feature_version 取 major.minor（如 1.26）
+        // 平台过滤与下载 URL 的 {os}/{arch} 渲染同源:只保留 files 含当前平台
+        // archive 安装包的版本(go1 条目仅含 bootstrap 源码,天然被滤掉,列表=可下载)
+        let cur_os = detect_os_with(OsStyle::Default);
+        let cur_arch = detect_arch_with(ArchStyle::Go);
+        // 去掉 go 前缀；feature_version 取 major.minor（如 1.26）
         let entries: Vec<VersionEntry> = versions
             .iter()
             .filter(|v| v.stable)
+            .filter(|v| {
+                v.files
+                    .iter()
+                    .any(|f| f.kind == "archive" && f.os == cur_os && f.arch == cur_arch)
+            })
             .map(|v| {
                 let ver = v.version.trim_start_matches("go").to_string();
                 let fv = ver.split('.').take(2).collect::<Vec<_>>().join(".");
@@ -545,7 +554,6 @@ impl VersionDiscovery for GoDiscovery {
 struct GoVersion {
     version: String,
     stable: bool,
-    #[allow(dead_code)]
     files: Vec<GoFile>,
 }
 
@@ -553,11 +561,8 @@ struct GoVersion {
 struct GoFile {
     #[allow(dead_code)]
     filename: String,
-    #[allow(dead_code)]
     os: String,
-    #[allow(dead_code)]
     arch: String,
-    #[allow(dead_code)]
     kind: String,
 }
 

@@ -28,6 +28,8 @@ pub struct FuzzyMatch {
 /// - 精确匹配:`"3.12.10"` → 直接命中
 /// - 模糊 `"3"` → 最新 `3.x.x`
 /// - 模糊 `"3.12"` → 最新 `3.12.x`
+/// - 家族优先防劫持:输入恰好能精确命中裸短版本条目但列表另有 `"N."` 家族时
+///   (如 go.dev 的 `go1` → `"1"`,列表另有 `1.27.3`),取家族最新而非裸条目
 /// - `v` 前缀归一化:`"14"` 可命中 `"v14.16.0"`(Node 等 release tag 带 `v`)
 ///
 /// `versions` 任意顺序,内部按版本号降序排列后取最新。
@@ -44,8 +46,13 @@ pub fn fuzzy_match_version_core(versions: &[String], version_input: &str) -> Res
     // 归一化输入(剥离 v 前缀),后续精确/前缀匹配均基于归一化形式
     let norm_input = strip_v_prefix(version_input);
 
+    let prefix = format!("{}.", norm_input);
+    // 是否存在以输入为前缀的更长版本家族(如 "1" → "1.27.3")
+    let has_family = sorted.iter().any(|v| strip_v_prefix(v.as_str()).starts_with(&prefix));
+
     // 1. 精确匹配优先(归一化后比较,故 "14.16.0" == "v14.16.0")
-    if let Some(v) = sorted.iter().find(|v| strip_v_prefix(v.as_str()) == norm_input) {
+    //    家族存在时跳过——裸短版本条目(如 go.dev 的 go1 → "1")几乎总是意图取该系列最新
+    if !has_family && let Some(v) = sorted.iter().find(|v| strip_v_prefix(v.as_str()) == norm_input) {
         return Ok(FuzzyMatch {
             full_version: v.to_string(),
             fuzzy_matched: false,
@@ -56,7 +63,6 @@ pub fn fuzzy_match_version_core(versions: &[String], version_input: &str) -> Res
     //    `"3" → "3."`、`"3.12" → "3.12."`
     //    `"3.1."` 不会误匹配 `"3.10.x"`(第 4 字符是 '0' 而非 '.')
     //    归一化后比较,故 "14" 可前缀匹配 "v14.16.0" → "14.16.0"
-    let prefix = format!("{}.", norm_input);
     if let Some(v) = sorted.iter().find(|v| strip_v_prefix(v.as_str()).starts_with(&prefix)) {
         return Ok(FuzzyMatch {
             full_version: v.to_string(),
@@ -199,6 +205,25 @@ mod tests {
         let m = fuzzy_match_version_core(&versions, "14").unwrap();
         assert_eq!(m.full_version, "v14.16.0");
         assert!(m.fuzzy_matched);
+    }
+
+    #[test]
+    fn bare_short_version_not_hijacked_when_family_exists() {
+        // 回归:sdkm i go 1——go.dev 列表混入裸 "1"(go1.0,仅 bootstrap 源码),
+        // 输入 "1" 应取 1.x 家族最新,而非精确命中裸条目拼出 go1.windows-amd64.zip → 404
+        let versions = vs(&["1", "1.26.8", "1.27.3"]);
+        let m = fuzzy_match_version_core(&versions, "1").unwrap();
+        assert_eq!(m.full_version, "1.27.3");
+        assert!(m.fuzzy_matched);
+    }
+
+    #[test]
+    fn bare_version_exact_when_no_family() {
+        // 列表只有裸短版本、无家族 → 正常精确命中(Java major 风格数据)
+        let versions = vs(&["17", "21"]);
+        let m = fuzzy_match_version_core(&versions, "21").unwrap();
+        assert_eq!(m.full_version, "21");
+        assert!(!m.fuzzy_matched);
     }
 
     #[test]
