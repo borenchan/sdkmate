@@ -18,7 +18,7 @@ use crate::version::{
     ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
 };
 use download_url::build_download_url;
-use downloader::{build_reqwest_client, download_with_retry};
+use downloader::{build_download_client, build_reqwest_client, download_with_retry};
 use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
 use progress::InstallProgress;
 use util::builtin::find_seed_by_variant;
@@ -193,7 +193,7 @@ impl SdkManager {
         let is_zip = archive_filename.ends_with(".zip");
 
         // ── Phase 5: 下载（主/备）───────────────────────────────────
-        let download_client = build_reqwest_client(&self.config.network)?;
+        let download_client = build_download_client(&self.config.network)?;
         let download_pb = InstallProgress::new_download(&sdk_name, full_version);
 
         // 先尝试主源下载

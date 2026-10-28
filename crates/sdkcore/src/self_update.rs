@@ -12,7 +12,7 @@
 // 复用 install::downloader（reqwest 客户端 + 断点续传下载）与 install::extractor（zip/tar.gz 解压），
 // 不重复造轮子；不新增依赖/配置；不碰 install/switch/list 等模块。
 
-use crate::install::downloader::{build_reqwest_client, download_with_retry};
+use crate::install::downloader::{build_download_client, download_with_retry};
 use crate::install::extractor::extract_archive;
 use crate::manager::SdkManager;
 use anyhow::{Context, Result, bail};
@@ -59,7 +59,8 @@ impl SdkManager {
 
     /// 异步自更新核心：查询 → 比较 →（--check 到此为止）下载解压 → 替换验证
     async fn update_self_async(&self, check: bool) -> Result<()> {
-        let client = build_reqwest_client(&self.config.network)?;
+        // 下载专用 client（禁 gzip）：API JSON 仅几十 KB 无需压缩，下载需精确 content_length
+        let client = build_download_client(&self.config.network)?;
 
         // ── 查询 GitHub 最新 release ──
         // token 只注入 GH API 请求（不再走 client 全局 header，避免镜像下载把 token 发给第三方）

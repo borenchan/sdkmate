@@ -11,12 +11,30 @@ use util::{detail, warning};
 /// 注意：github_token 不在此全局注入（避免镜像开启时把 token 发给第三方代理），
 /// 由各 GH API 请求点自行添加 Authorization header（github_api_headers 或请求级 header）。
 pub fn build_reqwest_client(network: &NetworkConfig) -> Result<Client> {
+    build_client(network, true)
+}
+
+/// 下载专用 client：禁 gzip。dl.google.com 等服务器对 Accept-Encoding: gzip 会真压缩，
+/// tower-http 解码层同时剥掉 content-encoding 与 content-length 头 → content_length() 恒 None → 进度条失效。
+/// 注意 reqwest 启用 gzip feature 后 client 默认就发 Accept-Encoding: gzip，
+/// 仅"不调用 .gzip(true)"无效，必须显式 .no_gzip()。
+/// 下载物本就是 zip/tar.gz，gzip 传输仅省 ~1.5% 还白耗 CPU；API 类小请求继续用 build_reqwest_client。
+pub fn build_download_client(network: &NetworkConfig) -> Result<Client> {
+    build_client(network, false)
+}
+
+fn build_client(network: &NetworkConfig, gzip: bool) -> Result<Client> {
     let mut builder = Client::builder()
         .connect_timeout(Duration::from_secs(network.connect_timeout as u64))
         .timeout(Duration::from_secs(600))
-        .gzip(true)
         .redirect(reqwest::redirect::Policy::limited(10))
         .user_agent("sdkm/0.2");
+
+    if gzip {
+        builder = builder.gzip(true);
+    } else {
+        builder = builder.no_gzip();
+    }
 
     if let Some(proxy_url) = &network.proxy {
         let proxy = reqwest::Proxy::all(proxy_url).context(format!("Invalid proxy URL: {}", proxy_url))?;

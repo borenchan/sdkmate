@@ -97,23 +97,23 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-10-23）
+## 当前开发进度（2026-10-28）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-10-23 —— GitHub 下载镜像（gh-proxy）+ init 大陆时区自动启用 + 主备源切换日志
+### 2026-10-28 —— 下载进度条三连修复（初始 100% / gzip 致恒 0% / 0% 边框不可见）
 
-**镜像机制**：`network.github_download_mirror` 配置（如 `https://gh-proxy.com/`，空 = 关闭默认）。核心是 `NetworkConfig::mirror_github_url()`（config/mod.rs）——**纯 URL 重写层**：host 白名单（github.com / raw / objects / codeload / gist.githubusercontent.com，`url::Url::parse` 后 `host_str()` 精确比对防前缀伪装）拼镜像前缀，尾斜杠归一化，`api.github.com` 明确排除（实测直连 0.6s 稳定+token 已解配额，公共镜像 API 转发 403/共享配额不可靠）。挂载点 4 处各 1~2 行：版本发现主备源（cache.rs）、install 主下载 URL + 备源、self_update 资产——**主备切换/重试/断点续传一行未动**，镜像失败自然走既有重试→落备源。单测 4 个（关闭态/白名单/排除/畸形 URL）。
+**症状链**（go 下载实测）：v0.5.2 时代"初始 100% 闪一下→0→正常"（用户偶见正常），修 no_length 后变"全程 0%，最终帧 143.40/143.40 MiB 空条"（node 正常 go 不行）。三层根因，全部修复：
 
-**init 大陆自动启用**：`util/src/region.rs::is_china_mainland_timezone()`——Windows 读注册表 `HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation` 的 `TimeZoneKeyName` 精确匹配 `"China Standard Time"`（**注意：不是 HKCU\Control Panel\Time Zones**，那个键不存在当前时区记录，tzutil /g 同源 HKLM）；Unix 三级回退 `$TZ` → `/etc/timezone` → `/etc/localtime` 链接目标，匹配 IANA 名 `Shanghai/Chongqing/Harbin/Urumqi`（按名字不按 UTC+8 数值，新加坡/吉隆坡不误开）。签名 `-> bool` 全兜底：任何读取失败返回 false 维持现状，无 panic 无日志噪音。仅首次 init / force 重置写默认 config 时生效，已有 config 用户不受影响。命中输出提示 + 关闭命令。
+**① `ProgressBar::new(0)` 的 len=Some(0) 假满格**（progress.rs）：indicatif `fraction()` 对 `Some(0)` 返回 1.0（state.rs:282，`(_, Some(0)) => 1.0`），下载条创建到 HTTP 响应头回来（set_length）之间的窗口期每 500ms tick 画成 100% 满格。`new(0)` ≠ "无长度"，"无长度"是 `no_length()`（len=None → fraction=0）。`new_download`/`new_extract_zip` 改 `ProgressBar::no_length()`，附带收益：服务器不回 Content-Length 时显示 0% 而非永假 100%。
 
-**token 安全修复**：`build_reqwest_client` 移除全局 default_headers Authorization（镜像开启时下载请求会把 token 发给第三方代理）。改为按 URL 精确注入：cache.rs 新增 `with_github_token_if_api()`（版本发现链，含 install/list 全部调用），self_update 的 RELEASES_API 请求点补 header。token 从此只发往 api.github.com。
+**② gzip 响应致 content_length() 恒 None → set_length 全程不生效**（downloader.rs，真凶）：reqwest gzip feature 启用后 **client 默认 `gzip: true`（client.rs:127），不调 `.gzip(true)` 照样发 `Accept-Encoding: gzip`**——仅"移除调用"无效，必须显式 `.no_gzip()`。服务器真压缩时（dl.google.com 实测 150MB→148MB gzip）tower-http 解码层**同时剥掉 content-encoding 与 content-length 两个头**（decompression/future.rs:71），`resp.content_length()` 恒 None。而 CDN 各节点行为不一（`vary: Accept-Encoding`）：nodejs.org 恒不压缩（进度条一直正常）、dl.google.com 看节点心情（解释同一二进制两次测试现象不同）。修复：拆 `build_download_client()`（`.no_gzip()`）给 install 下载 + self_update；`build_reqwest_client()`（gzip on）保留给版本 API（JSON 压缩率高 ~80% 且无进度条需求）。下载物本就是 zip/tar.gz，gzip 传输仅省 ~1.5% 还毁进度条+白耗 CPU，取舍明确。**手动解析 Content-Length 头是错误方向**：那是压缩字节数，pos 计的是解压字节数，会跑超 100%。
 
-**主备源切换日志**（cache.rs `fetch_version_data`）：此前主源 404 静默跳备源（python 主源旧路径 404 用户完全无感知，备源又 504 就直接报错）。现主源失败打出原因 `primary source failed (primary source returned HTTP 404...), trying secondary...`，备源也挂打出 `secondary source also failed (...), falling back to stale cache`；无备源时错误带主源原因。错误串剥内层 `[sdk]` 前缀防重复。
+**③ 下载条未填充色 `blue`（深蓝）在黑底终端不可见**（progress.rs）：`{bar:30.▓▒░.green/blue}` → `.green/bright_blue`。此前被①的假 100% 掩盖，暴露后 0% 状态整条隐形。
 
-**实测数据**（2026-10-21~23 真实国内网络）：GH 资产直连大文件必超时（duckdb 25MB 000），镜像稳定 1.8~2.9MB/s；**公共镜像速度波动大**（gh-proxy.com 隔日 1.8MB/s→105KB/s，ghfast.top 同期 2.1MB/s），镜像本身可 `config set` 随时换；python-build-standalone 的 releases API per_page=100 GitHub 服务端 504（仓库过大，curl 直连复现，与客户端无关），主源恢复后不触发。
+**排查方法论**（本轮沉淀）：① indicatif/reqwest/tower-http 源码本地 registry 直读（`~/.cargo/registry/src/.../crate-x.y.z/`）；② reqwest 行为存疑时用**临时探针工程**（/tmp 独立 Cargo.toml 复刻 client 构造 + 真实 URL 打印 content_length()/headers，`Policy::none()` 分跳看 302、本地 TCP echo dump 原始请求头），验证完删除；③ curl 对照要带相同请求头（`-H "Accept-Encoding: gzip"`、`-A` UA）否则结论相反。
 
-**已验证**：84 测试全绿（含 4 mirror 单测）、clippy 无新警告、release 沙箱 init 实测大陆检测+写入+提示、python raw 主源走镜像拉回 122 版本。文档同步 docs/configuration.md。未发版。
+**已验证**：探针实测 `.no_gzip()` 后 go.dev=Some(150367305)、nodejs.org=Some(29701389) 全精确；84 测试全绿；用户实测 node 全程正常、go 待回归。未发版。
 
 ## 已知问题与注意事项
 

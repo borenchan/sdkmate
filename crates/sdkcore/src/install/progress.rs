@@ -19,9 +19,10 @@ const TIP_ROTATE_INTERVAL: u64 = 5;
 impl InstallProgress {
     /// 创建下载阶段进度条（3 行模板：标题 + 渐变条 + Tips 轮播）
     pub fn new_download(sdk: &str, version: &str) -> Self {
-        let pb = ProgressBar::new(0);
+        // no_length：len=None 显示 0%；new(0) 是 len=Some(0)，set_length 前的窗口期 fraction=1.0 会画成 100%
+        let pb = ProgressBar::no_length();
         let template = format!(
-            "⬇️  {{msg}}\n    {{bar:30.▓▒░.green/blue}} {{percent:>3}}% {{bytes:>10}}/{{total_bytes:>10}} {{speed_icon}}{{bytes_per_sec:>10}} ⏱{{eta:>5}}\n    💡 {{tip}}",
+            "⬇️  {{msg}}\n    {{bar:30.▓▒░.green/bright_blue}} {{percent:>3}}% {{bytes:>10}}/{{total_bytes:>10}} {{speed_icon}}{{bytes_per_sec:>10}} ⏱{{eta:>5}}\n    💡 {{tip}}",
             // first line uses {msg} for title; bar/tip/speed_icon are custom keys
         );
 
@@ -56,7 +57,8 @@ impl InstallProgress {
 
     /// 创建解压阶段进度条（zip：文件计数 + 百分比）
     pub fn new_extract_zip(sdk: &str, version: &str) -> Self {
-        let pb = ProgressBar::new(0);
+        // 同 new_download：no_length 避免 set_length 前 len=Some(0) 画成 100%
+        let pb = ProgressBar::no_length();
         let template = format!(
             "📦 {{msg}}\n    {{bar:30.▓▒░.cyan/yellow}} {{percent:>3}}% {{pos:>5}}/{{len:>5}} files ⏱{{eta:>5}}",
         );
