@@ -38,13 +38,13 @@ fn base_self_heal_line() -> String {
     format!("if not set -q {e}\n    set -gx {e} $PATH\nend", e = ENV_HOOK_BASE_PATH)
 }
 
-/// env 脚本 PATH 重建行：`set -gx PATH "bin1" "bin2" $_SDKM_BASE_PATH`（空格分隔、bin 引号、base 不引号）
-fn path_line(bins: &[String]) -> String {
-    if bins.is_empty() {
+/// env 脚本 PATH 行：完整绝对条目整串（逐条目引号；空列表 = 回退 base 引用）
+fn path_line(entries: &[String]) -> String {
+    if entries.is_empty() {
         format!("set -gx PATH ${}", ENV_HOOK_BASE_PATH)
     } else {
-        let quoted: Vec<String> = bins.iter().map(|b| format!("\"{b}\"")).collect();
-        format!("set -gx PATH {} ${}", quoted.join(" "), ENV_HOOK_BASE_PATH)
+        let quoted: Vec<String> = entries.iter().map(|b| format!("\"{b}\"")).collect();
+        format!("set -gx PATH {}", quoted.join(" "))
     }
 }
 

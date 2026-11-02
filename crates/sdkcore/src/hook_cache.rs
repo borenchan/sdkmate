@@ -22,17 +22,24 @@ use util::path::get_hook_cache_path;
 use crate::config::SdkmConfig;
 
 /// 缓存 schema 版本：脚本模板/生成逻辑/新鲜度判据变化时 bump，旧缓存条目整体失效（自动重建）
-pub const CACHE_SCHEMA_VERSION: u128 = 5;
+pub const CACHE_SCHEMA_VERSION: u128 = 7;
 
-/// 单条 hook 缓存：命中的配置文件路径 + 采样时 mtime（纳秒）+ 已生成好的完整 env 脚本
+/// 单条 hook 缓存：命中的配置文件路径 + 采样时 mtime（纳秒）+ 三层解析结果
 #[derive(Serialize, Deserialize, Default)]
 pub struct HookEntry {
     /// 命中的 `.sdkm.toml` 绝对路径（无项目配置时空串 = 锚定「无配置」状态）
     pub config_path: String,
     /// 纳秒 mtime（同秒连续编辑也能感知变化——热更新验收点）
     pub mtime_nanos: u128,
-    /// 生成好的完整 eval 脚本（PATH 重建 + unset + export），命中直接吐
-    pub env_script: String,
+    /// 会话+项目层应注入条目（top 段，重排时顶最前；贵的结果进缓存，PATH 行实时拼装）
+    #[serde(default)]
+    pub top_entries: Vec<String>,
+    /// 全局层应注入条目（重排时贴启动快照边界，外部前插保持在它前面）
+    #[serde(default)]
+    pub global_entries: Vec<String>,
+    /// 静态 env 行（unset + export；base 自愈与 PATH/INJECTED 行由 assemble 实时生成）
+    #[serde(default)]
+    pub env_lines: String,
     /// 生成此条目时的 schema 版本（不匹配 = 旧格式，当 miss 重建）
     #[serde(default)]
     pub schema_version: u128,
@@ -91,8 +98,9 @@ impl HookCache {
     /// 全局指纹一致、且其锚定的配置文件 mtime 未变
     ///
     /// `global_fp` 由调用方传入（同一次进程调用内 config 不会变，复用同一份指纹，
-    /// 避免判据 + put 采样各读一次盘）。返回命中条目的 env_script 引用；未命中/
-    /// 无记录/shell 不符/schema 不符/指纹不符/mtime 变了 → None（触发实时解析）。
+    /// 避免判据 + put 采样各读一次盘）。命中返回条目引用（取 top_entries/
+    /// global_entries/env_lines 实时拼装）；未命中/无记录/shell 不符/schema
+    /// 不符/指纹不符/mtime 变了 → None（触发实时解析）。
     pub fn resolve(&self, pwd: &Path, shell: u8, global_fp: &str) -> Option<&HookEntry> {
         let key = pwd.to_string_lossy();
         let entry = self.map.0.get(key.as_ref())?;

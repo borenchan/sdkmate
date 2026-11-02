@@ -2,7 +2,7 @@
 //! unix.rs 永不接触 PowerShell，`Shell::persistence()` 对 PowerShell 返 None。
 
 use super::ShellSyntax;
-use crate::consts::ENV_HOOK_BASE_PATH;
+use crate::consts::{ENV_HOOK_BASE_PATH, PATH_LIST_SEPARATOR};
 use crate::shell::Shell;
 
 /// 当前注入行（inject 与 legacy 升级目标共用）
@@ -40,14 +40,13 @@ fn base_self_heal_line() -> String {
     format!("if (-not $env:{b}) {{ $env:{b} = $env:PATH }}", b = ENV_HOOK_BASE_PATH)
 }
 
-/// env 脚本 PATH 重建行：`$env:PATH = "<list>;" + $env:_SDKM_BASE_PATH`（无 bins = base 本身，离开项目还原）
-fn path_line(bins: &[String]) -> String {
-    let value = if bins.is_empty() {
-        format!("$env:{}", ENV_HOOK_BASE_PATH)
+/// env 脚本 PATH 行：完整绝对条目整串（空列表 = 回退 base 引用；分隔符随编译目标平台）
+fn path_line(entries: &[String]) -> String {
+    if entries.is_empty() {
+        format!("$env:PATH = $env:{}", ENV_HOOK_BASE_PATH)
     } else {
-        format!("\"{};\" + $env:{}", bins.join(";"), ENV_HOOK_BASE_PATH)
-    };
-    format!("$env:PATH = {value}")
+        format!("$env:PATH = \"{}\"", entries.join(PATH_LIST_SEPARATOR))
+    }
 }
 
 /// 赋值行（env 脚本 / use --shell 共用）

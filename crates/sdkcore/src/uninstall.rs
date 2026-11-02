@@ -240,8 +240,8 @@ impl SdkManager {
         let Some((path, project_cfg)) = find_project_config().ok().flatten() else {
             return Vec::new();
         };
-        // pin 可能是模糊值（如 "21"：use_project_version 未装时写入或用户手写），
-        // 不能精确比较——把被卸载版本当候选池、pin 当输入做模糊匹配，命中即视为引用
+        // pin 可能是模糊值（如 "21"：用户手写 .sdkm.toml），不能精确比较——
+        // 把被卸载版本当候选池、pin 当输入做模糊匹配，命中即视为引用
         match project_cfg.pins.get(&sdk.to_string()) {
             Some(pin) if fuzzy_match_version_core(&[version.to_string()], pin).is_ok() => vec![path],
             _ => Vec::new(),

@@ -76,7 +76,7 @@ Invoke-Expression ((sdkm use --shell java 21) -join [Environment]::NewLine)  # P
 几点须知：
 
 - **先注入 hook**：项目级 / 临时级靠 shell hook 自动生效，未注入时只有 `switch`（全局）有效。先跑 `sdkm init`（见下节 [Shell 支持与 Hook 注册](#shell-支持与-hook-注册)）。
-- **未装会降级**：`sdkm use java 21` 时若 21 本地没装，仍写入意图，但自动回退全局版本并提示你装；临时级（`--shell`）则要求版本必须已装，否则报错。
+- **写入要求本地已装**：`sdkm use java 21` 要求本地有可模糊匹配的已装版本（写入解析后的精确版本）；未装或匹配失败会报错拒绝写入，先 `sdkm install` 再 pin。手写 `.sdkm.toml` 未装版本时 `sdkm env` 自动回退全局并提示安装。
 - **建议提交版本库**：团队 clone 后 `sdkm init` 即自动用对版本（前提是各自本地已装）。
 
 > 三种作用域如何排序、hook 如何读 `.sdkm.toml`、未装降级与离开目录自动还原的内部机制，见 [工作原理](#工作原理)。
@@ -265,7 +265,7 @@ flowchart TD
     H --> M
     J --> M
     K --> M
-    M --> N["生成环境脚本<br/>PATH 重建 + 幂等 unset/export"]
+    M --> N["生成环境脚本<br/>PATH 外科手术 + 幂等 unset/export"]
     N --> O["shell eval 脚本，环境生效"]
     O --> P["cd / switch / 改配置 → 下一轮提示符重新解析"]
 ```
@@ -279,7 +279,7 @@ flowchart TD
 | 1（最高） | 临时 · 当前终端 | `sdkm use --shell` | `SDKM_ACTIVE_<SDK>` 环境变量 | store 真实版本目录 |
 | 2 | 项目 · 当前目录及子目录 | `sdkm use` | `.sdkm.toml` pins | store 真实版本目录（绕过 symlink） |
 | 3 | 全局 · 整个系统 | `sdkm switch` | `config.toml` 的 `current_version` | symlink 目录（`<symlink_dir>/<sdk>/bin`） |
-| 4（兜底） | — | — | — | `_SDKM_BASE_PATH`（启动时的 PATH 快照，保住系统/用户路径） |
+| 4（兜底） | — | — | — | 当前 PATH 其余条目（`_SDKM_BASE_PATH` 仅作空 PATH 兜底锚点） |
 
 ```mermaid
 flowchart TD
@@ -300,7 +300,7 @@ flowchart TD
 
 ### 关键机制
 
-- **幂等重建 + base PATH**：hook 首次运行时把启动 PATH 存到 `_SDKM_BASE_PATH`；之后每次 `sdkm env` 都从 base 重建 PATH（四层 bins 前置到 base）。未选中的全局 env vars 幂等 `unset`、选中的 `export`（全局层选中的 SDK 也渲染 `{sdk_dir}`=symlink 目录的 extra_vars，如 JAVA_HOME）——重复执行不累积、不残留、离开目录自然还原。
+- **外科手术重建 + base PATH**：hook 首次运行时把启动 PATH 存到 `_SDKM_BASE_PATH`（兜底锚点）；之后每次 `sdkm env` 读父 shell 实时 `$PATH` 与 `_SDKM_INJECTED_PATHS`（上次注入记录），**剥掉自己的旧注入、插入本次注入**——会话内其他 PATH 修改（venv/conda activate、手动 `export PATH`）原样保留。优先级按**分层**定位：会话/项目声明（`use --shell` / pin）恒顶最前；全局层（switch 的 symlink）恒贴启动 PATH 边界，venv 等外部前插保持在它前面；删 pin / 离开项目后声明条目剥净，外部前插自然回到全局之前。重复执行不累积、离开目录自然还原。未选中的全局 env vars 幂等 `unset`、选中的 `export`（全局层选中的 SDK 也渲染 `{sdk_dir}`=symlink 目录的 extra_vars，如 JAVA_HOME）。
 - **stdout 纯净**：`sdkm env` / `sdkm hook` / `sdkm use --shell` 的 stdout 只吐脚本（供 `eval`/`source`/`IEX`），诊断信息一律走 stderr，不会污染 eval 出来的环境。
 - **双指纹缓存**：`sdkm env` 按 PWD + shell 缓存生成的脚本，新鲜度判据 = `.sdkm.toml` mtime + **会话指纹**（`SDKM_ACTIVE_*` 变量集合）+ **全局指纹**（symlink_dir + 各 SDK `current_version` 集合，读自 config.toml）——任一变化即重算。这保证 `use --shell` 与 `switch` 后 hook 不会吐旧缓存脚本压过新状态。缓存读写失败静默降级为实时解析。
 - **未装降级**：项目/临时级版本本地未装时，`sdkm env` 跳过该 SDK 并 stderr 警告，PATH/env 回退全局，不阻断 shell；临时级 `use --shell` 则要求必须已装，否则报错退出。

@@ -146,8 +146,8 @@ sdkm use <SDK> <VERSION> [--shell]
 sdkm use java 21          # 在当前目录写 .sdkm.toml：java = "21"
 ```
 
-- 在当前目录生成（或合并进已有的）`.sdkm.toml`，把 SDK → 期望版本作为 KV 摊平写入（如 `java = "21"`）。
-- **声明意图，不强制安装**：若该版本本地未装，仍写入，但 `sdkm env` 会自动降级回全局版本，并提示你 `sdkm install java 21`。
+- 在当前目录生成（或合并进已有的）`.sdkm.toml`，把 SDK → **解析后的精确版本**作为 KV 摊平写入（如 `java = "21.0.2+9"`，模糊输入 `21` 自动解析，匹配逻辑与 switch 同源）。
+- **要求本地已装且匹配成功**：版本本地未装或模糊匹配失败（如拼写错误）则拒绝写入并提示——坏 pin 会导致每次提示符渲染都解析失败降级全局。手写 `.sdkm.toml` 未装版本时 `sdkm env` 仍自动降级回全局并提示安装。
 - 写入前若检测到上层目录已有 `.sdkm.toml`，会 warning 提示覆盖关系（只提示不阻断）。
 - 写入后**按一下回车**（hook 触发 `sdkm env` 重读配置）即激活，无需重启终端或重新 cd。
 
@@ -180,8 +180,8 @@ sdkm env [--shell <shell>]
 ```
 
 - `--shell <shell>`：指定目标 shell（`bash`/`zsh`/`fish`/`powershell`）；省略则自动检测当前 shell。
-- 输出内容：PATH 重建行（四层 bins 前置到 `_SDKM_BASE_PATH`：临时/项目 = store 真实版本目录，全局 = symlink 目录）+ 全局 known env vars 的幂等 unset + 本次选中 SDK 的 export（如 `JAVA_HOME`）。
-- **幂等重建**：每次调用都从 base PATH 重建，离开项目目录即还原全局；无项目配置时输出幂等还原脚本。
+- 输出内容：PATH 外科手术重建行（读父 shell 实时 `$PATH` 与 `_SDKM_INJECTED_PATHS` 上次注入记录，剥旧注新：临时/项目 = store 真实版本目录，全局 = symlink 目录）+ 注入记录更新行 + 全局 known env vars 的幂等 unset + 本次选中 SDK 的 export（如 `JAVA_HOME`）。
+- **外科手术重组**：只调整 sdkm 自己注入的条目，会话内其他 PATH 修改（venv/conda activate、手动 `export PATH`）原样保留。优先级按**分层**定位：会话/项目声明（`use --shell` / pin）恒顶最前，压过外部前插；全局层（switch 的 symlink）恒贴启动 PATH 边界，venv 等外部前插保持在它前面；删 pin / 离开项目后声明条目剥净，外部前插自然回到全局之前。重复执行不累积。
 - 带双指纹缓存：`.sdkm.toml` 未改、会话变量与全局 active 状态未变时直接吐缓存脚本；任一变化（改配置 / `use --shell` / `switch`）即重算。未装降级等诊断走 stderr，不污染 stdout（stdout 必须纯净供 eval）。
 
 手动验证当前目录会注入什么（不会改动环境）：

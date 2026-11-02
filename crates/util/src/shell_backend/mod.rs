@@ -45,9 +45,10 @@ pub struct ShellSyntax {
     pub generate_hook: fn() -> String,
     /// env 脚本 base 兜底自愈行（防 hook 未注入时手动 eval/source 清空 PATH）
     pub base_self_heal_line: fn() -> String,
-    /// env 脚本 PATH 重建行（引用 _SDKM_BASE_PATH）
+    /// env 脚本 PATH 行（完整绝对条目整串；空列表回退 base 引用）
     pub path_line: fn(&[String]) -> String,
-    /// env / use --shell 赋值行（bash `export K="v"` / fish `set -gx K "v"` / PS `$env:K = "v"`）
+    /// env / use --shell 赋值行（bash `export K="v"` / fish `set -gx K "v"` / PS `$env:K = "v"`；
+    /// 兼作 `_SDKM_INJECTED_PATHS` 传输行——fish 普通 list 导出按空格拼接，必须单字符串）
     pub export_line: fn(&str, &str) -> String,
     /// env 脚本取消行（bash `unset K` / fish `set -q K; and set -e K` / PS `$env:K = $null`）
     pub unset_line: fn(&str) -> String,
@@ -132,12 +133,9 @@ mod tests {
         let f = Shell::Fish.syntax();
         assert_eq!((f.export_line)("JAVA_HOME", "/x y"), "set -gx JAVA_HOME \"/x y\"");
         assert_eq!((f.unset_line)("KEY"), "set -q KEY; and set -e KEY");
-        assert_eq!(
-            (f.path_line)(&["a".to_string(), "b".to_string()]),
-            format!("set -gx PATH \"a\" \"b\" ${}", ENV_HOOK_BASE_PATH)
-        );
-        // PATH 拆分为条目由 fish 的 list 语义承担；base 不引号 = list 展开
-        assert!(!(f.path_line)(&[]).contains('"'), "无 bins 时 base 应不引号");
+        assert_eq!((f.path_line)(&["a".to_string(), "b".to_string()]), "set -gx PATH \"a\" \"b\"");
+        // 空列表回退 base 引用（不引号 = list 展开）
+        assert_eq!((f.path_line)(&[]), format!("set -gx PATH ${}", ENV_HOOK_BASE_PATH));
         let p = Shell::Fish.persistence().unwrap();
         let add = p.add_dir_command.unwrap()("/x y");
         assert_eq!(add, "fish_add_path --path \"/x y\"");

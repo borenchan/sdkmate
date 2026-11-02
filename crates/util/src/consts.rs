@@ -33,6 +33,12 @@ pub const PROJECT_CONFIG_FILE_NAME: &str = ".sdkm.toml";
 /// shell hook 保存启动 PATH 的变量名（离开项目目录时用它幂等重建 PATH）
 pub const ENV_HOOK_BASE_PATH: &str = "_SDKM_BASE_PATH";
 
+/// shell hook 记录上次注入 PATH 条目的变量名（提示符渲染时外科手术重组：剥旧注新）
+pub const ENV_HOOK_INJECTED_PATHS: &str = "_SDKM_INJECTED_PATHS";
+
+/// PATH 列表分隔符（Unix ':' / Windows ';'；hook 重建 PATH 按编译目标平台取值）
+pub const PATH_LIST_SEPARATOR: &str = if cfg!(windows) { ";" } else { ":" };
+
 /// 会话层版本覆盖的环境变量前缀（SDKM_ACTIVE_JAVA 等，非持久 → 新 shell 丢失）
 pub const SDKM_SESSION_ENV_PREFIX: &str = "SDKM_ACTIVE_";
 

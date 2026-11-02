@@ -31,14 +31,13 @@ pub(crate) fn base_self_heal_line() -> String {
     format!("[ -z \"${{{b}:-}}\" ] && export {b}=\"$PATH\"", b = ENV_HOOK_BASE_PATH)
 }
 
-/// env 脚本 PATH 重建行：`export PATH="<bins 冒号拼接>:$_SDKM_BASE_PATH"`（无 bins = base 本身，离开项目还原）
-pub(crate) fn path_line(bins: &[String]) -> String {
-    let path_value = if bins.is_empty() {
-        format!("${}", ENV_HOOK_BASE_PATH)
+/// env 脚本 PATH 行：完整绝对条目整串重建（重组结果逐字输出；空列表 = 回退 base 引用）
+pub(crate) fn path_line(entries: &[String]) -> String {
+    if entries.is_empty() {
+        format!("export PATH=\"${}\"", ENV_HOOK_BASE_PATH)
     } else {
-        format!("{}:${}", bins.join(":"), ENV_HOOK_BASE_PATH)
-    };
-    format!("export PATH=\"{}\"", path_value)
+        format!("export PATH=\"{}\"", entries.join(":"))
+    }
 }
 
 /// 赋值行（env 脚本 / use --shell / unix.rs 持久化共用）

@@ -27,7 +27,7 @@ use std::sync::{
     Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
-use util::consts::PROJECT_CONFIG_FILE_NAME;
+use util::consts::{ENV_HOOK_BASE_PATH, ENV_HOOK_INJECTED_PATHS, PATH_LIST_SEPARATOR, PROJECT_CONFIG_FILE_NAME};
 use util::sdk::Sdk;
 use util::shell::Shell;
 
@@ -321,6 +321,106 @@ fn env_script_recomputes_when_session_var_set() {
     assert!(!v21_bin_win, "会话 > 项目，项目 pin（21）不应出现在脚本中");
 }
 
+/// 运行期 shell 状态守卫：覆盖 PATH/_SDKM_INJECTED_PATHS/_SDKM_BASE_PATH 的测试用，Drop 恢复原值
+struct PathEnvGuard {
+    orig_path: Option<String>,
+    orig_injected: Option<String>,
+    orig_base: Option<String>,
+}
+impl Drop for PathEnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.orig_path {
+                Some(v) => env::set_var("PATH", v),
+                None => env::remove_var("PATH"),
+            }
+            match &self.orig_injected {
+                Some(v) => env::set_var(ENV_HOOK_INJECTED_PATHS, v),
+                None => env::remove_var(ENV_HOOK_INJECTED_PATHS),
+            }
+            match &self.orig_base {
+                Some(v) => env::set_var(ENV_HOOK_BASE_PATH, v),
+                None => env::remove_var(ENV_HOOK_BASE_PATH),
+            }
+        }
+    }
+}
+
+/// 分层优先级回归（issue #17 + 删 pin 后 venv 回前）
+///
+/// 模拟父 shell 状态：PATH 已含 venv 前插条目（htc/bin）+ sdkm 上次注入（old/sdkm/bin）
+/// + base 启动快照（usr/bin）。三场景：pin 生效（top 压 venv）→ 稳定幂等 → 删 pin
+/// （top 消失，venv 回最前）。前两次调用覆盖 miss 与缓存命中两条路径。
+#[test]
+fn env_script_layered_priority_with_venv() {
+    let config = SdkmConfig {
+        symlink_dir: None,
+        network: NetworkConfig::default(),
+        sdks: vec![java_config()],
+    };
+    let env = setup(&config);
+    let java_dir = make_version_dir(&env, "java", "21.0.2+9");
+    let proj = env.temp.join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    let pins = BTreeMap::from([("java".to_string(), "21".to_string())]);
+    fs::write(
+        proj.join(PROJECT_CONFIG_FILE_NAME),
+        toml::to_string_pretty(&ProjectConfig { pins }).unwrap(),
+    )
+    .unwrap();
+    env::set_current_dir(&proj).unwrap();
+
+    // 覆盖运行期 shell 状态（Guard 恢复，防泄给后续测试）
+    let _guard = PathEnvGuard {
+        orig_path: env::var("PATH").ok(),
+        orig_injected: env::var(ENV_HOOK_INJECTED_PATHS).ok(),
+        orig_base: env::var(ENV_HOOK_BASE_PATH).ok(),
+    };
+    let sep = PATH_LIST_SEPARATOR;
+    unsafe {
+        env::set_var("PATH", format!("htc/bin{sep}old/sdkm/bin{sep}usr/bin"));
+        env::set_var(ENV_HOOK_INJECTED_PATHS, "old/sdkm/bin");
+        env::set_var(ENV_HOOK_BASE_PATH, "usr/bin");
+    }
+
+    let manager = make_manager(config);
+    let bin_win = java_dir.join("bin").to_string_lossy().replace('/', "\\");
+    let bin_unix: String = java_dir.join("bin").to_string_lossy().into_owned();
+    // PATH 行输出为 bash 语法（条目固定 `:` 连接，与平台无关）
+    for script in [
+        manager.generate_env_script_cached(Shell::Bash, &proj),
+        manager.generate_env_script_cached(Shell::Bash, &proj),
+    ] {
+        // pin 生效：top 段（会话/项目）压过 venv 前插
+        let line_win = format!("export PATH=\"{bin_win}:htc/bin:usr/bin\"");
+        let line_unix = format!("export PATH=\"{bin_unix}:htc/bin:usr/bin\"");
+        assert!(
+            script.contains(&line_win) || script.contains(&line_unix),
+            "pin 的 top 段应顶到 venv 前，got: {script}"
+        );
+        assert!(!script.contains("old/sdkm/bin"), "旧注入条目应被剥除，got: {script}");
+    }
+
+    // 稳定态：模拟首次 eval 后的 shell 状态（java bin 已最前、INJECTED 已更新）→ 幂等不变
+    unsafe {
+        env::set_var("PATH", format!("{bin_win}{sep}htc/bin{sep}usr/bin"));
+        env::set_var(ENV_HOOK_INJECTED_PATHS, &bin_win);
+    }
+    let stable = manager.generate_env_script_cached(Shell::Bash, &proj);
+    assert!(
+        stable.contains(&format!("export PATH=\"{bin_win}:htc/bin:usr/bin\"")),
+        "稳定态应幂等，got: {stable}"
+    );
+
+    // 删 pin（top 段消失）→ venv 回到最前且旧注入剥净
+    fs::remove_file(proj.join(PROJECT_CONFIG_FILE_NAME)).unwrap();
+    let removed = manager.generate_env_script_cached(Shell::Bash, &proj);
+    assert!(
+        removed.contains("export PATH=\"htc/bin:usr/bin\""),
+        "删 pin 后 venv 应回到最前，got: {removed}"
+    );
+}
+
 // ===================== HookCache（跨 shell 串扰 + schema 失效）=====================
 
 /// 同 PWD 不同 shell：put(bash) 后 resolve(bash) 命中、resolve(fish) miss（防串扰）
@@ -341,7 +441,9 @@ fn hook_cache_cross_shell_miss() {
         HookEntry {
             config_path: String::new(), // 空串 = 无项目配置锚定，resolve 不查 mtime
             mtime_nanos: 0,
-            env_script: "echo bash".to_string(),
+            top_entries: vec!["b".to_string()],
+            global_entries: vec![],
+            env_lines: "echo bash".to_string(),
             schema_version: CACHE_SCHEMA_VERSION,
             shell: Shell::Bash as u8,
             // 跟随当前进程会话/全局指纹，模拟「与 resolve 时同状态」的正常命中
@@ -378,7 +480,9 @@ fn hook_cache_schema_mismatch_miss() {
         HookEntry {
             config_path: String::new(),
             mtime_nanos: 0,
-            env_script: "stale".to_string(),
+            top_entries: vec!["stale".to_string()],
+            global_entries: vec![],
+            env_lines: "stale".to_string(),
             schema_version: CACHE_SCHEMA_VERSION - 1, // 旧 schema
             shell: Shell::Bash as u8,
             session_fingerprint: current_session_fingerprint(),
