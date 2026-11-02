@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.5.3 - 2026-10-28
+
+
+### 🐛 Bug Fixes
+
+- go fuzzy version hijacked by bare go1 entry from go.dev — [`f375eae`](https://github.com/borenchan/sdkmate/commit/f375eae)
+- download progress stuck at 0% or fake 100% due to gzip and zero-length bar — [`570ce53`](https://github.com/borenchan/sdkmate/commit/570ce53)
+
+### 👷 CI / Build
+
+- add linux aarch64 gnu/musl build artifacts — [`1bdda71`](https://github.com/borenchan/sdkmate/commit/1bdda71)
+
+### 🧰 Chore
+
+- release v0.5.3 — [`bab57b1`](https://github.com/borenchan/sdkmate/commit/bab57b1)
+- release v0.6.0 — [`9e32c28`](https://github.com/borenchan/sdkmate/commit/9e32c28)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.5.2...v0.5.3
+
+
+
 ## v0.5.2 - 2026-10-23
 
 
