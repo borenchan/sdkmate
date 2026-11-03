@@ -13,7 +13,7 @@ use std::iter::once;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, DIVIDER_DOT, SDK_SELECTOR_TIPS, STATUS_ACTIVE, STATUS_INSTALLED, TUI_TIPS};
 use util::path::{format_bytes, get_installed_sdks_dir};
@@ -203,6 +203,8 @@ fn run_sdk_selector_inner(
     let mut selected = 0;
     let mut scroll_offset = 0;
     let mut tip_idx = 0;
+    // tip 轮换节拍锚点：固定 3s 一换，size 回填的快速重绘不推进
+    let mut last_tip_at = Instant::now();
     // 底部持久消息（操作反馈，无随机性；空串 = 不显示）
     let mut msg = initial_msg;
 
@@ -635,7 +637,11 @@ fn run_sdk_selector_inner(
             need_redraw = true;
             last_done = done;
         }
-        tip_idx = (tip_idx + 1) % SDK_SELECTOR_TIPS.len();
+        // tip 按固定节奏（3s）轮换：size 回填期间 120ms 快速重绘不推进，避免疯狂跳变
+        if last_tip_at.elapsed() >= Duration::from_secs(3) {
+            tip_idx = (tip_idx + 1) % SDK_SELECTOR_TIPS.len();
+            last_tip_at = Instant::now();
+        }
     };
 
     try_bug!(execute!(stdout, crossterm::cursor::Show, LeaveAlternateScreen).context("Failed to restore terminal"));
@@ -674,6 +680,8 @@ fn run_selector_inner(
     let mut selected = find_default_selection(&is_active);
     let mut scroll_offset = 0;
     let mut tip_idx = 0;
+    // tip 轮换节拍锚点：固定 3s 一换，size 回填的快速重绘不推进
+    let mut last_tip_at = Instant::now();
 
     // 版本列宽度：取所有版本字符串的最大显示宽度，左对齐 pad 保证 size 列对齐
     let version_col_width = versions.iter().map(|v| v.width()).max().unwrap_or(0);
@@ -1055,7 +1063,11 @@ fn run_selector_inner(
             need_redraw = true;
             last_done = done;
         }
-        tip_idx = (tip_idx + 1) % TUI_TIPS.len();
+        // tip 按固定节奏（3s）轮换：size 回填期间 120ms 快速重绘不推进，避免疯狂跳变
+        if last_tip_at.elapsed() >= Duration::from_secs(3) {
+            tip_idx = (tip_idx + 1) % TUI_TIPS.len();
+            last_tip_at = Instant::now();
+        }
     };
 
     // Restore terminal: show cursor + leave alternate screen + disable raw
