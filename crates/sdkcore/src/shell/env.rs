@@ -300,8 +300,9 @@ impl SdkManager {
 
 /// 会话层载体读取：`SDKM_ACTIVE_<UPPER>` 已设且非空 → 返回其值（该 SDK 用会话版本）
 ///
-/// `session_override`：`use --shell` 模拟视角优先（进程内尚未 export 该变量）
-fn session_env_value(sdk_name: &str, session_override: Option<(&str, &str)>) -> Option<String> {
+/// `session_override`：`use --shell` 模拟视角优先（进程内尚未 export 该变量）。
+/// 供 current.rs 复用（只读查询），改读取规则需两边同步。
+pub(crate) fn session_env_value(sdk_name: &str, session_override: Option<(&str, &str)>) -> Option<String> {
     if let Some((_, version)) = session_override.filter(|(n, _)| *n == sdk_name) {
         return Some(version.to_string());
     }

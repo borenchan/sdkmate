@@ -17,9 +17,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE};
-use util::path::{format_bytes, get_installed_sdks_dir, get_sdkm_home};
+use util::path::{format_bytes, get_installed_sdks_dir};
 use util::sdk::{BuiltinSdk, Sdk};
-use util::terminal::{ColumnColor, pad_right, print_table};
+use util::terminal::pad_right;
 use util::{divider, info, try_bug, warning};
 
 // ─── 数据结构 ───────────────────────────────────────────────────
@@ -231,42 +231,6 @@ impl SdkManager {
 
         cache.save();
         print_local_table(&final_items);
-        divider!();
-        Ok(())
-    }
-
-    /// 显示单个或全部 SDK 的当前版本(供 `sdkm current` 命令使用)
-    ///
-    /// 语义只需当前版本，不带 size 列。多 SDK 用表头表格样式（与 `ls` 的序号样式区分）；单 SDK 单行着色。
-    pub fn show_local_sdks_current(&self, sdk: Option<Sdk>) -> Result<()> {
-        if let Some(sdk) = sdk {
-            let conf = self.config.find_sdk_ok(&sdk)?;
-            let current = conf.current_version.clone().unwrap_or_else(|| "N/A".to_string());
-            println!("ℹ️  {} {}", sdk.to_string().bold(), current.green());
-            return Ok(());
-        }
-        info!("sdkm home: {}", get_sdkm_home()?.display());
-        let mut rows: Vec<Vec<String>> = Vec::new();
-        for entry in get_installed_sdks_dir()?.read_dir()?.filter_map(|e| e.ok()) {
-            let name = entry.file_name().to_string_lossy().to_string();
-            // store 目录可能含未在 config 注册的子目录(如手动放入或遗留),跳过而非中断整体列表
-            let sdk = match self.match_valid_sdk(&name) {
-                Ok(s) => s,
-                Err(e) => {
-                    warning!("skip unregistered SDK directory `{}`: {}", name, e);
-                    continue;
-                }
-            };
-            let sdk_conf = self.config.find_sdk_ok(&sdk)?;
-            let current = sdk_conf.current_version.clone().unwrap_or_else(|| "N/A".to_string());
-            rows.push(vec![sdk.to_string(), current]);
-        }
-        divider!();
-        if rows.is_empty() {
-            info!("no active sdks.");
-        } else {
-            print_table(&["sdk", "current"], &rows, &[ColumnColor::Bold, ColumnColor::Green]);
-        }
         divider!();
         Ok(())
     }

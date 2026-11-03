@@ -6,7 +6,7 @@ use std::io::{self, Write};
 // os_version 的 unix 分支用；Windows 走注册表无需子进程
 #[cfg(unix)]
 use std::process::Command;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use url::Url;
 
 // ── Unified color palette ───────────────────────────────────
@@ -64,10 +64,10 @@ pub fn banner(message: &str) {
     println!("{}", message.cyan());
 }
 
-/// 表格列着色规则：决定该列数据单元格的颜色（表头始终 cyan 粗体）
+/// 表格单元格着色规则（表头始终 cyan 粗体）
 #[derive(Clone, Copy)]
 pub enum ColumnColor {
-    /// 默认色（不着色不粗体）
+    /// 默认色（不着色不粗体）——用于富文本单元格（自带 ANSI 样式）
     None,
     /// 默认色粗体——用于 sdk 名（与青色列头区分）
     Bold,
@@ -77,22 +77,41 @@ pub enum ColumnColor {
     DarkGrey,
 }
 
-/// 按显示宽度左对齐填充到 `width`（右侧补空格），unicode 感知
+/// ANSI 转义序列不计入的显示宽度（富文本单元格参与列宽对齐用）
+pub fn display_width(s: &str) -> usize {
+    let mut width = 0;
+    let mut in_ansi = false;
+    for c in s.chars() {
+        if in_ansi {
+            // SGR 颜色序列以字母（m）终结
+            if c.is_ascii_alphabetic() {
+                in_ansi = false;
+            }
+        } else if c == '\x1b' {
+            in_ansi = true;
+        } else {
+            width += c.width().unwrap_or(0);
+        }
+    }
+    width
+}
+
+/// 按显示宽度左对齐填充到 `width`（右侧补空格），unicode 感知（ANSI 转义序列不计宽）
 pub fn pad_right(s: &str, width: usize) -> String {
-    let w = s.width();
+    let w = display_width(s);
     format!("{s}{}", " ".repeat(width.saturating_sub(w)))
 }
 
 /// 打印左对齐列表格
 ///
-/// 表头 cyan 粗体，数据行按 `colors` 着色（None 则默认色）；统一 2 空格缩进 + 列间 2 空格分隔。
-/// 列宽按各列单元格的显示宽度（unicode 感知）取最大值左对齐。
-pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor]) {
+/// 表头 cyan 粗体，数据行按 `colors` 着色（None 则原样输出，供富文本单元格用）；
+/// 统一 2 空格缩进，列间 `col_gap` 空格分隔。列宽按各列单元格的显示宽度（unicode 感知）取最大值左对齐。
+pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor], col_gap: usize) {
     // 每列最大显示宽度
     let mut widths: Vec<usize> = headers.iter().map(|h| h.width()).collect();
     for row in rows {
         for (i, cell) in row.iter().enumerate() {
-            let w = cell.as_str().width();
+            let w = display_width(cell.as_str());
             if i >= widths.len() {
                 widths.push(w);
             } else if w > widths[i] {
@@ -100,7 +119,7 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor
             }
         }
     }
-    // 对齐单元格（纯文本，padding 后再着色，避免 ANSI 序列干扰宽度计算）
+    // 对齐单元格（纯文本 padding，富文本串含 ANSI 也不影响宽度）
     let pad_cell = |c: &str, idx: usize| pad_right(c, widths.get(idx).copied().unwrap_or(0));
     let colorize = |s: String, idx: usize| -> String {
         match colors.get(idx).copied() {
@@ -110,13 +129,14 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor
             _ => s,
         }
     };
+    let gap = " ".repeat(col_gap);
     // 表头（cyan 粗体）
     let header_line = headers
         .iter()
         .enumerate()
         .map(|(i, c)| pad_cell(c, i))
         .collect::<Vec<_>>()
-        .join("  ");
+        .join(&gap);
     println!("  {}", header_line.cyan().bold());
     // 数据行（按列着色）
     for row in rows {
@@ -125,7 +145,7 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor
             .enumerate()
             .map(|(i, c)| colorize(pad_cell(c.as_str(), i), i))
             .collect::<Vec<_>>()
-            .join("  ");
+            .join(&gap);
         println!("  {}", line);
     }
 }
