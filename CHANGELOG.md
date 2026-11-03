@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.5.5 - 2026-11-03
+
+
+### ✨ Features
+
+- annotate effective version source in sdkm current (#22) — [`b6c5519`](https://github.com/borenchan/sdkmate/commit/b6c5519)
+
+### 🐛 Bug Fixes
+
+- throttle TUI tip rotation during size backfill — [`1d834d1`](https://github.com/borenchan/sdkmate/commit/1d834d1)
+
+### 📝 Documentation
+
+- update usage docs — [`8aa6a43`](https://github.com/borenchan/sdkmate/commit/8aa6a43)
+
+### 🧰 Chore
+
+- release v0.5.5 — [`deac9c9`](https://github.com/borenchan/sdkmate/commit/deac9c9)
+
+### 📌 Other
+
+- Merge branch 'master' of https://github.com/borenchan/sdkmate — [`31597a4`](https://github.com/borenchan/sdkmate/commit/31597a4)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.5.4...v0.5.5
+
+
+
 ## v0.5.4 - 2026-11-02
 
 
