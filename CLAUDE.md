@@ -97,29 +97,23 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-02）
+## 当前开发进度（2026-11-03）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-11-02 —— hook PATH 分层重组（issue #17）+ use 语义收紧 + PATH 去重防 32767 超限
+### 2026-11-03 —— `sdkm current` 三层生效版本解析 + 来源标注（issue #22）+ TUI tip 轮换节流
 
-**① hook PATH 分层重组（issue #17：venv/conda 激活被抹掉 + 删 pin 后全局压过 venv）**
+**背景**（issue #22）：多级作用域机制（session `SDKM_ACTIVE_*` > project `.sdkm.toml` pin > global `config.toml current_version`）对用户不可见——旧 `sdkm current` 只读 global 层的 `current_version`，pin/use --shell 生效时显示版本与实际生效不一致，用户无法定位"现在跑的是谁的版本"。
 
-**症状**（GitHub issue #17，Debian 13）：`uv venv htc && source htc/bin/activate` 后按一次回车，`which python` 变 `/usr/bin/python`——`VIRTUAL_ENV` 还在极具迷惑性。**根因**：`sdkm env` 无条件输出 PATH 重建行 `export PATH="<bins>:$_SDKM_BASE_PATH"`，base 是 hook 首次注入时锚定的启动快照（`[ -z ]` 守卫永不更新）→ 每次提示符渲染都把会话 PATH 重置回快照，**一切运行期 PATH 修改**（venv/conda activate、手动 export、nvm）全被抹掉，四 shell 同型中招。设计初衷是幂等（引用 `$PATH` 会无限膨胀），代价是外部修改被覆盖。
+**实现（只增展示、零原有逻辑修改，用户硬约束）**：新增 `sdkcore/src/current.rs`——`VersionOrigin` 枚举（Session/Project(PathBuf)/Global，Display 输出 `session`/`project (路径)`/`global`）+ `EffectiveVersion{version, origin}` + `SdkManager::effective_version[_with]` 三层查询链，复用原子函数 `session_env_value`（env.rs 私有 → **pub(crate)**，唯一触碰原有文件处）/`find_project_config`/`list_local_sdk_versions`/`fuzzy_match_version_core`。**不重构 env.rs 的 `generate_env_script_inner`**（hook 热路径、脚本导向不带层信息）——current 独立薄查询链，防漂移三件套：共享原子函数 + 模块文档交叉引用声明同步义务 + 守卫测试（失效 session pin 压制 project 直落 global，锁定 env.rs:141 契约）。
 
-**修复：剥旧注新 + 分层定位**（mise activate / direnv 同族模型）：新增 `_SDKM_INJECTED_PATHS` 环境变量（普通导出、生命周期=shell 会话、env 输出末尾每次更新为本次注入条目）记账"sdkm 上次注入了什么"。`sdkm env` 子进程经环境变量继承读父 shell **实时 `$PATH`**，`rebuild_path_entries` 单遍扫描剥掉上次注入（每条只剥一次出现，Windows 大小写不敏感），本次条目按**分层语义静态定位**（零状态机、不依赖历史）：**top（会话+项目 = 显式版本声明）恒顶最前**——压过 venv/conda/手动 export 等外部前插；**global（全局底座）恒贴启动快照（`_SDKM_BASE_PATH`）边界**——外部前插天然保持在它前面；删 pin/离开项目 → top 条目剥净 → venv 自然回到 global 之前。中间版"新条目→顶前/未变→锚定原位"的位置判定模型被用户实测推翻（删 pin = 条目仅减少 → 判"锚定原位"，但原位已被 pin 顶到最前 → global 赖在 venv 前面），分层静态定位无此问题。输出为绝对条目整串（不再运行时引用 `$_SDKM_BASE_PATH` 拼接，base 降级为空 PATH 兜底）。
+**语义**：session/project 层值经 fuzzy 解析为**精确版本**后展示（与实际 PATH 生效一致）；pin 失效（未装/匹配不上）**静默降级** global（用户拍板，不加 warning——hook 路径已有 stderr 提示）；global 层 `current_version` 原样不重校验。展示：单 SDK `ℹ️  java 25.0.0 (session)`；全表三列 `sdk | current | source`，source 无值统一 `N/A`（current 列同款）。三档渐进着色（`VersionOrigin::styled()` 富文本）：session 品红斜体 > project 黄斜体（**路径段 dim 淡化**）> global 暗灰斜体。
 
-**改动**：env.rs 拆 `render_env_parts`（贵的三层解析 → top_entries/global_entries+env_lines 进缓存）/ `assemble_env_script`（实时拼装：base 自愈 → PATH → INJECTED → env 行）/ `rebuild_path_entries`；`generate_env_script_inner` 加 `session_override` 参数（use --shell 模拟"会话变量已设"视角），新增 `generate_use_script`（use_cmd 委托，会话条目经 top 段天然顶前）；四 shell 后端 `path_line` 改绝对整串（pwsh 分隔符顺带修 Linux 上 `;` 硬编码 bug → `PATH_LIST_SEPARATOR`）；hook_cache HookEntry 拆 `top_entries`+`global_entries`+`env_lines` 三字段（serde default 兼容旧文件），**CACHE_SCHEMA_VERSION 5→7 硬要求**（漏 bump 存量缓存会把 PATH 清空）。**陷阱备忘**：fish 普通 list（非 pathvar）导出子进程按**空格**拼接——INJECTED 必须单字符串（复用 export_line），禁 list 语法；bash PATH 行条目 join 固定 `:`（Git Bash 内部语义），assemble 的 split 用平台分隔符（进程视角），两者在 Windows 上不同是正常的。**语义备忘**：`use --shell` 会话变量生命周期=整个 shell 会话且优先于项目 pin——手动 `--shell` 钉住后删项目 pin 不影响（需 `set -e SDKM_ACTIVE_*`/新开 shell/换钉解除），WSL fish 实测确认是设计语义非 bug。
+**配套与架构**：`util/terminal.rs` 新增 `display_width`（ANSI 转义不计宽，`pad_right`/`print_table` 列宽改用——富文本单元格参与表格对齐不错位；对纯文本调用者行为不变）；`print_table` 加 `col_gap` 列间距参数（current 表用 4）。**展示/核心分层（用户架构决策）**：core 只做纯数据 API（`effective_version`/`effective_versions_all` 返回 `EffectiveVersions{entries, skipped}`，零打印零输出宏），展示逻辑全部下沉 cli 层（`CurrentHandler::run` + `styled_origin`：三档渐进富文本 session 品红斜体 > project 黄斜体路径 dim > global 暗灰斜体）——为将来 GUI 集成铺路；`show_local_sdks_current` 从 list.rs 删除对号入座。docs：use --shell 的 PowerShell 示例换 `sdkm use java 21 --shell | iex`（usage.md/commands.md 两处；**hook 的 `-join` IEX 写法不换**——hook 脚本是跨多行 prompt 函数，逐行管道执行破坏语法）。**提交规矩（新）**：文档修改（docs/*.md、CLAUDE.md）不混进 feat/fix，单独 `docs:` commit。**排查备忘**：PS 5.1 捕获 native 输出时 stderr 会被包成 ErrorRecord 混入（warning!/info! 走 stdout、error! 走 stderr），IEX 执行非脚本文本即报错——先确认命令带 `--shell`；用户终端"环境变量名或值太长"= 会话实时 PATH 超 32767（注册表 PATH 正常 ~2k），新开终端即愈。
 
-**② `sdkm use` 未装/拼错语义收紧**（用户反馈：`use python 3` 匹配不上却"写入意图"，新终端 hook 每 prompt 喷 not found）
+**验证**：`tests/current.rs` 沙箱 7 用例（三层优先级/模糊精确化/双失效降级/漂移守卫/子目录向上查找）+ sdkcore 全量 98 用例全绿，clippy 零警告；临时目录冒烟 8 场景（三档单查/同表/失效降级/未注册报错不变/N/A）。未发版。
 
-旧 `resolve_local_version` 把「本地有版本但 fuzzy 匹配不上」也当"未安装"→ warning 措辞错误（说 not installed，实际是拼错）+ 原始输入写入 `.sdkm.toml` → 坏 pin 让 hook 每次提示符渲染解析失败喷错。**新语义（用户拍板）**：`use` 与 switch 完全同源匹配（不新增逻辑）——匹配成功写入**解析后的精确版本**（`use java 17` → `java = "17.0.5"`）；本地无版本或 fuzzy 失败一律 Err 拒绝写入（did-you-mean 由 fuzzy Err 自带；本地空 bail 安装提示）。`resolve_local_version` 简化为 `Result<String>`（三态并两态），use_cmd 的 warning/error 宏与"意图"文案删除。手写 `.sdkm.toml` 未装版本时 `sdkm env` 降级行为不变（按用户决定，hook 每 prompt 喷错也保持现状不改）。
-
-**③ hook 重建 PATH 超 Windows 32767 上限（用户实测反馈：删 pin 后按回车"缓存不失效"）**
-
-**症状**：删除 `.sdkm.toml` 后多次回车，PATH 仍含旧 pin 条目（`sdkm env` 输出/缓存失效/IEX 链路逐项验证全部正确），最终由 `_sdkm_hook` 手动触发抓到真因：`$env:PATH = "..."` 抛 **"环境变量名或值太长"**（Windows 单环境变量值上限 32767 字符）——赋值失败 → PATH 保持旧值、后续 INJECTED 更新行也不执行 → 表现为"hook 修正失效"。**根因**：用户 PATH 历史积累大量重复条目（注册表持久化 links + hook 注入并存、早期测试残留），外科手术输出逐字重写全部条目，滚雪球超限。**修复**：`rebuild_path_entries` 输出前**保首现去重**（`dedup_keep_first`，Windows 键大小写不敏感与 path_entry_eq 同语义）——PATH 查找命中首个、语义不变，重复条目（含注册表持久化与 hook 注入并存的重复、外部工具加的重复）一轮收敛、PATH 越用越短。注：用户 Machine 注册表 PATH 存 12 条 `sdkm_*_test` 早期测试残留（TEMP 下目录），建议用户手动清理。
-
-**验证**：sdkcore 单测（12 重组场景穷举 + 2 去重用例）+ 集成（含 #17 回归、分层优先级三场景）全绿；Windows 用户实测通过（venv 前插保持 / pin 压制 / 删 pin 回退 / 去重收敛），WSL Ubuntu bash+fish 实测同套全过；use 写精确版本 / 坏版本拒绝在临时目录实测，toml 不污染。WSL asset_selector 8 个 Windows 用例失败为预存在（master 同败）。未发版。
+**④ TUI tips💡 区域随 size 回填疯狂闪烁（同日，`sdkm ls`）**：size 渐进渲染优化的漏网之鱼——`tip_idx` 挂在主循环**每次迭代**上，size 计算中 120ms 短轮询每轮回填都重绘，tip 也跟着 120ms 换一条；size 算完回退 3s 长轮询后自然安静（"3s 节奏"只在注释没在代码）。**修复**：tip 轮换改独立 `Instant` 时间锚点（`last_tip_at`，≥3s 才推进下一条），与重绘原因彻底解耦；两个 TUI（`run_sdk_selector_inner` + `run_selector_inner`）同型修改。用户 Windows 实测通过。
 
 ## 已知问题与注意事项
 

@@ -70,7 +70,7 @@ sdkm use node 20.11.0
 # 临时级：只对当前终端生效，不写文件（优先级最高，覆盖项目与全局）
 eval "$(sdkm use --shell java 21)"     # bash / zsh
 sdkm use --shell java 21 | source      # fish
-Invoke-Expression ((sdkm use --shell java 21) -join [Environment]::NewLine)  # PowerShell
+sdkm use --shell java 21 | iex         # PowerShell
 ```
 
 几点须知：

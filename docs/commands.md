@@ -156,7 +156,7 @@ sdkm use java 21          # 在当前目录写 .sdkm.toml：java = "21"
 ```bash
 eval "$(sdkm use --shell java 21)"          # bash / zsh
 sdkm use --shell java 21 | source            # fish
-Invoke-Expression ((sdkm use --shell java 21) -join [Environment]::NewLine)  # PowerShell
+sdkm use --shell java 21 | iex             # PowerShell
 ```
 
 - 不写文件，输出一行设置 `SDKM_ACTIVE_<SDK>` 环境变量的脚本（变量名由 SDK 名大写化得到，如 `SDKM_ACTIVE_JAVA`）。
