@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.5.4 - 2026-11-02
+
+
+### 🐛 Bug Fixes
+
+- preserve external PATH edits in hook rebuild with layered priority (#17) — [`893f791`](https://github.com/borenchan/sdkmate/commit/893f791)
+
+### 🧰 Chore
+
+- release v0.5.4 — [`5402971`](https://github.com/borenchan/sdkmate/commit/5402971)
+
+### 📌 Other
+
+- Merge branch 'master' of https://github.com/borenchan/sdkmate — [`124e6c3`](https://github.com/borenchan/sdkmate/commit/124e6c3)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.5.3...v0.5.4
+
+
+
 ## v0.5.3 - 2026-10-28
 
 
