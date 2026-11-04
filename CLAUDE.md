@@ -97,23 +97,19 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-03）
+## 当前开发进度（2026-11-04）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-11-03 —— `sdkm current` 三层生效版本解析 + 来源标注（issue #22）+ TUI tip 轮换节流
+### 2026-11-04 —— GUI 铺路重构启动 + Phase 1：list 渲染解耦（core 纯数据 / cli 展示）
 
-**背景**（issue #22）：多级作用域机制（session `SDKM_ACTIVE_*` > project `.sdkm.toml` pin > global `config.toml current_version`）对用户不可见——旧 `sdkm current` 只读 global 层的 `current_version`，pin/use --shell 生效时显示版本与实际生效不一致，用户无法定位"现在跑的是谁的版本"。
+**背景**：为接入独立 GUI 模块做 cli/sdkcore 分层重构（`feature/core-decouple` 分支，五阶段推进，每阶段构建给用户确认后再继续）。执行计划书在 `D:\Desktop\sdkm资料\文档\cli重构.md`（随编码滚动更新）；选型 trait 端口流派（`CoreEvent`/`EventSink` 契约放 sdkcore、TerminalSink 放 cli，业界调研 czkawka/gitoxide+prodash/wezterm 三案例支撑）。
 
-**实现（只增展示、零原有逻辑修改，用户硬约束）**：新增 `sdkcore/src/current.rs`——`VersionOrigin` 枚举（Session/Project(PathBuf)/Global，Display 输出 `session`/`project (路径)`/`global`）+ `EffectiveVersion{version, origin}` + `SdkManager::effective_version[_with]` 三层查询链，复用原子函数 `session_env_value`（env.rs 私有 → **pub(crate)**，唯一触碰原有文件处）/`find_project_config`/`list_local_sdk_versions`/`fuzzy_match_version_core`。**不重构 env.rs 的 `generate_env_script_inner`**（hook 热路径、脚本导向不带层信息）——current 独立薄查询链，防漂移三件套：共享原子函数 + 模块文档交叉引用声明同步义务 + 守卫测试（失效 session pin 压制 project 直落 global，锁定 env.rs:141 契约）。
+**Phase 1（list 解耦，用户已确认）**：core 新增 `LocalOverviewRow` + `SdkManager::local_overview_rows()` 纯数据 API；删 `print_local_table`/`show_local_sdk_list`/`show_local_sdk_version_list`，渲染逐字节下沉 `cli/src/impls/list.rs`（含 TTY 骨架表+光标回退渐进重绘）；sdkcore 移除 crossterm/unicode-width 依赖。**顺带修正**：`sdkm ls <未安装SDK>` 非 TTY 提示原打两遍（handler 与 show_local_sdk_version_list 重复调 `list_local_sdk_versions`）→ 一遍（用户裁决接受去重）。`list_local_sdk_versions` 内 info!（switch/uninstall 共用）顺延 Phase 2 有事件 sink 后统一 emit 化。
 
-**语义**：session/project 层值经 fuzzy 解析为**精确版本**后展示（与实际 PATH 生效一致）；pin 失效（未装/匹配不上）**静默降级** global（用户拍板，不加 warning——hook 路径已有 stderr 提示）；global 层 `current_version` 原样不重校验。展示：单 SDK `ℹ️  java 25.0.0 (session)`；全表三列 `sdk | current | source`，source 无值统一 `N/A`（current 列同款）。三档渐进着色（`VersionOrigin::styled()` 富文本）：session 品红斜体 > project 黄斜体（**路径段 dim 淡化**）> global 暗灰斜体。
+**回归防线（新基建）**：金样快照工具 `D:\Desktop\sdkm资料\golden\golden.ps1`（collect/compare 两模式、10 场景沙箱 fixture、{FIXTURE} 路径归一化、字节级含 exit code）——Phase 1 后 10 场景全部一致；`cargo test --workspace` 111 用例全绿。**注意**：workspace 根 `cargo test` 只跑根包（根包非成员），必须 `cargo test --workspace`；本机并行编译多测试目标会耗尽页面文件（os error 1455），限 `-j 2` 跑。
 
-**配套与架构**：`util/terminal.rs` 新增 `display_width`（ANSI 转义不计宽，`pad_right`/`print_table` 列宽改用——富文本单元格参与表格对齐不错位；对纯文本调用者行为不变）；`print_table` 加 `col_gap` 列间距参数（current 表用 4）。**展示/核心分层（用户架构决策）**：core 只做纯数据 API（`effective_version`/`effective_versions_all` 返回 `EffectiveVersions{entries, skipped}`，零打印零输出宏），展示逻辑全部下沉 cli 层（`CurrentHandler::run` + `styled_origin`：三档渐进富文本 session 品红斜体 > project 黄斜体路径 dim > global 暗灰斜体）——为将来 GUI 集成铺路；`show_local_sdks_current` 从 list.rs 删除对号入座。docs：use --shell 的 PowerShell 示例换 `sdkm use java 21 --shell | iex`（usage.md/commands.md 两处；**hook 的 `-join` IEX 写法不换**——hook 脚本是跨多行 prompt 函数，逐行管道执行破坏语法）。**提交规矩（新）**：文档修改（docs/*.md、CLAUDE.md）不混进 feat/fix，单独 `docs:` commit。**排查备忘**：PS 5.1 捕获 native 输出时 stderr 会被包成 ErrorRecord 混入（warning!/info! 走 stdout、error! 走 stderr），IEX 执行非脚本文本即报错——先确认命令带 `--shell`；用户终端"环境变量名或值太长"= 会话实时 PATH 超 32767（注册表 PATH 正常 ~2k），新开终端即愈。
-
-**验证**：`tests/current.rs` 沙箱 7 用例（三层优先级/模糊精确化/双失效降级/漂移守卫/子目录向上查找）+ sdkcore 全量 98 用例全绿，clippy 零警告；临时目录冒烟 8 场景（三档单查/同表/失效降级/未注册报错不变/N/A）。未发版。
-
-**④ TUI tips💡 区域随 size 回填疯狂闪烁（同日，`sdkm ls`）**：size 渐进渲染优化的漏网之鱼——`tip_idx` 挂在主循环**每次迭代**上，size 计算中 120ms 短轮询每轮回填都重绘，tip 也跟着 120ms 换一条；size 算完回退 3s 长轮询后自然安静（"3s 节奏"只在注释没在代码）。**修复**：tip 轮换改独立 `Instant` 时间锚点（`last_tip_at`，≥3s 才推进下一条），与重绘原因彻底解耦；两个 TUI（`run_sdk_selector_inner` + `run_selector_inner`）同型修改。用户 Windows 实测通过。
+**下一步**：Phase 2 进度事件机制——`sdkcore::report` 契约（CoreEvent/EventSink/ProgressHandle + NullSink）+ `SdkManager::new(sink)` 签名变更 + cli TerminalSink（六种 indicatif 模板搬入）+ install/downloader/extractor/fetch_remote/self_update 进度解耦。
 
 ## 已知问题与注意事项
 

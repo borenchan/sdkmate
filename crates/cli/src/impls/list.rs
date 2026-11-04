@@ -2,10 +2,22 @@ use crate::CommandHandler;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
 use anyhow::{Result, bail};
 use clap::Parser;
-use sdkcore::list::{InstallStatus, RemoteVersionItem, RemoteVersionResult};
+use crossterm::{
+    cursor, execute,
+    style::Stylize,
+    terminal::{Clear, ClearType},
+};
+use sdkcore::list::{InstallStatus, RemoteVersionItem, RemoteVersionResult, SdkVersionItem};
 use sdkcore::manager::SdkManager;
-use std::io::IsTerminal;
+use sdkcore::size_cache::SizeCache;
+use std::io::{self, IsTerminal, Write};
+use std::iter::once;
+use unicode_width::UnicodeWidthStr;
+use util::consts::{DIVIDER, STATUS_ACTIVE};
+use util::path::format_bytes;
 use util::sdk::Sdk;
+use util::terminal::pad_right;
+use util::{divider, info};
 
 #[derive(Debug, Parser)]
 pub struct ListHandler {
@@ -52,7 +64,7 @@ impl CommandHandler for ListHandler {
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
                     self.run_sdk_browse_tui()
                 } else {
-                    manager.show_local_sdk_list()
+                    Self::show_local_overview(&manager)
                 }
             }
             // 本地 SDK → TTY 交互式版本选择器；非 TTY 文本列表
@@ -63,7 +75,7 @@ impl CommandHandler for ListHandler {
                     let action = run_local_selector(&sdk.to_string(), &versions)?;
                     self.execute_action(action, &sdk)
                 } else {
-                    manager.show_local_sdk_version_list(&sdk)
+                    Self::show_local_versions(&versions)
                 }
             }
             // 远程 SDK → TTY spinner + 交互式版本选择器；非 TTY 文本列表
@@ -155,6 +167,153 @@ impl ListHandler {
             };
             println!("{} {}", mark, item.full_version);
         }
+        Ok(())
+    }
+
+    /// 非 TTY 本地概览渲染（数据来自 core `local_overview_rows`，size 经 SizeCache 解析）
+    ///
+    /// 居中标题 + 分隔线 + 表格（无顶部分割线，底部一条收尾）：
+    /// ```text
+    ///            ℹ️  installed sdks
+    /// ──────────────────────────────────────────────────
+    ///        sdk     current  total
+    /// ✅  1. java    8.0.492  518.3 MB
+    /// ──────────────────────────────────────────────────
+    /// ```
+    fn show_local_overview(manager: &SdkManager) -> Result<()> {
+        let rows = manager.local_overview_rows()?;
+        if rows.is_empty() {
+            info!("no installed sdks. run `sdkm install <sdk> <version>` to get started.");
+            return Ok(());
+        }
+
+        // 缓存优先：先查命中（不计算），全命中直接打印；有未命中走冷路径渐进
+        let mut cache = SizeCache::load();
+        cache.prune();
+        let cached: Vec<Option<u64>> = rows.iter().map(|r| cache.cached(&r.dir)).collect();
+        let any_miss = cached.iter().any(Option::is_none);
+
+        let final_items: Vec<(String, String, String)> = if !any_miss {
+            // 热路径：全命中，直接组最终表（无延迟）
+            rows.iter()
+                .zip(cached)
+                .map(|(r, sz)| (r.sdk_name.clone(), r.current.clone(), format_bytes(sz.unwrap_or(0))))
+                .collect()
+        } else {
+            // 冷路径：先打骨架（size 列 "…" 提示，先展示 sdk/version），算完重绘成最终表
+            let tty = io::stdout().is_terminal();
+            if tty {
+                let skeleton: Vec<(String, String, String)> = rows
+                    .iter()
+                    .map(|r| (r.sdk_name.clone(), r.current.clone(), "…".to_string()))
+                    .collect();
+                let printed = Self::print_local_table(&skeleton);
+                let _ = io::stdout().flush();
+                // 计算（resolve 命中即返，未命中 jwalk 并行 + 回写）
+                let sizes: Vec<u64> = rows.iter().map(|r| cache.resolve(&r.dir)).collect();
+                // 重绘：光标回表头行，清屏向下，打最终表
+                let mut stdout = io::stdout();
+                let _ = execute!(stdout, cursor::MoveToPreviousLine(printed), Clear(ClearType::FromCursorDown),);
+                let _ = stdout.flush();
+                rows.iter()
+                    .zip(sizes)
+                    .map(|(r, b)| (r.sdk_name.clone(), r.current.clone(), format_bytes(b)))
+                    .collect()
+            } else {
+                // 管道/非 TTY：算完再打（无渐进，避免 ANSI 污染管道）
+                let sizes: Vec<u64> = rows.iter().map(|r| cache.resolve(&r.dir)).collect();
+                rows.iter()
+                    .zip(sizes)
+                    .map(|(r, b)| (r.sdk_name.clone(), r.current.clone(), format_bytes(b)))
+                    .collect()
+            }
+        };
+
+        cache.save();
+        Self::print_local_table(&final_items);
+        divider!();
+        Ok(())
+    }
+
+    /// 打印本地 SDK 概览表（居中标题 + 分隔线 + 表头 + 数据行），返回已打印的终端行数
+    ///
+    /// 标题：居中、带 ℹ️ 图标、小写、无冒号、蓝色粗体；标题下一条分隔线隔开表格。
+    /// 抽出供 `show_local_overview` 冷路径重绘：先打骨架（size="…"）→ 算完 →
+    /// 光标回退 N 行 + 清屏向下 → 再打最终表。返回行数用于光标回退量。
+    fn print_local_table(items: &[(String, String, String)]) -> u16 {
+        // 居中标题（无顶部 divider，标题下加 divider 与表格分隔）
+        let title = "ℹ️  installed sdks";
+        // ℹ️ 带 VS16 在多数终端按 emoji 渲染宽 2，unicode-width 仅算 1 → 补 1，否则居中偏右
+        let title_w = UnicodeWidthStr::width(title) + 1;
+        let left_pad = DIVIDER.chars().count().saturating_sub(title_w) / 2;
+        println!("{}{}", " ".repeat(left_pad), title.blue().bold());
+        divider!();
+        // 列头用 total 而非 size：概览每行是一个 SDK，size 列 = 该 SDK 全部版本总占用（非 current 版本大小），
+        // 用 total 避免与 current 版本号紧邻造成的"current 版本的大小"误读
+        let headers = ["sdk", "current", "total"];
+        let active_w = UnicodeWidthStr::width(STATUS_ACTIVE);
+        // 数据行前缀 = `{status} {idx:>2}. `，表头行用同等宽度空格缩进对齐数据列
+        let prefix_w = active_w + 1 + 2 + 2;
+        // 列宽取表头与数据中的最大显示宽度
+        let sdk_w = items
+            .iter()
+            .map(|(s, _, _)| s.as_str().width())
+            .chain(once(headers[0].width()))
+            .max()
+            .unwrap_or(0);
+        let ver_w = items
+            .iter()
+            .map(|(_, v, _)| v.as_str().width())
+            .chain(once(headers[1].width()))
+            .max()
+            .unwrap_or(0);
+        let size_w = items
+            .iter()
+            .map(|(_, _, z)| z.as_str().width())
+            .chain(once(headers[2].width()))
+            .max()
+            .unwrap_or(0);
+        // 表头行（青粗体，缩进对齐数据列起始位置）
+        let header_line = [
+            pad_right(headers[0], sdk_w),
+            pad_right(headers[1], ver_w),
+            pad_right(headers[2], size_w),
+        ]
+        .join("  ");
+        println!("{}{}", " ".repeat(prefix_w), header_line.cyan().bold());
+        // 数据行：status + 序号 + sdk(白粗) + version(绿) + size(灰)
+        for (i, (sdk, cur, size)) in items.iter().enumerate() {
+            let status = if cur == "N/A" {
+                " ".repeat(active_w)
+            } else {
+                STATUS_ACTIVE.to_string()
+            };
+            println!(
+                "{} {:>2}. {}  {}  {}",
+                status,
+                i + 1,
+                pad_right(sdk, sdk_w).bold(),
+                pad_right(cur, ver_w).green(),
+                size.as_str().dark_grey(),
+            );
+        }
+        // 行数 = 1(标题) + 1(分隔线) + 1(表头) + items.len()
+        (3 + items.len()) as u16
+    }
+
+    /// 非 TTY 本地版本列表（带 ✅ 激活标记，TUI 的回退展示）
+    fn show_local_versions(versions: &[SdkVersionItem]) -> Result<()> {
+        let mut i = 1;
+        let prefix = " ".repeat(UnicodeWidthStr::width(STATUS_ACTIVE));
+        versions.iter().for_each(|v| {
+            info!(
+                "{} {:>2}. {}",
+                if v.is_active { STATUS_ACTIVE } else { &prefix },
+                i,
+                v.sdk_version
+            );
+            i += 1;
+        });
         Ok(())
     }
 }

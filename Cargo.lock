@@ -1430,7 +1430,6 @@ name = "sdkcore"
 version = "0.5.5"
 dependencies = [
  "anyhow",
- "crossterm",
  "flate2",
  "indicatif",
  "jwalk",
@@ -1441,7 +1440,6 @@ dependencies = [
  "tar",
  "tokio",
  "toml",
- "unicode-width",
  "url",
  "util",
  "windows-sys 0.61.2",
