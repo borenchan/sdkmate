@@ -97,19 +97,24 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-04）
+## 当前开发进度（2026-11-05）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-11-04 —— GUI 铺路重构启动 + Phase 1：list 渲染解耦（core 纯数据 / cli 展示）
+### 进行中：核心解耦及 GUI 支撑重构（feature/core-decouple 分支，五阶段）
 
-**背景**：为接入独立 GUI 模块做 cli/sdkcore 分层重构（`feature/core-decouple` 分支，五阶段推进，每阶段构建给用户确认后再继续）。执行计划书在 `D:\Desktop\sdkm资料\文档\cli重构.md`（随编码滚动更新）；选型 trait 端口流派（`CoreEvent`/`EventSink` 契约放 sdkcore、TerminalSink 放 cli，业界调研 czkawka/gitoxide+prodash/wezterm 三案例支撑）。
+> **新会话必读**：本重构的**唯一权威文档是 `D:\Desktop\sdkm资料\文档\cli重构.md`**（执行计划 + 各 Phase 实施记录与偏差，随编码滚动更新，先读它再动手）。金样回归工具在 `D:\Desktop\sdkm资料\golden\golden.ps1`（collect/compare 两模式、14 场景沙箱、字节级含 exit code；基线目录 `baseline3`；脚本已内置 NO_COLOR 消毒）。
 
-**Phase 1（list 解耦，用户已确认）**：core 新增 `LocalOverviewRow` + `SdkManager::local_overview_rows()` 纯数据 API；删 `print_local_table`/`show_local_sdk_list`/`show_local_sdk_version_list`，渲染逐字节下沉 `cli/src/impls/list.rs`（含 TTY 骨架表+光标回退渐进重绘）；sdkcore 移除 crossterm/unicode-width 依赖。**顺带修正**：`sdkm ls <未安装SDK>` 非 TTY 提示原打两遍（handler 与 show_local_sdk_version_list 重复调 `list_local_sdk_versions`）→ 一遍（用户裁决接受去重）。`list_local_sdk_versions` 内 info!（switch/uninstall 共用）顺延 Phase 2 有事件 sink 后统一 emit 化。
+**任务**：让 sdkcore 成为纯数据 API（结构化返回值 + UI 无关事件），cli 是终端前端，未来 gui 另一前端；CLI 输出非 TTY 字节级不变。架构契约：`sdkcore::report`（CoreEvent / ProgressKind 7 场景枚举 / EventSink / ProgressHandle / NullSink）+ `SdkManager{config, env_operation, sink}`；`cli::terminal_sink::TerminalSink`（活跃 bar 槽 suspend 防交错 + 7 场景模板 + Drop 兜底）+ `manager()` 统一装配。关键约束见文档 §5.1（每操作独立 Manager+Sink 串行、Error 事件与 Result::Err 不重复、渲染端 Drop 兜底、resolve 预检查不替代执行段自查）。
 
-**回归防线（新基建）**：金样快照工具 `D:\Desktop\sdkm资料\golden\golden.ps1`（collect/compare 两模式、10 场景沙箱 fixture、{FIXTURE} 路径归一化、字节级含 exit code）——Phase 1 后 10 场景全部一致；`cargo test --workspace` 111 用例全绿。**注意**：workspace 根 `cargo test` 只跑根包（根包非成员），必须 `cargo test --workspace`；本机并行编译多测试目标会耗尽页面文件（os error 1455），限 `-j 2` 跑。
+**已完成（均已用户确认并 commit）**：
+- Phase 1 `1af78d7`：list 渲染解耦（core `local_overview_rows` 纯数据 / cli 渲染下沉；唯一批准行为差异 = "not found in store" 提示去重）
+- Phase 2 `bed71de`：事件契约落地（`SdkManager::new(sink)` 签名变更编译器强制装配；install/downloader/extractor/self_update/list 全链路宏→sink；sdkcore 移除 indicatif；MockSink 统一日志流测试覆盖事件+进度生命周期；修复备源下载双 bar 踩踏闪烁 + 3 处用户批准的 TTY 视觉调整）
+- Phase 3 `aa35140`：确认上移调用端（core 零 stdin：`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target` 三个只读 API + 删 3 处 prompt_confirm + `uninstall_sdk` 删 yes 参数；执行段自查保留；cli handler/TUI 补确认文案逐字搬）
 
-**下一步**：Phase 2 进度事件机制——`sdkcore::report` 契约（CoreEvent/EventSink/ProgressHandle + NullSink）+ `SdkManager::new(sink)` 签名变更 + cli TerminalSink（六种 indicatif 模板搬入）+ install/downloader/extractor/fetch_remote/self_update 进度解耦。
+**下一步 Phase 4（扫尾 + 依赖整理，清单见文档）**：version/cache.rs 5 处 warning、use_project_version(2)、config 写侧(4)、symlink.rs(2)、shell/inject.rs(6)、self_uninstall(8)、self_update 残留宏→sink；`env/windows.rs`+`env/unix.rs` 的输出**不持 sink**（EnvOperation 专注系统操作，业务层按结果发事件；需细节则返回结构化结果）——unix.rs 改动必须剥 cfg 验证 + WSL 编译；doctor 数据化 DoctorReport；init 拆 check+run+确认上移；util 模块边界（终端能力长期归 CLI，`cargo tree` 验证 sdkcore→util→crossterm 间接链收敛）；cli 删未用 tokio；grep 清零（sdkcore 零输出宏/零 prompt_confirm，init 的 2 处确认在此时拆）。然后 Phase 5 收尾（金样精简入库 cli 集成测试、CI 纳入 `cargo test --workspace`、CLAUDE.md 架构段+GUI 集成约定统一更新、平台表述如实）。
+
+**本重构期间的执行规矩**：① 每阶段完成 → 构建 + 金样对比 + 更新文档 → **用户确认后才 commit**（英文一行 conventional，不带 Claude 信息，不带 CLAUDE.md 进度更新——收尾统一）；② release 构建后覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（先备份 .bak）；③ 三检查 `cargo fmt --check` / `cargo test --workspace -j 2`（本机多目标并行会耗尽页面文件 os error 1455）/ `cargo clippy --all-targets`。
 
 ## 已知问题与注意事项
 
