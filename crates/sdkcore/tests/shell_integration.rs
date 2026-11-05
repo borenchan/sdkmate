@@ -17,6 +17,7 @@ use sdkcore::hook_cache::{
 };
 use sdkcore::manager::SdkManager;
 use sdkcore::project_config::ProjectConfig;
+use sdkcore::report::null_sink;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs;
@@ -123,6 +124,7 @@ fn make_manager(config: SdkmConfig) -> SdkManager {
     SdkManager {
         config,
         env_operation: Box::new(MockEnv),
+        sink: null_sink(),
     }
 }
 

@@ -1,8 +1,8 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use clap::Parser;
 use crossterm::style::Stylize;
 use sdkcore::current::VersionOrigin;
-use sdkcore::manager::SdkManager;
 use util::path::get_sdkm_home;
 use util::terminal::{ColumnColor, print_table};
 use util::{divider, info, warning};
@@ -19,7 +19,7 @@ pub struct CurrentHandler {
 
 impl CommandHandler for CurrentHandler {
     fn run(&self) -> anyhow::Result<()> {
-        let manager = SdkManager::new()?;
+        let manager = manager()?;
         if let Some(sdk_name) = &self.sdk {
             let sdk = manager.match_valid_sdk(sdk_name)?;
             match manager.effective_version(&sdk) {

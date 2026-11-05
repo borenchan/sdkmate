@@ -15,7 +15,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true }
-indicatif = { workspace = true }
 jwalk = { workspace = true }
 zip = { workspace = true }
 flate2 = { workspace = true }
@@ -30,7 +29,6 @@ windows-sys = { workspace = true}
 [dev-dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true }
-indicatif = { workspace = true }
 
 [lints]
 workspace = true

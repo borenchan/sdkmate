@@ -1,6 +1,6 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use clap::Parser;
-use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {
@@ -25,7 +25,7 @@ pub struct InstallHandler {
 
 impl CommandHandler for InstallHandler {
     fn run(&self) -> anyhow::Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
         let sdk = manager.match_valid_sdk(&self.sdk)?;
         let auto_switch = !self.no_switch;
         manager.install_sdk(&sdk, &self.sdk_version, auto_switch)?;

@@ -1,6 +1,6 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use clap::Parser;
-use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct SwitchHandler {
@@ -21,7 +21,7 @@ pub struct SwitchHandler {
 
 impl CommandHandler for SwitchHandler {
     fn run(&self) -> anyhow::Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
         let sdk = manager.match_valid_sdk(&self.sdk)?;
         manager.switch_sdk_to_version(&sdk, &self.sdk_version)?;
         Ok(())

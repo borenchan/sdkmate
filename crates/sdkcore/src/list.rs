@@ -1,6 +1,6 @@
 use crate::install::downloader::build_reqwest_client;
-use crate::install::progress::InstallProgress;
 use crate::manager::SdkManager;
+use crate::report::ProgressKind;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
 use anyhow::{Context, Result, bail};
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use util::path::get_installed_sdks_dir;
 use util::sdk::{BuiltinSdk, Sdk};
-use util::{info, try_bug, warning};
+use util::try_bug;
 
 // ─── 数据结构 ───────────────────────────────────────────────────
 
@@ -139,7 +139,8 @@ impl SdkManager {
                 .collect();
             return Ok(result);
         }
-        info!("SDK '{}' not found in store. Please install a version first.", sdk);
+        self.sink
+            .info(format!("SDK '{}' not found in store. Please install a version first.", sdk));
         Ok(vec![])
     }
 
@@ -196,8 +197,10 @@ impl SdkManager {
             bail!("{} has no version_url configured, cannot list remote versions", sdk_name);
         }
 
-        // 拉取时显示 spinner（GH 版本源自动补 per_page=100）
-        let pb = InstallProgress::new_resolve(&sdk_name, "");
+        // 拉取时显示 spinner（GH 版本源自动补 per_page=100）；空版本输入 → 拉取列表文案
+        let pb = self
+            .sink
+            .progress(ProgressKind::Resolve, format!("Fetching remote versions for {}...", sdk_name));
         let primary_url = ensure_per_page(&version_url);
         let source = VersionSource {
             primary_url,
@@ -261,7 +264,12 @@ impl SdkManager {
         let max = limit as usize;
         let total_count = items.len();
         let result_items = if items.len() > max {
-            warning!("{} has {} remote versions, showing first {}", sdk_name, items.len(), max);
+            self.sink.warning(format!(
+                "{} has {} remote versions, showing first {}",
+                sdk_name,
+                items.len(),
+                max
+            ));
             items[..max].to_vec()
         } else {
             items

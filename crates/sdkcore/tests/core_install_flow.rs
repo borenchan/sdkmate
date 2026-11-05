@@ -15,6 +15,7 @@ use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
 use sdkcore::env::EnvOperation;
 use sdkcore::link::symlink::read_symlink_target;
 use sdkcore::manager::SdkManager;
+use sdkcore::report::{CoreEvent, EventSink, ProgressHandle, ProgressKind, null_sink};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -23,7 +24,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process;
 use std::sync::{
-    Mutex, MutexGuard,
+    Arc, Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
 use std::thread;
@@ -136,6 +137,71 @@ fn make_manager(config: SdkmConfig) -> SdkManager {
     SdkManager {
         config,
         env_operation: Box::new(MockEnv),
+        sink: null_sink(),
+    }
+}
+
+// ─── MockSink：统一记录事件 + 进度生命周期（GUI sink 的测试替身）────────
+
+/// 事件与进度共用一条日志流（可按序断言交错关系）：
+/// 事件 push `Debug` 格式原文；进度 push `progress <kind>: <title>` 与 `pb <方法>=<值>`
+struct MockSink(Arc<Mutex<Vec<String>>>);
+
+impl EventSink for MockSink {
+    fn emit(&self, ev: CoreEvent) {
+        self.0.lock().unwrap().push(format!("{ev:?}"));
+    }
+    fn progress(&self, kind: ProgressKind, title: String) -> Box<dyn ProgressHandle> {
+        self.0.lock().unwrap().push(format!("progress {kind:?}: {title}"));
+        Box::new(MockProgress(self.0.clone()))
+    }
+}
+
+/// MockSink 配套进度句柄：生命周期调用全量入流
+struct MockProgress(Arc<Mutex<Vec<String>>>);
+
+impl ProgressHandle for MockProgress {
+    fn set_length(&self, total: u64) {
+        self.0.lock().unwrap().push(format!("pb set_length={total}"));
+    }
+    fn set_position(&self, pos: u64) {
+        self.0.lock().unwrap().push(format!("pb set_position={pos}"));
+    }
+    fn inc(&self, delta: u64) {
+        self.0.lock().unwrap().push(format!("pb inc={delta}"));
+    }
+    fn set_message(&self, msg: String) {
+        self.0.lock().unwrap().push(format!("pb set_message={msg}"));
+    }
+    fn finish_with_message(&self, msg: String) {
+        self.0.lock().unwrap().push(format!("pb finish={msg}"));
+    }
+    fn finish_and_clear(&self) {
+        self.0.lock().unwrap().push("pb finish_and_clear".to_string());
+    }
+}
+
+fn make_manager_recording(config: SdkmConfig) -> (SdkManager, Arc<Mutex<Vec<String>>>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    (
+        SdkManager {
+            config,
+            env_operation: Box::new(MockEnv),
+            sink: Arc::new(MockSink(events.clone())),
+        },
+        events,
+    )
+}
+
+/// 断言各 pattern 依序出现（允许中间夹其他记录；路径等动态内容用子串匹配）
+fn assert_in_order(log: &[String], patterns: &[&str]) {
+    let mut cursor = 0;
+    for p in patterns {
+        let found = log[cursor..]
+            .iter()
+            .position(|m| m.contains(p))
+            .unwrap_or_else(|| panic!("pattern `{p}` not found in order, log: {log:?}"));
+        cursor += found + 1;
     }
 }
 
@@ -257,6 +323,197 @@ fn core_flow_template_download() {
 
     assert_installed(&env, "tmpl", "2.10.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
     assert_current("tmpl", "2.10.0");
+}
+
+/// install 全流程事件 + 进度生命周期：core 零打印，文案/进度逐条经 sink 可断言
+#[test]
+fn core_flow_emits_event_sequence() {
+    let base = serve_routes(vec![
+        ("/ver.json", br#"["1.4.2"]"#.to_vec()),
+        ("/dist/tool-1.4.2-bin.zip", minimal_zip_at(true)),
+    ]);
+
+    let config = SdkmConfig {
+        network: NetworkConfig::default(),
+        sdks: vec![SdkConfig {
+            name: "ev".to_string(),
+            version_url: Some(format!("{}/ver.json", base)),
+            version_fallback_url: None,
+            download_url: Some(format!("{}/dist/tool-{{version}}-bin.zip", base)),
+            download_fallback_url: None,
+            current_version: None,
+            bin_dir: Some("bin".to_string()),
+            extra_vars: HashMap::new(),
+            extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
+        }],
+        symlink_dir: None,
+    };
+    let env = setup(&config);
+    let (mut mgr, events) = make_manager_recording(config);
+
+    let sdk = "ev".parse().unwrap();
+    mgr.install_sdk(&sdk, "1.4.2", true).unwrap();
+
+    assert_installed(&env, "ev", "1.4.2", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
+    let log = events.lock().unwrap().clone();
+    // 过程事件：文案按序（进度条 finish 文案走 pb finish= 记录，不混入事件）
+    assert_in_order(
+        &log,
+        &[
+            "ev 1.4.2 is not installed locally, proceeding...",
+            "Download URL (primary): ",
+            "Temporary directory: ",
+            "Temporary files cleaned up.",
+            "🔗 Switching ev to 1.4.2...",
+            "ev 1.4.2 installed and switched successfully!",
+        ],
+    );
+    // 进度生命周期：每场景 创建 → 数据推进(set_length/inc) → 结束(finish)
+    assert_in_order(
+        &log,
+        &[
+            "progress Resolve: Resolving version '1.4.2' for ev...",
+            "pb finish=✅ Resolved: 1.4.2 → 1.4.2",
+            "progress Download: Downloading ev 1.4.2...",
+            "pb set_length=", // 服务器 Content-Length
+            "pb inc=",        // 逐块推进
+            "pb finish=✅ Downloaded ev 1.4.2",
+            "progress ExtractZip: Extracting ev 1.4.2...",
+            "pb set_length=", // zip 文件总数
+            "pb inc=",
+            "pb finish=✅ Extracted ev 1.4.2",
+            "progress Verify: Verifying installation...",
+            "pb finish=📂 Moved to ",
+            "progress Verify: Verifying installation...",
+            "pb finish=✅ Verified ev 1.4.2",
+        ],
+    );
+}
+
+/// 已装版本路径：Warning + 重装提示事件，不再下载
+#[test]
+fn core_flow_emits_already_installed() {
+    let base = serve_routes(vec![
+        ("/ver.json", br#"["1.4.2"]"#.to_vec()),
+        ("/dist/tool-1.4.2-bin.zip", minimal_zip_at(true)),
+    ]);
+
+    let config = SdkmConfig {
+        network: NetworkConfig::default(),
+        sdks: vec![SdkConfig {
+            name: "ev2".to_string(),
+            version_url: Some(format!("{}/ver.json", base)),
+            version_fallback_url: None,
+            download_url: Some(format!("{}/dist/tool-{{version}}-bin.zip", base)),
+            download_fallback_url: None,
+            current_version: None,
+            bin_dir: Some("bin".to_string()),
+            extra_vars: HashMap::new(),
+            extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
+        }],
+        symlink_dir: None,
+    };
+    let env = setup(&config);
+    // 第一次静默装好，第二次带录制 sink 重装同一版本
+    let (mut mgr, events) = make_manager_recording(config.clone());
+    let sdk = "ev2".parse().unwrap();
+    mgr.install_sdk(&sdk, "1.4.2", true).unwrap();
+    events.lock().unwrap().clear();
+
+    mgr.install_sdk(&sdk, "1.4.2", false).unwrap();
+
+    let log = events.lock().unwrap().clone();
+    assert_in_order(
+        &log,
+        &[
+            "ev2 1.4.2 is already installed locally.",
+            "If you want to reinstall, remove it first: delete ",
+        ],
+    );
+    assert!(
+        !log.iter().any(|m| m.contains("installed successfully")),
+        "已装路径不应再触发安装成功事件: {log:?}"
+    );
+    assert!(
+        !log.iter()
+            .any(|m| m.starts_with("progress Download:") || m.starts_with("progress Extract")),
+        "已装路径不应再创建下载/解压进度（Resolve 先于已装检查，允许存在）: {log:?}"
+    );
+    assert_installed(&env, "ev2", "1.4.2", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
+}
+
+/// 主源失败→备源切换：主源 bar 收尾（finish_and_clear）、备源 bar 接管并打成功消息，
+/// 不再出现"死而未僵的主源 bar 与备源 bar 双活重绘"（终端闪烁根源）
+#[test]
+fn core_flow_fallback_download_bar_lifecycle() {
+    let zip = minimal_zip_at(true);
+    let base = serve_routes(vec![
+        ("/ver.json", br#"["3.0.0"]"#.to_vec()),
+        // 主源路径故意不注册：serve_routes 未匹配返回 404
+        ("/fb/tool-3.0.0.zip", zip),
+    ]);
+
+    let config = SdkmConfig {
+        network: NetworkConfig::default(),
+        sdks: vec![SdkConfig {
+            name: "fb".to_string(),
+            version_url: Some(format!("{}/ver.json", base)),
+            version_fallback_url: None,
+            download_url: Some(format!("{}/dist/tool-{{version}}-bin.zip", base)),
+            download_fallback_url: Some(format!("{}/fb/tool-{{version}}.zip", base)),
+            current_version: None,
+            bin_dir: Some("bin".to_string()),
+            extra_vars: HashMap::new(),
+            extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
+        }],
+        symlink_dir: None,
+    };
+    let env = setup(&config);
+    let (mut mgr, events) = make_manager_recording(config);
+
+    let sdk = "fb".parse().unwrap();
+    mgr.install_sdk(&sdk, "3.0.0", false).unwrap();
+
+    assert_installed(&env, "fb", "3.0.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
+    let log = events.lock().unwrap().clone();
+    // 事件顺序：主源重试警告 → 切备源警告 → 安装成功（无 Error 事件，最终失败才走 Err）
+    assert_in_order(
+        &log,
+        &[
+            "Download attempt #1 failed: ",
+            "Download attempt #2 failed: ",
+            "Primary download failed, trying fallback URL: ",
+            "fb 3.0.0 installed successfully!",
+        ],
+    );
+    // bar 生命周期：主源 bar 创建→被 finish_and_clear 收尾，备源 bar 创建→打 ✅ Downloaded；
+    // 主源 bar 不再"复活"打成功消息（此前死而未僵的主源 bar 会突然画一帧 ✅）
+    let main_clear_idx = log
+        .iter()
+        .position(|m| m == "pb finish_and_clear")
+        .expect("主源 bar 应被显式收尾");
+    let downloads: Vec<usize> = log
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.starts_with("progress Download: "))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(downloads.len(), 2, "应恰好两条下载 bar（主源+备源）: {log:?}");
+    assert!(
+        downloads[0] < main_clear_idx && main_clear_idx < downloads[1],
+        "顺序应为 主源bar创建 → finish_and_clear → 备源bar创建: {log:?}"
+    );
+    // ✅ Downloaded 必须出现在备源 bar 之后
+    assert_in_order(
+        &log,
+        &["progress Download: Downloading fb 3.0.0...", "pb finish=✅ Downloaded fb 3.0.0"],
+    );
 }
 
 /// 安装 + switch 符号链接链路（回归保护：引擎型 Custom SDK 走既有 switch 语义）

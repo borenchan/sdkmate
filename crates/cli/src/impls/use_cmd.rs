@@ -1,6 +1,6 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use clap::Parser;
-use sdkcore::manager::SdkManager;
 use util::shell::detect_shell;
 
 /// `sdkm use <SDK> <version> [--shell]`：设置项目级（默认）或会话级版本
@@ -33,7 +33,7 @@ pub struct UseHandler {
 
 impl CommandHandler for UseHandler {
     fn run(&self) -> anyhow::Result<()> {
-        let manager = SdkManager::new()?;
+        let manager = manager()?;
         let sdk = manager.match_valid_sdk(&self.sdk)?;
         if self.shell {
             // 会话级：stdout 只吐 eval 脚本（禁 stdout 宏）。shell 语法按当前环境自动检测

@@ -1,6 +1,6 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use clap::Parser;
-use sdkcore::manager::SdkManager;
 
 #[derive(Debug, Parser)]
 pub struct UninstallHandler {
@@ -25,7 +25,7 @@ pub struct UninstallHandler {
 
 impl CommandHandler for UninstallHandler {
     fn run(&self) -> anyhow::Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
         let sdk = manager.match_valid_sdk(&self.sdk)?;
         manager.uninstall_sdk(&sdk, &self.sdk_version, self.yes)?;
         Ok(())

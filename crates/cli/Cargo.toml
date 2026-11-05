@@ -12,6 +12,7 @@ sdkcore = { workspace = true }
 util = { workspace = true }
 clap = { workspace = true }
 crossterm = { workspace = true }
+indicatif = { workspace = true }
 anyhow = { workspace = true}
 tokio = { workspace = true }
 unicode-width = { workspace = true }

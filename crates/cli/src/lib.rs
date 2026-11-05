@@ -20,6 +20,7 @@ use util::error;
 use util::terminal::suggest_bug_report;
 
 mod impls;
+mod terminal_sink;
 mod tui;
 
 #[derive(Debug, Parser)]

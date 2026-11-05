@@ -8,6 +8,7 @@ use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
 use sdkcore::current::VersionOrigin;
 use sdkcore::env::EnvOperation;
 use sdkcore::manager::SdkManager;
+use sdkcore::report::null_sink;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -117,6 +118,7 @@ fn make_manager(config: SdkmConfig) -> SdkManager {
     SdkManager {
         config,
         env_operation: Box::new(MockEnv),
+        sink: null_sink(),
     }
 }
 

@@ -220,6 +220,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
+ "indicatif",
  "sdkcore",
  "tokio",
  "unicode-width",
@@ -1431,7 +1432,6 @@ version = "0.5.5"
 dependencies = [
  "anyhow",
  "flate2",
- "indicatif",
  "jwalk",
  "regex-lite",
  "reqwest",

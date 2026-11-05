@@ -1,11 +1,11 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use anyhow::{Context, Result};
 use clap::Parser;
 use sdkcore::config::{
     ConfigKey, SdkConfig, SdkmConfig, ValidatedValue, ValueType, field_type, mask_by_type, parse_config_key,
     validate_by_type,
 };
-use sdkcore::manager::SdkManager;
 use std::collections::HashMap;
 use std::env;
 use std::process::Command;
@@ -138,7 +138,7 @@ impl CommandHandler for ConfigHandler {
 
 impl ConfigSetHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         // 解析键名
         let key = parse_config_key(&self.key)?;
@@ -173,7 +173,7 @@ impl ConfigSetHandler {
 
 impl ConfigGetHandler {
     fn run(&self) -> Result<()> {
-        let manager = SdkManager::new()?;
+        let manager = manager()?;
 
         // 解析键名
         let key = parse_config_key(&self.key)?;
@@ -200,7 +200,7 @@ impl ConfigGetHandler {
 }
 
 fn run_list() -> Result<()> {
-    let manager = SdkManager::new()?;
+    let manager = manager()?;
     let entries = manager.config.list_all_values();
 
     for (key, value) in &entries {
@@ -211,7 +211,7 @@ fn run_list() -> Result<()> {
 
 impl ConfigDeleteHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         // 解析键名
         let key = parse_config_key(&self.key)?;
@@ -302,7 +302,7 @@ fn detect_editor() -> String {
 
 impl AddSdkHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         // 校验 name 不重名
         if manager.config.sdks.iter().any(|s| s.name == self.name) {
@@ -392,7 +392,7 @@ impl AddSdkHandler {
 
 impl RemoveSdkHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         manager.config.remove_sdk(&self.name)?;
 

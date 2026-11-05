@@ -1,4 +1,5 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
 use anyhow::{Result, bail};
 use clap::Parser;
@@ -48,7 +49,7 @@ pub struct ListHandler {
 
 impl CommandHandler for ListHandler {
     fn run(&self) -> Result<()> {
-        let manager = SdkManager::new()?;
+        let manager = manager()?;
 
         if self.limit == 0 {
             bail!("limit must be >= 1");
@@ -103,15 +104,15 @@ impl ListHandler {
         match action {
             SelectorAction::Quit => Ok(()),
             SelectorAction::Install { version } => {
-                let mut manager = SdkManager::new()?;
+                let mut manager = manager()?;
                 manager.install_sdk(sdk, &version, true)
             }
             SelectorAction::Switch { version } => {
-                let mut manager = SdkManager::new()?;
+                let mut manager = manager()?;
                 manager.switch_sdk_to_version(sdk, &version)
             }
             SelectorAction::Uninstall { version } => {
-                let mut manager = SdkManager::new()?;
+                let mut manager = manager()?;
                 // yes=false：TUI 退出后在正常终端走 uninstall 的二次确认（破坏性操作）
                 manager.uninstall_sdk(sdk, &version, false)
             }
@@ -126,7 +127,7 @@ impl ListHandler {
         let mut msg = String::new();
         loop {
             // 每轮重建：execute_action 里的安装/切换写盘后，旧 manager 的 config 内存快照已过期
-            let manager = SdkManager::new()?;
+            let manager = manager()?;
             let items = manager.list_registered_sdks()?;
             match run_sdk_selector(&items, std::mem::take(&mut msg))? {
                 SdkSelectorAction::Quit => return Ok(()),

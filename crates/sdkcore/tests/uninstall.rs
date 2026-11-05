@@ -7,6 +7,7 @@ use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
 use sdkcore::env::EnvOperation;
 use sdkcore::link::symlink::{create_symlink, read_symlink_target};
 use sdkcore::manager::SdkManager;
+use sdkcore::report::null_sink;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
@@ -118,6 +119,7 @@ fn make_manager(config: SdkmConfig) -> (SdkManager, Rc<RefCell<MockState>>) {
     let manager = SdkManager {
         config,
         env_operation: Box::new(MockEnv { state: state.clone() }),
+        sink: null_sink(),
     };
     (manager, state)
 }

@@ -1,6 +1,6 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
 use clap::{Parser, Subcommand};
-use sdkcore::manager::SdkManager;
 use util::terminal::prompt_confirm;
 
 /// `sdkm self` 子命令组：管理 sdkm 自身
@@ -62,7 +62,7 @@ impl CommandHandler for SelfUninstallHandler {
         if !confirmed {
             anyhow::bail!("Self-uninstall cancelled by user");
         }
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
         manager.uninstall_self()?;
         Ok(())
     }
@@ -87,7 +87,7 @@ impl CommandHandler for SelfUpdateHandler {
         if self.check && self.rollback {
             anyhow::bail!("`--check` and `--rollback` are mutually exclusive");
         }
-        let manager = SdkManager::new()?;
+        let manager = manager()?;
         manager.update_self(self.check, self.rollback)?;
         Ok(())
     }

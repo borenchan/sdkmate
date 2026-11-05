@@ -1,5 +1,5 @@
+use crate::report::ProgressHandle;
 use anyhow::{Context, Result, bail};
-use indicatif::ProgressBar;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -7,7 +7,7 @@ use std::path::Path;
 /// 解压下载的压缩包到指定目录，支持进度反馈
 /// - Windows / .zip → 使用 zip crate，逐文件进度
 /// - .tar.gz → 使用 flate2 + tar crate，spinner 动画（gzip 流不支持 Seek，无法手动迭代文件）
-pub fn extract_archive(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -> Result<()> {
+pub fn extract_archive(archive_path: &Path, dest_dir: &Path, pb: &dyn ProgressHandle) -> Result<()> {
     let ext = archive_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     fs::create_dir_all(dest_dir).context("Failed to create extraction directory")?;
@@ -34,7 +34,7 @@ pub fn extract_archive(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -
 }
 
 /// 解压 .zip 文件，逐文件更新进度条
-fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &ProgressBar) -> Result<()> {
+fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &dyn ProgressHandle) -> Result<()> {
     let file =
         fs::File::open(archive_path).context(format!("Failed to open zip archive: {}", archive_path.display()))?;
 
