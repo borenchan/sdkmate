@@ -152,7 +152,7 @@ fn uninstall_non_active_keeps_current() {
 
     let (mut manager, state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    manager.uninstall_sdk(&sdk, "17", true).unwrap();
+    manager.uninstall_sdk(&sdk, "17").unwrap();
 
     assert!(!java17.exists(), "java/17 dir should be removed");
     assert!(java21.exists(), "java/21 dir should remain");
@@ -177,7 +177,7 @@ fn uninstall_active_with_other_switches() {
 
     let (mut manager, _state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    manager.uninstall_sdk(&sdk, "21", true).unwrap();
+    manager.uninstall_sdk(&sdk, "21").unwrap();
 
     assert!(!java21.exists(), "active java/21 dir should be removed");
     assert!(java17.exists(), "java/17 should remain (switched target)");
@@ -202,7 +202,7 @@ fn uninstall_active_only_cleans_env() {
 
     let (mut manager, state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    manager.uninstall_sdk(&sdk, "21", true).unwrap();
+    manager.uninstall_sdk(&sdk, "21").unwrap();
 
     assert!(!java21.exists(), "java/21 dir should be removed");
     assert!(!links_java.exists(), "symlink should be cleaned");
@@ -235,7 +235,7 @@ fn uninstall_nonexistent_version_bails() {
 
     let (mut manager, _state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    let res = manager.uninstall_sdk(&sdk, "99", true);
+    let res = manager.uninstall_sdk(&sdk, "99");
     assert!(res.is_err(), "uninstalling nonexistent version should bail");
     assert!(java21.exists(), "java/21 should remain untouched");
 }

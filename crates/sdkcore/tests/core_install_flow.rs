@@ -281,7 +281,8 @@ fn core_flow_github_releases_direct_link() {
     let mut mgr = make_manager(config);
 
     let sdk = "tool".parse().unwrap();
-    mgr.install_sdk(&sdk, "1.4.2", true).unwrap();
+    let resolved = mgr.resolve_install_version(&sdk, "1.4.2").unwrap();
+    mgr.install_sdk(&sdk, &resolved, true).unwrap();
 
     assert_installed(&env, "tool", "1.4.2", "demo.txt");
     assert_current("tool", "1.4.2");
@@ -319,7 +320,8 @@ fn core_flow_template_download() {
 
     // 模糊匹配：2.10 → 命中列表最新的 2.10.0
     let sdk = "tmpl".parse().unwrap();
-    mgr.install_sdk(&sdk, "2.10.0", true).unwrap();
+    let resolved = mgr.resolve_install_version(&sdk, "2.10.0").unwrap();
+    mgr.install_sdk(&sdk, &resolved, true).unwrap();
 
     assert_installed(&env, "tmpl", "2.10.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
     assert_current("tmpl", "2.10.0");
@@ -354,7 +356,8 @@ fn core_flow_emits_event_sequence() {
     let (mut mgr, events) = make_manager_recording(config);
 
     let sdk = "ev".parse().unwrap();
-    mgr.install_sdk(&sdk, "1.4.2", true).unwrap();
+    let resolved = mgr.resolve_install_version(&sdk, "1.4.2").unwrap();
+    mgr.install_sdk(&sdk, &resolved, true).unwrap();
 
     assert_installed(&env, "ev", "1.4.2", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
     let log = events.lock().unwrap().clone();
@@ -421,10 +424,12 @@ fn core_flow_emits_already_installed() {
     // 第一次静默装好，第二次带录制 sink 重装同一版本
     let (mut mgr, events) = make_manager_recording(config.clone());
     let sdk = "ev2".parse().unwrap();
-    mgr.install_sdk(&sdk, "1.4.2", true).unwrap();
+    let resolved = mgr.resolve_install_version(&sdk, "1.4.2").unwrap();
+    mgr.install_sdk(&sdk, &resolved, true).unwrap();
     events.lock().unwrap().clear();
 
-    mgr.install_sdk(&sdk, "1.4.2", false).unwrap();
+    let resolved = mgr.resolve_install_version(&sdk, "1.4.2").unwrap();
+    mgr.install_sdk(&sdk, &resolved, false).unwrap();
 
     let log = events.lock().unwrap().clone();
     assert_in_order(
@@ -478,7 +483,8 @@ fn core_flow_fallback_download_bar_lifecycle() {
     let (mut mgr, events) = make_manager_recording(config);
 
     let sdk = "fb".parse().unwrap();
-    mgr.install_sdk(&sdk, "3.0.0", false).unwrap();
+    let resolved = mgr.resolve_install_version(&sdk, "3.0.0").unwrap();
+    mgr.install_sdk(&sdk, &resolved, false).unwrap();
 
     assert_installed(&env, "fb", "3.0.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
     let log = events.lock().unwrap().clone();
@@ -553,7 +559,8 @@ fn switch_symlink_resolves_to_installed_version() {
     let mut mgr = make_manager(config);
 
     let sdk = "tool".parse().unwrap();
-    mgr.install_sdk(&sdk, "0.9.9", false).unwrap(); // 不自动切换
+    let resolved = mgr.resolve_install_version(&sdk, "0.9.9").unwrap();
+    mgr.install_sdk(&sdk, &resolved, false).unwrap(); // 不自动切换
     mgr.switch_sdk_to_version(&sdk, "0.9.9").unwrap();
 
     // links/tool → store/tool/0.9.9

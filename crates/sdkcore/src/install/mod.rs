@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use util::consts::SDKM_TMP_DIR;
 use util::path::{get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
-use util::terminal::prompt_confirm;
 use util::{bail_bug, try_bug};
 
 use crate::manager::SdkManager;
@@ -23,30 +22,19 @@ use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
 use util::builtin::find_seed_by_variant;
 
 impl SdkManager {
-    /// 安装 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）
-    pub fn install_sdk(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
+    /// 解析安装版本（模糊输入 → 精确版本；网络查询/缓存/主备源）。只读零副作用，
+    /// 供调用端展示解析结果并获取用户确认后，再经 [`install_sdk`] 执行安装；
+    /// 模糊确认在调用端做（core 零 stdin）
+    pub fn resolve_install_version(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
         let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
-        // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
-        rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch))?;
-        Ok(())
+        rt.block_on(self.resolve_install_version_async(sdk, version_input))
     }
 
-    /// 异步安装核心流程：通用主备 + 模糊匹配 + 交互确认
-    async fn install_sdk_async(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
+    /// 异步版本解析（原 install 流程 Phase 1 段整体迁入）
+    async fn resolve_install_version_async(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
 
-        // 先清理该 sdk 上次中断的残留，避免旧 sdk.zip/extracted 污染本次
-        let sdk_tmp_root = get_sdkm_home()?.join(SDKM_TMP_DIR).join(&sdk_name);
-        if sdk_tmp_root.exists()
-            && let Err(e) = fs::remove_dir_all(&sdk_tmp_root)
-        {
-            self.sink
-                .warning(format!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e));
-        }
-
-        // ── Phase 1: 版本解析 ────────────────────────────────────
         // 文案区分：ls 浏览模式无版本输入（空串）→ 拉取远程列表；install 场景为版本解析
         let resolve_title = if version_input.is_empty() {
             format!("Fetching remote versions for {}...", sdk_name)
@@ -114,18 +102,33 @@ impl SdkManager {
             }
         };
 
-        // resolve 已完成,先停止 spinner,避免其 steady_tick 的 \r 覆盖后续交互提示
+        // resolve 已完成,先停止 spinner（finish 定格帧也供非 TTY 之外的展示收尾）
         resolve_pb.finish_with_message(format!("✅ Resolved: {} → {}", version_input, resolved.full_version));
+        Ok(resolved)
+    }
 
-        // ── 模糊匹配交互确认 ────────────────────────────────────
-        if resolved.fuzzy_matched {
-            let confirmed = prompt_confirm(&format!(
-                "Resolved '{}' → '{}'. Install this version?",
-                version_input, resolved.full_version
-            ))?;
-            if !confirmed {
-                bail!("Installation cancelled by user");
-            }
+    /// 安装已解析的 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）。
+    /// 版本解析与模糊确认归调用端（resolve_install_version）；执行段保留已装检测自查
+    pub fn install_sdk(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
+        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
+        // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
+        rt.block_on(self.install_sdk_async(sdk, resolved, auto_switch))?;
+        Ok(())
+    }
+
+    /// 异步安装核心流程：通用主备 + 已装检测 + 下载解压验证清理
+    async fn install_sdk_async(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
+        let sdk_conf = self.config.find_sdk_ok(sdk)?;
+        let sdk_name = sdk.to_string();
+
+        // 先清理该 sdk 上次中断的残留，避免旧 sdk.zip/extracted 污染本次
+        let sdk_tmp_root = get_sdkm_home()?.join(SDKM_TMP_DIR).join(&sdk_name);
+        if sdk_tmp_root.exists()
+            && let Err(e) = fs::remove_dir_all(&sdk_tmp_root)
+        {
+            self.sink
+                .warning(format!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e));
         }
 
         let full_version = &resolved.full_version;

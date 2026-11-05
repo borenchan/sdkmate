@@ -12,9 +12,13 @@ use util::builtin::primary_executables_for;
 use util::config_helper::PLACEHOLDER_SDK_DIR;
 use util::consts::BugReportError;
 use util::sdk::Sdk;
-use util::success;
-use util::terminal::prompt_confirm;
-use util::{detail, info, warning};
+use util::{detail, info, success, warning};
+
+/// resolve_local_version 的返回：精确版本 + 是否模糊命中（调用端据此决定是否确认）
+pub struct ResolvedLocalVersion {
+    pub version: String,
+    pub fuzzy_matched: bool,
+}
 
 /// switch 操作前的系统状态快照，用于失败时回滚
 struct SwitchSnapshot {
@@ -65,26 +69,29 @@ macro_rules! try_step {
 }
 
 impl SdkManager {
+    /// 解析本地已装版本（模糊输入 → 精确版本）。只读，供调用端展示解析结果并获取确认
+    /// （模糊确认在调用端做，core 零 stdin）；执行段自行重新校验，不信任本结果。
+    /// 与 use_cmd 的私有 resolve_local_version 同源——Phase 4 扫尾时统一
+    pub fn resolve_installed_version(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedLocalVersion> {
+        let versions = self.list_local_sdk_versions(sdk)?;
+        let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
+        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
+        Ok(ResolvedLocalVersion {
+            version: matched.full_version,
+            fuzzy_matched: matched.fuzzy_matched,
+        })
+    }
+
     pub fn switch_sdk_to_version(&mut self, sdk: &Sdk, sdk_version: &str) -> Result<()> {
         // ── Phase 0: 前置检查(只读操作,无副作用) ──
         let versions = self.list_local_sdk_versions(sdk)?;
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
 
-        // 模糊匹配本地已安装版本(与 install 共用核心)
+        // 模糊匹配本地已安装版本(与 install 共用核心)——执行段自查：
+        // 调用端确认期间状态可能变化（版本被删/新增），不信任预检查结果
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
         let matched = fuzzy_match_version_core(&version_strings, sdk_version)?;
         let target_version = matched.full_version;
-
-        // 模糊命中时交互确认(与 install 一致)
-        if matched.fuzzy_matched {
-            let confirmed = prompt_confirm(&format!(
-                "Resolved '{}' → '{}'. Switch to this version?",
-                sdk_version, target_version
-            ))?;
-            if !confirmed {
-                bail!("Switch cancelled by user");
-            }
-        }
 
         let is_active = versions.iter().any(|v| v.is_active && v.sdk_version == target_version);
         if is_active {

@@ -1,6 +1,11 @@
 use crate::CommandHandler;
 use crate::terminal_sink::manager;
+use anyhow::bail;
 use clap::Parser;
+use sdkcore::manager::SdkManager;
+use sdkcore::version::ResolvedVersion;
+use util::sdk::Sdk;
+use util::terminal::prompt_confirm;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {
@@ -28,7 +33,27 @@ impl CommandHandler for InstallHandler {
         let mut manager = manager()?;
         let sdk = manager.match_valid_sdk(&self.sdk)?;
         let auto_switch = !self.no_switch;
-        manager.install_sdk(&sdk, &self.sdk_version, auto_switch)?;
-        Ok(())
+        install_with_confirm(&mut manager, &sdk, &self.sdk_version, auto_switch)
     }
+}
+
+/// 安装统一入口：解析 → 模糊命中时确认（文案逐字迁自原 core 内嵌 prompt）→ 执行安装。
+/// CLI handler 与 TUI 动作共用（TUI 选的是精确版本，fuzzy=false 不会触发确认）
+pub fn install_with_confirm(
+    manager: &mut SdkManager,
+    sdk: &Sdk,
+    version_input: &str,
+    auto_switch: bool,
+) -> anyhow::Result<()> {
+    let resolved = manager.resolve_install_version(sdk, version_input)?;
+    if resolved.fuzzy_matched {
+        let confirmed = prompt_confirm(&format!(
+            "Resolved '{}' → '{}'. Install this version?",
+            version_input, resolved.full_version
+        ))?;
+        if !confirmed {
+            bail!("Installation cancelled by user");
+        }
+    }
+    manager.install_sdk(sdk, &resolved, auto_switch)
 }

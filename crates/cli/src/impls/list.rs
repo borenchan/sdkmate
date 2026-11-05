@@ -1,4 +1,6 @@
 use crate::CommandHandler;
+use crate::impls::install::install_with_confirm;
+use crate::impls::uninstall::uninstall_with_confirm;
 use crate::terminal_sink::manager;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
 use anyhow::{Result, bail};
@@ -105,7 +107,8 @@ impl ListHandler {
             SelectorAction::Quit => Ok(()),
             SelectorAction::Install { version } => {
                 let mut manager = manager()?;
-                manager.install_sdk(sdk, &version, true)
+                // TUI 选的是精确版本（fuzzy=false 不触发确认）
+                install_with_confirm(&mut manager, sdk, &version, true)
             }
             SelectorAction::Switch { version } => {
                 let mut manager = manager()?;
@@ -113,8 +116,8 @@ impl ListHandler {
             }
             SelectorAction::Uninstall { version } => {
                 let mut manager = manager()?;
-                // yes=false：TUI 退出后在正常终端走 uninstall 的二次确认（破坏性操作）
-                manager.uninstall_sdk(sdk, &version, false)
+                // TUI 恒走确认（破坏性操作二次确认，与原 core yes=false 语义一致）
+                uninstall_with_confirm(&mut manager, sdk, &version, false)
             }
         }
     }

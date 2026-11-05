@@ -18,18 +18,22 @@ use std::thread;
 use std::time::Duration;
 use util::path::get_installed_sdks_dir;
 use util::sdk::Sdk;
-use util::terminal::prompt_confirm;
 use util::{detail, info, success, warning};
 
+/// resolve_uninstall_target 的返回：目标版本 + 模糊命中 + active 状态与卸载后将切换到的版本
+/// （调用端据此组装确认文案；文案说什么归 core 数据，怎么展示归前端）
+pub struct ResolvedUninstall {
+    pub version: String,
+    pub fuzzy_matched: bool,
+    pub is_active: bool,
+    /// active 时：卸载后将切换到的其他已装版本（第一个，非"最新"）
+    pub other_version: Option<String>,
+}
+
 impl SdkManager {
-    /// 卸载本地已安装的 SDK 版本
-    ///
-    /// - 非当前激活版本：仅删 `store/<sdk>/<version>` 目录
-    /// - 当前激活版本且有其他已装版本：先 switch 到其他版本再删（复用 switch 流程）
-    /// - 当前激活版本且仅此一版：清理 symlink/PATH/env/current 后再删
-    ///
-    /// 卸载前一次性确认，文案说明 sdkm 将如何处理；`yes=true` 跳过该确认。
-    pub fn uninstall_sdk(&mut self, sdk: &Sdk, version_input: &str, yes: bool) -> Result<()> {
+    /// 卸载目标预检（只读）：解析目标版本 + active/其他版本状态，供调用端组装确认文案；
+    /// 模糊与破坏性确认在调用端做（core 零 stdin）。执行段自行重算这些状态，不信任本结果
+    pub fn resolve_uninstall_target(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedUninstall> {
         let versions = self.list_local_sdk_versions(sdk)?;
         if versions.is_empty() {
             bail!("No installed versions for `{}`. Nothing to uninstall.", sdk);
@@ -40,12 +44,10 @@ impl SdkManager {
         let matched = fuzzy_match_version_core(&version_strings, version_input)?;
         let target_version = matched.full_version;
 
-        // 定位目标版本项
         let target_item = versions.iter().find(|v| v.sdk_version == target_version).context(format!(
             "local not found `{}` version `{}`, please check store dir",
             sdk, target_version
         ))?;
-        let target_sdk_dir = target_item.sdk_dir.clone();
         let is_active = target_item.is_active;
 
         // active 时是否有其他已装版本（取第一个，不做"最新"计算——提示告知具体版本号，
@@ -59,31 +61,50 @@ impl SdkManager {
             None
         };
 
-        // 卸载前一次性确认：告知 sdkm 将如何处理（直接删 / 自动切换另一版本 / 清理环境）
-        if !yes {
-            let resolved = if matched.fuzzy_matched {
-                format!("Resolved '{}' → '{}'. ", version_input, target_version)
-            } else {
-                String::new()
-            };
-            let action = match (&other_version, is_active) {
-                (Some(other), true) => format!(
-                    "`{}` `{}` is the active version. sdkm will switch to `{}` first, then uninstall.",
-                    sdk, target_version, other
-                ),
-                (None, true) => format!(
-                    "`{}` `{}` is the only installed version. sdkm will clean up symlink, PATH, env vars and current_version, then remove it.",
-                    sdk, target_version
-                ),
-                _ => format!(
-                    "sdkm will uninstall `{}` `{}` (remove the version directory only).",
-                    sdk, target_version
-                ),
-            };
-            if !prompt_confirm(&format!("{resolved}{action} Continue?"))? {
-                bail!("Uninstall cancelled by user");
-            }
+        Ok(ResolvedUninstall {
+            version: target_version,
+            fuzzy_matched: matched.fuzzy_matched,
+            is_active,
+            other_version,
+        })
+    }
+
+    /// 卸载本地已安装的 SDK 版本
+    ///
+    /// - 非当前激活版本：仅删 `store/<sdk>/<version>` 目录
+    /// - 当前激活版本且有其他已装版本：先 switch 到其他版本再删（复用 switch 流程）
+    /// - 当前激活版本且仅此一版：清理 symlink/PATH/env/current 后再删
+    ///
+    /// 破坏性确认归调用端（resolve_uninstall_target + 调用端确认后传入精确版本）
+    pub fn uninstall_sdk(&mut self, sdk: &Sdk, version_input: &str) -> Result<()> {
+        let versions = self.list_local_sdk_versions(sdk)?;
+        if versions.is_empty() {
+            bail!("No installed versions for `{}`. Nothing to uninstall.", sdk);
         }
+
+        // 模糊匹配本地已装版本（复用 fuzzy 核心，找不到匹配内部带 did-you-mean）——
+        // 执行段自查：调用端确认期间状态可能变化，不信任预检查结果
+        let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
+        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
+        let target_version = matched.full_version;
+
+        // 定位目标版本项
+        let target_item = versions.iter().find(|v| v.sdk_version == target_version).context(format!(
+            "local not found `{}` version `{}`, please check store dir",
+            sdk, target_version
+        ))?;
+        let target_sdk_dir = target_item.sdk_dir.clone();
+        let is_active = target_item.is_active;
+
+        // active 时是否有其他已装版本（取第一个，不做"最新"计算）
+        let other_version: Option<String> = if is_active {
+            versions
+                .iter()
+                .find(|v| v.sdk_version != target_version)
+                .map(|v| v.sdk_version.clone())
+        } else {
+            None
+        };
 
         // ── 卸载前只读检测（只提示不阻断）──
         if is_active {
