@@ -6,6 +6,7 @@
 // （cli 按 level 分流 stdout/stderr）。分节收集、探测失败不中断（doctor 不该成为
 // bug 报告入口）；敏感字段（proxy/token）只报是否设置，不打印内容。
 
+use crate::config::SdkmConfig;
 use crate::manager::SdkManager;
 use anyhow::Result;
 use std::env;
@@ -64,7 +65,7 @@ fn section_version_and_platform(lines: &mut Vec<DoctorLine>) {
 }
 
 /// Home 与路径
-fn section_paths(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>) {
+fn section_paths(config: &SdkmConfig, lines: &mut Vec<DoctorLine>) {
     lines.push(line(DoctorLevel::Info, "home & paths"));
     match get_sdkm_home() {
         Ok(home) => {
@@ -124,7 +125,7 @@ fn section_paths(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>
 }
 
 /// 配置摘要
-fn section_config_summary(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>) {
+fn section_config_summary(config: &SdkmConfig, lines: &mut Vec<DoctorLine>) {
     let n = &config.network;
     lines.push(line(DoctorLevel::Info, "network config"));
     lines.push(line(DoctorLevel::Detail, format!("proxy: {}", mark_set(n.proxy.is_some()))));
@@ -161,7 +162,7 @@ fn section_installed_sdks(manager: &SdkManager, lines: &mut Vec<DoctorLine>) {
 }
 
 /// 环境健康检查（只读，每项独立 ✅/⚠️/❌）
-fn section_health_check(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>) {
+fn section_health_check(config: &SdkmConfig, lines: &mut Vec<DoctorLine>) {
     lines.push(line(DoctorLevel::Info, "health checks"));
 
     // 1. symlink 目录各链接目标有效性
