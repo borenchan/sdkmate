@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
-use sdkcore::env::EnvOperation;
+use sdkcore::env::{EnvAction, EnvOperation};
 use sdkcore::hook_cache::{
     CACHE_SCHEMA_VERSION, HookCache, HookEntry, current_session_fingerprint, global_fingerprint,
 };
@@ -40,26 +40,26 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 struct MockEnv;
 
 impl EnvOperation for MockEnv {
-    fn set_sdk_envs(&self, _: &HashMap<String, String>) -> Result<()> {
-        Ok(())
+    fn set_sdk_envs(&self, _: &HashMap<String, String>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn add_sdk_path(&self, _: &str) -> Result<()> {
-        Ok(())
+    fn add_sdk_path(&self, _: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_path(&self) -> Result<String> {
         Ok(String::new())
     }
-    fn remove_sdk_path(&self, _: &str) -> Result<()> {
-        Ok(())
+    fn remove_sdk_path(&self, _: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_env_value(&self, _: &str) -> Result<Option<String>> {
         Ok(None)
     }
-    fn unset_sdk_env(&self, _: &str) -> Result<()> {
-        Ok(())
+    fn unset_sdk_env(&self, _: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn restore_sdk_envs(&self, _: &HashMap<String, Option<String>>) -> Result<()> {
-        Ok(())
+    fn restore_sdk_envs(&self, _: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
 }
 

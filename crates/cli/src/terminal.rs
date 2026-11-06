@@ -1,13 +1,15 @@
-use crate::consts::{DIVIDER, GITHUB_ISSUES_URL};
+//! 终端渲染原语（自 util::terminal 逐字节迁入）：着色输出、表格、确认交互、bug report 提示。
+//!
+//! 归属 CLI 前端：终端颜色/TTY/光标控制是终端 UI 能力，util 保持 UI 无关
+//! （GUI 经 sdkcore→util 不再引入终端渲染库）。
+
 use anyhow::Result;
 use crossterm::style::Stylize;
 use std::env;
 use std::io::{self, Write};
-// os_version 的 unix 分支用；Windows 走注册表无需子进程
-#[cfg(unix)]
-use std::process::Command;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use url::Url;
+use util::consts::DIVIDER;
+use util::diagnostics::{build_bug_report_url, os_version, platform_info};
 
 // ── Unified color palette ───────────────────────────────────
 //
@@ -50,10 +52,6 @@ pub fn divider() {
     println!("{}", DIVIDER.dark_grey());
 }
 
-pub fn info_success(prefix: &str, message: &str) {
-    println!("{} {}", prefix.blue().bold(), message.green().bold());
-}
-
 /// 目录树输出：用于展示 sdkm home 的目录结构，比 detail 亮一些
 pub fn tree(message: &str) {
     println!("  {}", message.grey());
@@ -73,8 +71,6 @@ pub enum ColumnColor {
     Bold,
     /// 绿色——用于版本号
     Green,
-    /// 暗灰——用于 size 等次要信息
-    DarkGrey,
 }
 
 /// ANSI 转义序列不计入的显示宽度（富文本单元格参与列宽对齐用）
@@ -125,7 +121,6 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>], colors: &[ColumnColor
         match colors.get(idx).copied() {
             Some(ColumnColor::Bold) => s.as_str().bold().to_string(),
             Some(ColumnColor::Green) => s.as_str().green().to_string(),
-            Some(ColumnColor::DarkGrey) => s.as_str().dark_grey().to_string(),
             _ => s,
         }
     };
@@ -160,35 +155,6 @@ pub fn prompt_confirm(prompt: &str) -> Result<bool> {
     Ok(matches!(input.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
-/// Generate a suggested sdkm deployment path based on the current platform.
-///
-/// Windows: `C:\Users\<username>\sdkm\`
-/// Unix: `~/.sdkm/` (or `/usr/local/sdkm/` as fallback)
-pub fn suggest_sdkm_path() -> String {
-    #[cfg(windows)]
-    {
-        let username = env::var("USERNAME")
-            .or_else(|_| env::var("USERPROFILE").map(|p| p.rsplit('\\').next().unwrap_or("YourName").to_string()))
-            .unwrap_or_else(|_| "YourName".to_string());
-        format!("C:\\Users\\{}\\sdkm\\", username)
-    }
-
-    #[cfg(unix)]
-    {
-        let home = env::var("HOME").unwrap_or_else(|_| "/usr/local".to_string());
-        if home.starts_with('/') {
-            format!("{}/sdkm/", home)
-        } else {
-            "/usr/local/sdkm/".to_string()
-        }
-    }
-
-    #[cfg(not(any(windows, unix)))]
-    {
-        "~/sdkm/".to_string()
-    }
-}
-
 /// 命令执行失败时，在终端提示 bug report 链接
 /// 仅在错误被标记为 BugReport（不可由用户解决）时调用
 ///
@@ -206,101 +172,4 @@ pub fn suggest_bug_report(command: &str, error_msg: &str) {
     detail(&format!("Error:    {}", error_msg));
     detail(&format!("Platform: {}", platform_info()));
     detail(DIVIDER);
-}
-
-/// 构建 GitHub issue URL，带 title + body 参数（公开，供测试调用）
-///
-/// title: `[issue] <error_summary> — <command>`（问题重点在前，命令作上下文在后）
-/// body: 预填命令、完整错误消息、平台信息的模板
-pub fn build_bug_report_url(command: &str, error_msg: &str) -> String {
-    // 错误消息截断：title 只取前 80 字符避免 URL 过长
-    let error_summary = if error_msg.len() > 80 {
-        format!("{}...", &error_msg[..77])
-    } else {
-        error_msg.to_string()
-    };
-    // title 格式：问题重点放前面，命令作上下文放后面
-    let title = format!("[issue] {} — {}", error_summary, command);
-
-    // body 模板：预填关键信息，留出描述区域供用户补充
-    let body = format!(
-        "**Issue Report**\n\n\
-         **Sdkm Version**: {version}\n\
-         **Command**: `{command}`\n\
-         **Error**: {error_msg}\n\
-         **OS**: {os}\n\
-         **Platform**: {platform}\n\n\
-         **Steps to reproduce**:\n\
-         1. \n\n\
-         **Expected behavior**:\n\n\
-         **Doctor output** (run `sdkm doctor` and paste here):\n\n\
-         **Additional context**:\n",
-        version = env!("CARGO_PKG_VERSION"),
-        os = os_version(),
-        command = command,
-        error_msg = error_msg,
-        platform = platform_info(),
-    );
-
-    // 使用 url crate 构建合法 URL（自动 percent-encode）
-    let mut url = Url::parse(GITHUB_ISSUES_URL)
-        .unwrap_or_else(|_| Url::parse("https://github.com/borenchan/sdkmate/issues/new").unwrap());
-    url.query_pairs_mut().append_pair("title", &title).append_pair("body", &body);
-
-    url.to_string()
-}
-
-/// 平台信息：操作系统 + 架构（doctor 诊断命令复用）
-pub fn platform_info() -> String {
-    let os = env::var("OS").unwrap_or_else(|_| {
-        if cfg!(windows) {
-            "windows".to_string()
-        } else {
-            "unix".to_string()
-        }
-    });
-    let arch = if cfg!(target_arch = "x86_64") {
-        "x86_64"
-    } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else {
-        "unknown"
-    };
-    format!("{} ({})", os, arch)
-}
-
-/// 操作系统版本号（Windows build / Unix 内核版本），用于 bug report 与 doctor 区分环境
-pub fn os_version() -> String {
-    // Windows 读注册表（UTF-16 无编码问题；`cmd /c ver` 输出 GBK，中文系统 from_utf8 失败变 unknown）
-    #[cfg(windows)]
-    {
-        use winreg::RegKey;
-        use winreg::enums::HKEY_LOCAL_MACHINE;
-        let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
-        if let Ok(cur) = hk.open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
-            && let (Ok(name), Ok(build)) = (
-                cur.get_value::<String, _>("ProductName"),
-                cur.get_value::<String, _>("CurrentBuildNumber"),
-            )
-        {
-            format!("{name} (build {build})")
-        } else {
-            "unknown".to_string()
-        }
-    }
-    #[cfg(unix)]
-    {
-        Command::new("uname")
-            .args(["-sr"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(not(any(windows, unix)))]
-    {
-        "unknown".to_string()
-    }
 }

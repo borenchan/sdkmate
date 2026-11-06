@@ -73,6 +73,9 @@ pub trait EventSink: Send + Sync {
     fn detail(&self, msg: String) {
         self.emit(CoreEvent::Detail(msg));
     }
+    fn step(&self, label: String, msg: String) {
+        self.emit(CoreEvent::Step { label, msg });
+    }
 }
 
 /// 进度句柄：core 按数据推进，前端渲染

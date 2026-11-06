@@ -1,8 +1,10 @@
 use crate::CommandHandler;
 use crate::impls::install::install_with_confirm;
 use crate::impls::uninstall::uninstall_with_confirm;
+use crate::terminal::pad_right;
 use crate::terminal_sink::manager;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
+use crate::{divider, info};
 use anyhow::{Result, bail};
 use clap::Parser;
 use crossterm::{
@@ -19,8 +21,6 @@ use unicode_width::UnicodeWidthStr;
 use util::consts::{DIVIDER, STATUS_ACTIVE};
 use util::path::format_bytes;
 use util::sdk::Sdk;
-use util::terminal::pad_right;
-use util::{divider, info};
 
 #[derive(Debug, Parser)]
 pub struct ListHandler {

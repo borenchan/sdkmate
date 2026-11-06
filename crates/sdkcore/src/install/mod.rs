@@ -97,6 +97,7 @@ impl SdkManager {
                     headers,
                     self.config.network.cache_ttl_secs as u64,
                     &self.config.network,
+                    self.sink.as_ref(),
                 )
                 .await?
             }

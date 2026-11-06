@@ -1,8 +1,8 @@
 use crate::CommandHandler;
+use crate::terminal::prompt_confirm;
 use crate::terminal_sink::manager;
 use anyhow::bail;
 use clap::Parser;
-use util::terminal::prompt_confirm;
 
 #[derive(Debug, Parser)]
 pub struct SwitchHandler {

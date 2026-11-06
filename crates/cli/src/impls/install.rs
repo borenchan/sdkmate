@@ -1,11 +1,10 @@
 use crate::CommandHandler;
+use crate::terminal::prompt_confirm;
 use crate::terminal_sink::manager;
 use anyhow::bail;
 use clap::Parser;
 use sdkcore::manager::SdkManager;
-use sdkcore::version::ResolvedVersion;
 use util::sdk::Sdk;
-use util::terminal::prompt_confirm;
 
 #[derive(Debug, Parser)]
 pub struct InstallHandler {

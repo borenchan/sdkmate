@@ -1,11 +1,11 @@
 use crate::CommandHandler;
+use crate::terminal::{ColumnColor, print_table};
 use crate::terminal_sink::manager;
+use crate::{divider, info, warning};
 use clap::Parser;
 use crossterm::style::Stylize;
 use sdkcore::current::VersionOrigin;
 use util::path::get_sdkm_home;
-use util::terminal::{ColumnColor, print_table};
-use util::{divider, info, warning};
 
 #[derive(Debug, Parser)]
 pub struct CurrentHandler {

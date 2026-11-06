@@ -5,6 +5,7 @@
 //
 // 交互确认由 CLI 层（SelfUninstallHandler）负责，core 只做业务，便于测试直接调用无需应答 stdin。
 
+use crate::env::report_env_actions;
 use crate::manager::SdkManager;
 use anyhow::Result;
 use std::env;
@@ -13,7 +14,6 @@ use std::str::FromStr;
 use util::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_LINKS_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR};
 use util::path::get_sdkm_home;
 use util::sdk::Sdk;
-use util::{info, success, warning};
 
 impl SdkManager {
     /// 卸载 sdkm 自身：清理所有被管理 SDK 的激活环境并删除 home 目录内容
@@ -33,30 +33,31 @@ impl SdkManager {
             .filter_map(|c| Sdk::from_str(&c.name).ok())
             .collect();
 
-        info!("cleaning up {} managed SDK environment(s)...", active_sdks.len());
+        self.sink
+            .info(format!("cleaning up {} managed SDK environment(s)...", active_sdks.len()));
         for sdk in &active_sdks {
             // 复用 cleanup_sdk_environment：删 symlink + remove PATH + unset env + current=None
             if let Err(e) = self.cleanup_sdk_environment(sdk) {
-                warning!("failed to clean up `{}` environment: {}", sdk, e);
+                self.sink.warning(format!("failed to clean up `{sdk}` environment: {e}"));
             }
         }
 
         // 删除 home 目录内容（store/links/.tmp/cache/config.toml），尽力而为
         let home = get_sdkm_home()?;
-        info!("removing sdkm home contents at {}", home.display());
+        self.sink.info(format!("removing sdkm home contents at {}", home.display()));
         for sub in [SDKM_STORE_DIR, SDKM_LINKS_DIR, SDKM_TMP_DIR, SDKM_CACHE_DIR] {
             let p = home.join(sub);
             if p.exists()
                 && let Err(e) = fs::remove_dir_all(&p)
             {
-                warning!("failed to remove `{}`: {}", p.display(), e);
+                self.sink.warning(format!("failed to remove `{}`: {}", p.display(), e));
             }
         }
         let cfg = home.join(CONFIG_FILE_NAME);
         if cfg.exists()
             && let Err(e) = fs::remove_file(&cfg)
         {
-            warning!("failed to remove `{}`: {}", cfg.display(), e);
+            self.sink.warning(format!("failed to remove `{}`: {}", cfg.display(), e));
         }
 
         // sdkm 自身的 PATH 条目：自动移除（binary 保留但 PATH 条目应清理，尽力而为）
@@ -64,18 +65,23 @@ impl SdkManager {
         if let Ok(exe) = env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 let exe_dir_str = exe_dir.to_string_lossy().to_string();
-                if let Err(e) = self.env_operation.remove_sdk_path(&exe_dir_str) {
-                    warning!("failed to remove sdkm PATH entry `{}`: {}", exe_dir_str, e);
+                match self.env_operation.remove_sdk_path(&exe_dir_str) {
+                    Err(e) => {
+                        self.sink
+                            .warning(format!("failed to remove sdkm PATH entry `{}`: {}", exe_dir_str, e));
+                    }
+                    Ok(actions) => report_env_actions(self.sink.as_ref(), &actions),
                 }
             }
             // binary 本身：running exe 跨平台不可靠自删（Windows 锁），提示用户手动删
-            warning!(
+            self.sink.warning(format!(
                 "sdkm binary remains at `{}` (cannot self-remove while running); please remove it manually",
                 exe.display()
-            );
+            ));
         }
 
-        success!("sdkm self-uninstall complete (binary remains to remove manually)");
+        self.sink
+            .success("sdkm self-uninstall complete (binary remains to remove manually)".to_string());
         Ok(())
     }
 }

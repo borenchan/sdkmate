@@ -15,7 +15,7 @@
 //!    extra_vars keys 并集中本次未选中的输出 unset（known 集合幂等重建，离开项目还原）
 //!
 //! **stdout 纯净性**：本模块输出会被 shell `eval`，全程禁用 info!/warning!/success!
-//! 等 stdout 宏；诊断一律走 stderr（error! 宏或 eprintln!）。
+//! 等 stdout 输出；诊断一律走 stderr（sink.error —— TerminalSink 渲染 Error 事件到 stderr）。
 
 use crate::config::SdkConfig;
 use crate::hook_cache::{
@@ -30,7 +30,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use util::config_helper::PLACEHOLDER_SDK_DIR;
 use util::consts::{ENV_HOOK_BASE_PATH, ENV_HOOK_INJECTED_PATHS, PATH_LIST_SEPARATOR, SDKM_SESSION_ENV_PREFIX};
-use util::error;
 use util::sdk::Sdk;
 use util::shell::Shell;
 
@@ -235,19 +234,19 @@ impl SdkManager {
 
     /// 解析单个 SDK 的项目级环境注入（bin 路径 + extra_vars 渲染）
     ///
-    /// 未安装/未注册/fuzzy 失败 → None（诊断走 stderr，跳过不阻断 shell）
+    /// 未安装/未注册/fuzzy 失败 → None（诊断经 sink.error 走 stderr，跳过不阻断 shell）
     fn select_sdk_envs(&self, name: &str, version_input: &str) -> Option<SelectedSdk> {
         let sdk = match Sdk::from_str(name) {
             Ok(s) => s,
             Err(_) => {
-                error!("project config: unknown sdk `{}`, skipped", name);
+                self.sink.error(format!("project config: unknown sdk `{name}`, skipped"));
                 return None;
             }
         };
         let sdk_conf = match self.config.find_sdk(&sdk) {
             Some(c) => c,
             None => {
-                error!("project config: unregistered sdk `{}`, skipped", name);
+                self.sink.error(format!("project config: unregistered sdk `{name}`, skipped"));
                 return None;
             }
         };
@@ -255,17 +254,16 @@ impl SdkManager {
         // 模糊匹配本地已装版本（与 switch 同源）
         let versions = self.list_local_sdk_versions(&sdk).ok()?;
         if versions.is_empty() {
-            error!(
-                "project config: `{}` has no installed versions, `{}` falls back to global",
-                name, version_input
-            );
+            self.sink.error(format!(
+                "project config: `{name}` has no installed versions, `{version_input}` falls back to global"
+            ));
             return None;
         }
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
         let matched = match fuzzy_match_version_core(&version_strings, version_input) {
             Ok(m) => m,
             Err(e) => {
-                error!("project config: `{}` {}", name, e);
+                self.sink.error(format!("project config: `{name}` {e}"));
                 return None;
             }
         };

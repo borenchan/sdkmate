@@ -1,135 +1,168 @@
 // ──────────────────────────────────────────────────────
-// sdkm doctor——诊断信息汇总，供用户提 issue 时粘贴
+// sdkm doctor——诊断数据收集，供用户提 issue 时粘贴
 // ──────────────────────────────────────────────────────
 //
-// 分节打印、探测失败不中断（doctor 不该成为 bug 报告入口）；
-// 敏感字段（proxy/token）只报是否设置，不打印内容。
+// 数据化：collect_doctor_report 只产出结构化 DoctorReport（零输出），渲染归前端
+// （cli 按 level 分流 stdout/stderr）。分节收集、探测失败不中断（doctor 不该成为
+// bug 报告入口）；敏感字段（proxy/token）只报是否设置，不打印内容。
 
 use crate::manager::SdkManager;
 use anyhow::Result;
 use std::env;
 use std::fs;
 use std::path::Path;
-use util::consts::GITHUB_ISSUES_URL;
-use util::error;
+use util::diagnostics::{os_version, platform_info};
 use util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
-use util::terminal::{detail, divider, info, os_version, platform_info, success, warning};
 
-/// 打印完整诊断报告，分节降级
-pub fn show_doctor_report(manager: &SdkManager) -> Result<()> {
-    divider();
-    info("sdkm doctor — diagnostic report");
-    divider();
+/// 诊断报告数据（渲染归前端；行的先后顺序即展示顺序，节标题也是 Info 行）
+pub struct DoctorReport {
+    pub lines: Vec<DoctorLine>,
+}
 
-    section_version_and_platform();
-    section_paths(&manager.config);
-    section_config_summary(&manager.config);
-    section_installed_sdks(manager);
-    section_health_check(&manager.config);
+/// 单行诊断项
+pub struct DoctorLine {
+    pub level: DoctorLevel,
+    pub text: String,
+}
 
-    divider();
-    detail("💡 When filing an issue, paste this entire report:");
-    detail(GITHUB_ISSUES_URL);
-    divider();
-    Ok(())
+/// 行级别（前端据此选样式/分流 stdout 与 stderr）
+#[derive(Clone, Copy)]
+pub enum DoctorLevel {
+    Info,
+    Success,
+    Warning,
+    Error,
+    Detail,
+}
+
+/// 收集完整诊断报告（只读，零输出）
+pub fn collect_doctor_report(manager: &SdkManager) -> Result<DoctorReport> {
+    let mut lines = Vec::new();
+    section_version_and_platform(&mut lines);
+    section_paths(&manager.config, &mut lines);
+    section_config_summary(&manager.config, &mut lines);
+    section_installed_sdks(manager, &mut lines);
+    section_health_check(&manager.config, &mut lines);
+    Ok(DoctorReport { lines })
+}
+
+fn line(level: DoctorLevel, text: impl Into<String>) -> DoctorLine {
+    DoctorLine {
+        level,
+        text: text.into(),
+    }
 }
 
 /// 版本与平台
-fn section_version_and_platform() {
-    info("sdkm version");
-    detail(env!("CARGO_PKG_VERSION"));
-    info("platform");
-    detail(&platform_info());
-    info("OS version");
-    detail(&os_version());
+fn section_version_and_platform(lines: &mut Vec<DoctorLine>) {
+    lines.push(line(DoctorLevel::Info, "sdkm version"));
+    lines.push(line(DoctorLevel::Detail, env!("CARGO_PKG_VERSION")));
+    lines.push(line(DoctorLevel::Info, "platform"));
+    lines.push(line(DoctorLevel::Detail, platform_info()));
+    lines.push(line(DoctorLevel::Info, "OS version"));
+    lines.push(line(DoctorLevel::Detail, os_version()));
 }
 
 /// Home 与路径
-fn section_paths(config: &crate::config::SdkmConfig) {
-    info("home & paths");
+fn section_paths(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>) {
+    lines.push(line(DoctorLevel::Info, "home & paths"));
     match get_sdkm_home() {
         Ok(home) => {
             let overridden = env::var("SDKM_HOME").map(|v| !v.is_empty()).unwrap_or(false);
             if overridden {
-                warning(&format!("home: {} (overridden by SDKM_HOME)", home.display()));
+                lines.push(line(
+                    DoctorLevel::Warning,
+                    format!("home: {} (overridden by SDKM_HOME)", home.display()),
+                ));
             } else {
-                detail(&format!("home: {}", home.display()));
+                lines.push(line(DoctorLevel::Detail, format!("home: {}", home.display())));
             }
             match get_installed_sdks_dir() {
-                Ok(store) => detail(&format!(
-                    "store dir: {} ({})",
-                    store.display(),
-                    if store.is_dir() { "exists" } else { "missing" }
+                Ok(store) => lines.push(line(
+                    DoctorLevel::Detail,
+                    format!(
+                        "store dir: {} ({})",
+                        store.display(),
+                        if store.is_dir() { "exists" } else { "missing" }
+                    ),
                 )),
                 Err(e) => {
-                    error!("store dir: resolve failed: {e:#}");
+                    lines.push(line(DoctorLevel::Error, format!("store dir: resolve failed: {e:#}")));
                 }
             }
             match config.resolved_symlink_dir() {
-                Ok(links) => detail(&format!(
-                    "symlink dir: {} ({})",
-                    links,
-                    if Path::new(&links).is_dir() {
-                        "exists"
-                    } else {
-                        "missing"
-                    }
+                Ok(links) => lines.push(line(
+                    DoctorLevel::Detail,
+                    format!(
+                        "symlink dir: {} ({})",
+                        links,
+                        if Path::new(&links).is_dir() {
+                            "exists"
+                        } else {
+                            "missing"
+                        }
+                    ),
                 )),
                 Err(e) => {
-                    error!("symlink dir: resolve failed: {e:#}");
+                    lines.push(line(DoctorLevel::Error, format!("symlink dir: resolve failed: {e:#}")));
                 }
             }
             match get_sdkm_config_path() {
-                Ok(p) => detail(&format!(
-                    "config: {} ({})",
-                    p.display(),
-                    if p.is_file() { "ok" } else { "missing" }
+                Ok(p) => lines.push(line(
+                    DoctorLevel::Detail,
+                    format!("config: {} ({})", p.display(), if p.is_file() { "ok" } else { "missing" }),
                 )),
                 Err(e) => {
-                    error!("config: resolve failed: {e:#}");
+                    lines.push(line(DoctorLevel::Error, format!("config: resolve failed: {e:#}")));
                 }
             }
         }
         Err(e) => {
-            error!("home: resolve failed: {e:#}");
+            lines.push(line(DoctorLevel::Error, format!("home: resolve failed: {e:#}")));
         }
     }
 }
 
 /// 配置摘要
-fn section_config_summary(config: &crate::config::SdkmConfig) {
-    info("network config");
+fn section_config_summary(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>) {
     let n = &config.network;
-    detail(&format!("proxy: {}", mark_set(n.proxy.is_some())));
-    detail(&format!("ssl_verify: {}", n.ssl_verify));
-    detail(&format!("connect_timeout: {}s", n.connect_timeout));
-    detail(&format!("cache_ttl: {}s", n.cache_ttl_secs));
-    detail(&format!("github_token: {}", mark_set(n.github_token.is_some())));
+    lines.push(line(DoctorLevel::Info, "network config"));
+    lines.push(line(DoctorLevel::Detail, format!("proxy: {}", mark_set(n.proxy.is_some()))));
+    lines.push(line(DoctorLevel::Detail, format!("ssl_verify: {}", n.ssl_verify)));
+    lines.push(line(DoctorLevel::Detail, format!("connect_timeout: {}s", n.connect_timeout)));
+    lines.push(line(DoctorLevel::Detail, format!("cache_ttl: {}s", n.cache_ttl_secs)));
+    lines.push(line(
+        DoctorLevel::Detail,
+        format!("github_token: {}", mark_set(n.github_token.is_some())),
+    ));
 }
 
 /// 已安装 SDK 概览（复用 list_registered_sdks）
-fn section_installed_sdks(manager: &SdkManager) {
-    info("registered SDKs");
+fn section_installed_sdks(manager: &SdkManager, lines: &mut Vec<DoctorLine>) {
+    lines.push(line(DoctorLevel::Info, "registered SDKs"));
     match manager.list_registered_sdks() {
         Ok(items) => {
             for it in &items {
-                detail(&format!(
-                    "{:<10} installed={} current={}",
-                    it.name,
-                    if it.installed { "yes" } else { "no " },
-                    it.current.as_deref().unwrap_or("-")
+                lines.push(line(
+                    DoctorLevel::Detail,
+                    format!(
+                        "{:<10} installed={} current={}",
+                        it.name,
+                        if it.installed { "yes" } else { "no " },
+                        it.current.as_deref().unwrap_or("-")
+                    ),
                 ));
             }
         }
         Err(e) => {
-            error!("installed SDKs: list failed: {e:#}");
+            lines.push(line(DoctorLevel::Error, format!("installed SDKs: list failed: {e:#}")));
         }
     }
 }
 
 /// 环境健康检查（只读，每项独立 ✅/⚠️/❌）
-fn section_health_check(config: &crate::config::SdkmConfig) {
-    info("health checks");
+fn section_health_check(config: &crate::config::SdkmConfig, lines: &mut Vec<DoctorLine>) {
+    lines.push(line(DoctorLevel::Info, "health checks"));
 
     // 1. symlink 目录各链接目标有效性
     if let Ok(links) = config.resolved_symlink_dir() {
@@ -150,12 +183,18 @@ fn section_health_check(config: &crate::config::SdkmConfig) {
                     }
                 }
                 if broken.is_empty() {
-                    success(&format!("symlink targets: all valid in {}", links));
+                    lines.push(line(DoctorLevel::Success, format!("symlink targets: all valid in {links}")));
                 } else {
-                    error!("symlink targets broken: {}", broken.join("; "));
+                    lines.push(line(
+                        DoctorLevel::Error,
+                        format!("symlink targets broken: {}", broken.join("; ")),
+                    ));
                 }
             }
-            Err(_) => warning("symlink dir: not readable yet (run `sdkm init` first)"),
+            Err(_) => lines.push(line(
+                DoctorLevel::Warning,
+                "symlink dir: not readable yet (run `sdkm init` first)",
+            )),
         }
     }
 
@@ -167,9 +206,12 @@ fn section_health_check(config: &crate::config::SdkmConfig) {
             .map(|p| env::split_paths(&p).any(|seg| seg.to_string_lossy().starts_with(&links_norm)))
             .unwrap_or(false);
         if in_path {
-            success("PATH: sdkm links entries present");
+            lines.push(line(DoctorLevel::Success, "PATH: sdkm links entries present"));
         } else {
-            warning("PATH: no sdkm links entries (run `sdkm switch` to add, or reopen shell)");
+            lines.push(line(
+                DoctorLevel::Warning,
+                "PATH: no sdkm links entries (run `sdkm switch` to add, or reopen shell)",
+            ));
         }
     }
 
@@ -180,8 +222,11 @@ fn section_health_check(config: &crate::config::SdkmConfig) {
         }
         for var in s.extra_vars.keys() {
             match env::var(var) {
-                Ok(val) => detail(&format!("{}[{}]: {}", s.name, var, val)),
-                Err(_) => detail(&format!("{}[{}]: not set in current shell", s.name, var)),
+                Ok(val) => lines.push(line(DoctorLevel::Detail, format!("{}[{}]: {}", s.name, var, val))),
+                Err(_) => lines.push(line(
+                    DoctorLevel::Detail,
+                    format!("{}[{}]: not set in current shell", s.name, var),
+                )),
             }
         }
     }
@@ -193,10 +238,13 @@ fn section_health_check(config: &crate::config::SdkmConfig) {
         && let Ok(home) = get_sdkm_home()
         && home != exe_dir
     {
-        warning(&format!(
-            "SDKM_HOME ({}) differs from exe dir ({}) — configs live under SDKM_HOME",
-            home.display(),
-            exe_dir.display()
+        lines.push(line(
+            DoctorLevel::Warning,
+            format!(
+                "SDKM_HOME ({}) differs from exe dir ({}) — configs live under SDKM_HOME",
+                home.display(),
+                exe_dir.display()
+            ),
         ));
     }
 }

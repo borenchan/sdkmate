@@ -7,15 +7,13 @@
 //!   （LIFO 顶前）供 `eval "$(sdkm use --shell ...)"`。**此路径禁 stdout 宏**（stdout 只吐脚本）。
 
 use crate::manager::SdkManager;
-use crate::project_config::{ProjectConfig, read_project_config, write_project_config};
-use crate::version::fuzzy_match_version_core;
-use anyhow::{Context, Result, bail};
+use crate::project_config::{ProjectConfig, find_parent_config, read_project_config, write_project_config};
+use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::env;
 use util::consts::PROJECT_CONFIG_FILE_NAME;
 use util::sdk::Sdk;
 use util::shell::Shell;
-use util::{info, success};
 
 impl SdkManager {
     /// 设置项目级版本：写当前目录 `.sdkm.toml`
@@ -27,8 +25,16 @@ impl SdkManager {
 
         let cwd = env::current_dir().context("cannot get current directory")?;
 
-        // 模糊匹配本地已装版本（与 switch 同源；Err 含未装提示/did-you-mean 建议直接冒泡）
-        let resolved = self.resolve_local_version(sdk, version_input)?;
+        // 模糊匹配本地已装版本（与 switch 共用 resolve_installed_version；Err 含未装提示/did-you-mean 建议直接冒泡）
+        let resolved = self.resolve_installed_version(sdk, version_input)?.version;
+
+        // 父级冲突检测：向上探测已有 .sdkm.toml，命中则 warning（只提示不阻断）
+        if let Some(parent_path) = find_parent_config(&cwd) {
+            self.sink.warning(format!(
+                "Found parent config at '{}'. Creating a new config here will override it for this directory.",
+                parent_path.display()
+            ));
+        }
 
         // 读现有配置（当前目录已有 .sdkm.toml 则合并），写入
         let existing_path = cwd.join(PROJECT_CONFIG_FILE_NAME);
@@ -41,35 +47,19 @@ impl SdkManager {
 
         write_project_config(&cwd, &ProjectConfig { pins })?;
 
-        info!("Pinned `{}` = `{}` in {}", sdk, resolved, existing_path.display());
-        success!("Project config updated. Open a new shell (or cd out and back in) to activate.");
+        self.sink
+            .info(format!("Pinned `{sdk}` = `{resolved}` in {}", existing_path.display()));
+        self.sink
+            .success("Project config updated. Open a new shell (or cd out and back in) to activate.".to_string());
         Ok(())
     }
 
     /// 设置会话级版本：返回 eval 脚本（SDKM_ACTIVE 赋值 + 即时 PATH 重建）
     ///
     /// 显式操作按 LIFO 顶到 PATH 最前（用户最新意图优先）；之后 hook 以新位置为锚。
-    /// **禁 stdout 宏**：返回值由 CLI 层 println 到 stdout 供 eval，诊断走 stderr。
+    /// **禁 stdout 事件**：返回值由 CLI 层 println 到 stdout 供 eval，诊断走 stderr。
     pub fn use_session_version(&self, shell: Shell, sdk: &Sdk, version_input: &str) -> Result<String> {
-        let resolved = self.resolve_local_version(sdk, version_input)?;
+        let resolved = self.resolve_installed_version(sdk, version_input)?.version;
         Ok(self.generate_use_script(shell, &sdk.to_string(), &resolved))
-    }
-
-    /// 模糊匹配本地已装版本（与 switch 完全同源，不新增匹配逻辑）
-    ///
-    /// Ok = 解析后的精确版本；本地无版本/fuzzy 失败 → Err（含安装提示/did-you-mean 建议）
-    fn resolve_local_version(&self, sdk: &Sdk, version_input: &str) -> Result<String> {
-        let versions = self.list_local_sdk_versions(sdk)?;
-        if versions.is_empty() {
-            bail!(
-                "`{}` has no installed versions. Install it first (`sdkm install {} {}`)",
-                sdk,
-                sdk,
-                version_input
-            );
-        }
-        let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
-        Ok(matched.full_version)
     }
 }

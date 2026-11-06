@@ -16,9 +16,8 @@ use std::slice;
 use anyhow::{Context, Result};
 use util::consts::{ENV_PATH, HOOK_COMMENT_LINE};
 use util::shell::{PathModel, ProfilePersistence, Shell, detect_shell};
-use util::{detail, info, warning};
 
-use crate::env::EnvOperation;
+use crate::env::{EnvAction, EnvOperation};
 
 /// RebuildLine 模型（bash/zsh）的 PATH 行行首前缀——两者共用同一 `export PATH=` 形态
 const REBUILD_PATH_PREFIX: &str = "export PATH=";
@@ -118,11 +117,13 @@ impl UnixEnvOperation {
 
     /// 把 new_path 前置到 PATH（按 path_model 分发；p 由调用方传入便于测试直测两种模型）
     ///
-    /// RebuildLine（bash/zsh）：解析现有 PATH 行 → 前置插入 → 整行重建（已存在则跳过并 warning）。
-    /// PerDirCommand（fish）：`fish_add_path --path "<dir>"` 逐行模型——已存在（hook 前）则跳过
-    /// 并 warning；错位在 hook 后的旧污染行 relocate 自愈；新行插到 hook 块之前（含空格路径
+    /// RebuildLine（bash/zsh）：解析现有 PATH 行 → 前置插入 → 整行重建（已存在则跳过）。
+    /// PerDirCommand（fish）：`fish_add_path --path "<dir>"` 逐行模型——已存在（hook 前）则跳过；
+    /// 错位在 hook 后的旧污染行 relocate 自愈；新行插到 hook 块之前（含空格路径
     /// 由引号参数原生支持）。
-    fn add_path_entry(file_path: &Path, p: &'static ProfilePersistence, new_path: &str) -> Result<()> {
+    /// 返回动作清单：已存在分支报 PathExists（"已存在但无 hook 块"的静默就位不报），
+    /// 实际写入分支返回空（PathAdded 由调用方 add_sdk_path 统一附加）
+    fn add_path_entry(file_path: &Path, p: &'static ProfilePersistence, new_path: &str) -> Result<Vec<EnvAction>> {
         let expanded = Self::expand_path(new_path);
         match p.path_model {
             PathModel::RebuildLine => {
@@ -138,8 +139,9 @@ impl UnixEnvOperation {
                 let already_in_profile =
                     path_line_idx.is_some_and(|idx| parse(&lines[idx]).0.iter().any(|e| e == &expanded));
                 if already_in_profile {
-                    warning!("path exists. sdk_path: {}", new_path);
-                    return Ok(());
+                    return Ok(vec![EnvAction::PathExists {
+                        path: new_path.to_string(),
+                    }]);
                 }
 
                 if let Some(idx) = path_line_idx {
@@ -159,7 +161,8 @@ impl UnixEnvOperation {
                         None => lines.push(new_line),
                     }
                 }
-                Self::write_profile(file_path, &lines)
+                Self::write_profile(file_path, &lines)?;
+                Ok(Vec::new())
             }
             PathModel::PerDirCommand => {
                 let add = p.add_dir_command.context("PerDirCommand 缺 add_dir_command")?;
@@ -172,11 +175,12 @@ impl UnixEnvOperation {
                 let existing_idx = lines.iter().position(|l| l.trim() == line);
                 match (existing_idx, hook_start) {
                     (Some(i), Some(h)) if i < h => {
-                        warning!("path exists. sdk_path: {}", new_path);
-                        return Ok(());
+                        return Ok(vec![EnvAction::PathExists {
+                            path: new_path.to_string(),
+                        }]);
                     }
-                    // 行已存在且无 hook 块（位置无从谈起）→ 视为已就位
-                    (Some(_), None) => return Ok(()),
+                    // 行已存在且无 hook 块（位置无从谈起）→ 视为已就位（静默，无 PathExists）
+                    (Some(_), None) => return Ok(Vec::new()),
                     _ => {}
                 }
 
@@ -187,7 +191,8 @@ impl UnixEnvOperation {
                     Some(h) => lines.insert(h, line),
                     None => lines.push(line),
                 }
-                Self::write_profile(file_path, &lines)
+                Self::write_profile(file_path, &lines)?;
+                Ok(Vec::new())
             }
         }
     }
@@ -218,38 +223,44 @@ impl UnixEnvOperation {
 }
 
 impl EnvOperation for UnixEnvOperation {
-    fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<()> {
+    fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<Vec<EnvAction>> {
         let p = Self::current_persistence()?;
         let profile_path = Self::profile_path()?;
+        let mut actions = Vec::with_capacity(envs.len());
         for (env_key, env_val) in envs {
             Self::append_or_replace_export(&profile_path, p, env_key, env_val)?;
-            info!("success set env key:`{}` value:`{}` !", env_key, env_val);
+            actions.push(EnvAction::EnvSet {
+                key: env_key.clone(),
+                value: env_val.clone(),
+            });
         }
         Self::source_profile(&profile_path)?;
-        Ok(())
+        Ok(actions)
     }
 
-    fn add_sdk_path(&self, sdk_path: &str) -> Result<()> {
+    fn add_sdk_path(&self, sdk_path: &str) -> Result<Vec<EnvAction>> {
         let p = Self::current_persistence()?;
         let profile_path = Self::profile_path()?;
-        Self::add_path_entry(&profile_path, p, sdk_path)?;
-        info!("success add `{}` to path!", sdk_path);
+        let mut actions = Self::add_path_entry(&profile_path, p, sdk_path)?;
+        actions.push(EnvAction::PathAdded {
+            path: sdk_path.to_string(),
+        });
         Self::source_profile(&profile_path)?;
-        Ok(())
+        Ok(actions)
     }
 
     fn get_path(&self) -> Result<String> {
         Ok(env::var(ENV_PATH).unwrap_or_default())
     }
 
-    fn remove_sdk_path(&self, target: &str) -> Result<()> {
+    fn remove_sdk_path(&self, target: &str) -> Result<Vec<EnvAction>> {
         let profile_path = Self::profile_path()?;
         let p = Self::current_persistence()?;
         let expanded_target = Self::expand_path(target);
 
         let content = Self::read_profile(&profile_path);
         if content.is_empty() {
-            return Ok(()); // 文件不存在，无需移除
+            return Ok(Vec::new()); // 文件不存在，无需移除
         }
 
         match p.path_model {
@@ -282,8 +293,9 @@ impl EnvOperation for UnixEnvOperation {
         }
 
         Self::source_profile(&profile_path)?;
-        detail!("removed `{target}` from PATH");
-        Ok(())
+        Ok(vec![EnvAction::PathRemoved {
+            path: target.to_string(),
+        }])
     }
 
     fn get_env_value(&self, key: &str) -> Result<Option<String>> {
@@ -301,12 +313,12 @@ impl EnvOperation for UnixEnvOperation {
         Ok(env::var(key).ok())
     }
 
-    fn unset_sdk_env(&self, key: &str) -> Result<()> {
+    fn unset_sdk_env(&self, key: &str) -> Result<Vec<EnvAction>> {
         let p = Self::current_persistence()?;
         let profile_path = Self::profile_path()?;
         let content = Self::read_profile(&profile_path);
         if content.is_empty() {
-            return Ok(()); // 文件不存在，无需移除
+            return Ok(Vec::new()); // 文件不存在，无需移除
         }
 
         let export_prefix = (p.export_prefix)(key);
@@ -318,23 +330,26 @@ impl EnvOperation for UnixEnvOperation {
 
         Self::write_profile(&profile_path, &lines)?;
         Self::source_profile(&profile_path)?;
-        detail!("removed env `{key}` from shell profile");
-        Ok(())
+        Ok(vec![EnvAction::EnvRemoved { key: key.to_string() }])
     }
 
-    fn restore_sdk_envs(&self, old_envs: &HashMap<String, Option<String>>) -> Result<()> {
+    fn restore_sdk_envs(&self, old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
         let p = Self::current_persistence()?;
         let profile_path = Self::profile_path()?;
+        let mut actions = Vec::with_capacity(old_envs.len());
         for (env_key, old_val) in old_envs {
             if let Some(val) = old_val {
                 Self::append_or_replace_export(&profile_path, p, env_key, val)?;
-                info!("restored env `{env_key}` to `{val}`");
+                actions.push(EnvAction::EnvRestored {
+                    key: env_key.clone(),
+                    value: val.clone(),
+                });
             } else {
-                self.unset_sdk_env(env_key)?;
+                actions.extend(self.unset_sdk_env(env_key)?);
             }
         }
         Self::source_profile(&profile_path)?;
-        Ok(())
+        Ok(actions)
     }
 }
 

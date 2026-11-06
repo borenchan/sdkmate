@@ -228,6 +228,7 @@ impl SdkManager {
             headers,
             self.config.network.cache_ttl_secs as u64,
             &self.config.network,
+            self.sink.as_ref(),
         )
         .await?;
         pb.finish_with_message(format!("✅ Fetched remote versions for {}", sdk_name));

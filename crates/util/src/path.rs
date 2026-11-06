@@ -84,3 +84,32 @@ pub fn format_bytes(bytes: u64) -> String {
     }
     format!("{:.1} {}", size, UNITS[idx])
 }
+
+/// Generate a suggested sdkm deployment path based on the current platform.
+///
+/// Windows: `C:\Users\<username>\sdkm\`
+/// Unix: `~/.sdkm/` (or `/usr/local/sdkm/` as fallback)
+pub fn suggest_sdkm_path() -> String {
+    #[cfg(windows)]
+    {
+        let username = env::var("USERNAME")
+            .or_else(|_| env::var("USERPROFILE").map(|p| p.rsplit('\\').next().unwrap_or("YourName").to_string()))
+            .unwrap_or_else(|_| "YourName".to_string());
+        format!("C:\\Users\\{}\\sdkm\\", username)
+    }
+
+    #[cfg(unix)]
+    {
+        let home = env::var("HOME").unwrap_or_else(|_| "/usr/local".to_string());
+        if home.starts_with('/') {
+            format!("{}/sdkm/", home)
+        } else {
+            "/usr/local/sdkm/".to_string()
+        }
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    {
+        "~/sdkm/".to_string()
+    }
+}

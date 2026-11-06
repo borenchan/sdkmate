@@ -222,7 +222,6 @@ dependencies = [
  "crossterm",
  "indicatif",
  "sdkcore",
- "tokio",
  "unicode-width",
  "util",
 ]
@@ -1929,9 +1928,7 @@ version = "0.5.5"
 dependencies = [
  "anyhow",
  "clap",
- "crossterm",
  "serde",
- "unicode-width",
  "url",
  "winreg",
 ]

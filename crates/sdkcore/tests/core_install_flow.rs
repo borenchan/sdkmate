@@ -12,7 +12,7 @@
 
 use anyhow::Result;
 use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
-use sdkcore::env::EnvOperation;
+use sdkcore::env::{EnvAction, EnvOperation};
 use sdkcore::link::symlink::read_symlink_target;
 use sdkcore::manager::SdkManager;
 use sdkcore::report::{CoreEvent, EventSink, ProgressHandle, ProgressKind, null_sink};
@@ -81,26 +81,26 @@ fn gh_releases_body(base: &str, asset_win: &str, asset_unix: &str, version_tag: 
 struct MockEnv;
 
 impl EnvOperation for MockEnv {
-    fn set_sdk_envs(&self, _envs: &HashMap<String, String>) -> Result<()> {
-        Ok(())
+    fn set_sdk_envs(&self, _envs: &HashMap<String, String>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn add_sdk_path(&self, _sdk_path: &str) -> Result<()> {
-        Ok(())
+    fn add_sdk_path(&self, _sdk_path: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_path(&self) -> Result<String> {
         Ok(String::new())
     }
-    fn remove_sdk_path(&self, _sdk_path: &str) -> Result<()> {
-        Ok(())
+    fn remove_sdk_path(&self, _sdk_path: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_env_value(&self, _key: &str) -> Result<Option<String>> {
         Ok(None)
     }
-    fn unset_sdk_env(&self, _key: &str) -> Result<()> {
-        Ok(())
+    fn unset_sdk_env(&self, _key: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<()> {
-        Ok(())
+    fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
 }
 

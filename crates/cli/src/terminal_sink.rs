@@ -4,6 +4,7 @@
 //! ProgressKind 用 indicatif 渲染（模板自原 install/progress.rs 逐字节迁入）。
 //! emit 时若有活跃进度条先 suspend 再打印，还原原 downloader 的防交错语义。
 
+use crate::terminal;
 use indicatif::{ProgressBar, ProgressStyle};
 use sdkcore::manager::SdkManager;
 use sdkcore::report::{CoreEvent, EventSink, ProgressHandle, ProgressKind};
@@ -11,7 +12,6 @@ use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use util::consts::INSTALL_TIPS;
-use util::terminal;
 
 // ── 速度阈值常量（bytes/sec）──
 const SPEED_SLOW: f64 = 200_000.0; // < 200 KB/s → 🐢

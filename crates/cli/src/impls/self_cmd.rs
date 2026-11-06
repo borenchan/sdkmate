@@ -1,7 +1,7 @@
 use crate::CommandHandler;
+use crate::terminal::prompt_confirm;
 use crate::terminal_sink::manager;
 use clap::{Parser, Subcommand};
-use util::terminal::prompt_confirm;
 
 /// `sdkm self` 子命令组：管理 sdkm 自身
 #[derive(Debug, Parser)]

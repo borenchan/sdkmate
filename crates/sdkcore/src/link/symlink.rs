@@ -3,7 +3,6 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
 };
-use util::{detail, info};
 
 /// 读取符号链接目标路径，用于回滚备份
 /// 返回 Ok(None) 表示路径不存在或不是符号链接
@@ -20,13 +19,14 @@ pub fn read_symlink_target<P: AsRef<Path>>(link_path: &P) -> Result<Option<PathB
     Ok(Some(target))
 }
 
-/// 删除符号链接或目录/文件（用于回滚）
-pub fn remove_symlink<P: AsRef<Path>>(link_path: &P) -> Result<()> {
+/// 删除符号链接或目录/文件（用于回滚）——纯操作函数，动作提示由调用方按需发事件。
+/// 返回 true = 实际发生了删除（NotFound 幂等返回 false，调用方勿对幂等场景发 removed 提示）
+pub fn remove_symlink<P: AsRef<Path>>(link_path: &P) -> Result<bool> {
     let path = link_path.as_ref();
     // 用 symlink_metadata（不跟随），断链也能检测到；NotFound 视为无需删除
     let meta = match fs::symlink_metadata(path) {
         Ok(m) => m,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e.into()),
     };
     if meta.is_symlink() || meta.is_file() {
@@ -34,15 +34,13 @@ pub fn remove_symlink<P: AsRef<Path>>(link_path: &P) -> Result<()> {
     } else {
         fs::remove_dir_all(path)?;
     }
-    detail!("removed symlink at {}", path.display());
-    Ok(())
+    Ok(true)
 }
 
-/// Create a symbolic link from `original` to `link`.
+/// Create a symbolic link from `original` to `link`——纯操作函数，成功提示由调用方发事件
 pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) -> Result<()> {
     let original_path = original.as_ref();
     let link_path = link.as_ref();
-    let link_dir = link_path.display().to_string();
     if !original_path.exists() {
         return Err(anyhow!("original path `{}` does not exist", original_path.display()));
     }
@@ -72,10 +70,5 @@ pub fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(original: &P, link: &Q) ->
             symlink_file(original, link)?;
         }
     }
-    info!(
-        "success create symlink, link path: {} original path: {}",
-        link_dir,
-        original_path.display()
-    );
     Ok(())
 }
