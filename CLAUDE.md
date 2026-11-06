@@ -22,13 +22,22 @@ cargo clippy --all-targets --all-features  # 代码检查
 三成员 Cargo workspace + 根二进制包：
 
 ```
-sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
-  crates/cli    → CLI 层：clap 命令定义 + handler 实现
-  crates/sdkcore → 核心业务逻辑：config、init、install、list、switch、version、env 操作、符号链接
-  crates/util   → 共享工具：宏、SDK 类型、终端输出、配置辅助、路径
+sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs；tests/cli_golden.rs（CLI 集成金样）
+  crates/cli    → CLI 前端：clap 命令定义 + handler 实现 + terminal_sink（事件适配器）
+                  + terminal.rs/macros.rs（终端渲染原语与输出宏）
+  crates/sdkcore → 核心业务（纯数据 API）：config、init、install、list、switch、version、
+                   env 操作、符号链接；report.rs（事件契约）
+  crates/util   → 共享工具：SDK 类型、配置辅助、路径、shell backend、诊断数据（diagnostics）
 ```
 
 **依赖关系**：`cli → sdkcore, util`；`sdkcore → util`；`util` 无内部依赖。所有 crate 继承 workspace 元数据，均为 `publish = false`。
+
+**分层铁律（GUI 铺路，2026-11-06 落地）**：
+- **sdkcore 零打印、零 stdin、零终端渲染依赖**——过程消息经 `sdkcore::report`（`CoreEvent` / `EventSink` / `ProgressKind` 7 场景 / `ProgressHandle` Drop 兜底 / `NullSink`）通知前端；命令结果走结构化返回值；最终失败走 `Result::Err`（core 不对同一失败再发 Error 事件）。文案归 core（事件说什么），样式归前端（TerminalSink 怎么渲染）
+- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus；同步 API 内部 block_on——GUI 必须在专用后台线程调用（约定见 `docs/gui-integration.md`）
+- **确认交互归调用端**：core 零 stdin；`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target`/`check_init_env` 产出决策数据，cli prompt / GUI 弹窗确认后调执行 API；执行段仍自查关键状态（不信任预检查结果）
+- **EnvOperation 不感知 UI**：写方法返回 `Vec<EnvAction>` 结构化动作，业务层经 `report_env_actions` 转事件
+- **util 不含终端渲染**：颜色/光标/表格/prompt/输出宏归 cli（`cli::terminal` + `cli::macros`）；util 只留通用原语（`util::diagnostics` 收 os_version/platform_info/build_bug_report_url）。`cargo tree -p sdkcore -p util` 验证 GUI 依赖链零 crossterm/unicode-width/indicatif
 
 **sdkcore 内部**：`version/` 是版本解析公共模块（install/switch/list 共用），下载 URL 构建留在 `install/download_url`（install 专属）。各模块职责见源码文件，不在此赘述。
 
@@ -73,7 +82,7 @@ bin_dir = "bin"
 ### 错误处理与输出
 - 全项目使用 `anyhow::Result`（启用 backtrace 特性）；`anyhow::bail!` 和 `.context()` 处理错误
 - 无自定义错误类型，不使用 thiserror（`BugReport` 标记类型除外——用于 CLI 层检测不可由用户解决的错误）
-- 终端输出通过自定义宏：`info!`、`success!`、`warning!`、`error!`、`detail!`（crossterm 彩色，不是 `log` crate）
+- **输出分层**：sdkcore 零打印，过程消息经 `SdkManager.sink`（`sdkcore::report` 事件契约）发前端；cli 直接输出用 `crate::{info!, success!, warning!, error!, detail!}` 宏（定义在 `cli/src/macros.rs`，渲染在 `cli/src/terminal.rs`，crossterm 彩色，不是 `log` crate）
 - CLI 错误：用 `error!` 宏打印；debug 构建额外显示 backtrace；检测 `BugReport` 标记时提示 GitHub issue URL；失败时 `process::exit(1)`
 
 ## CLI 命令结构
@@ -86,7 +95,7 @@ bin_dir = "bin"
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler |
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler |
 | `sdkm use <SDK> <VERSION> [--shell]` | — | cli/UseHandler |
-| `sdkm env [SHELL]` | — | cli/EnvHandler |
+| `sdkm env [--shell SHELL]` | — | cli/EnvHandler |
 | `sdkm hook [SHELL]` | — | cli/HookHandler |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler |
 | `sdkm config` | — | cli/ConfigHandler |
@@ -97,24 +106,23 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-05）
+## 当前开发进度（2026-11-06）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 进行中：核心解耦及 GUI 支撑重构（feature/core-decouple 分支，五阶段）
+### 核心/前端解耦重构已收尾（feature/core-decouple 分支，五阶段全部完成）
 
-> **新会话必读**：本重构的**唯一权威文档是 `D:\Desktop\sdkm资料\文档\cli重构.md`**（执行计划 + 各 Phase 实施记录与偏差，随编码滚动更新，先读它再动手）。金样回归工具在 `D:\Desktop\sdkm资料\golden\golden.ps1`（collect/compare 两模式、14 场景沙箱、字节级含 exit code；基线目录 `baseline3`；脚本已内置 NO_COLOR 消毒）。
+> 唯一权威文档 `D:\Desktop\sdkm资料\文档\cli重构.md`（含全部实施记录与偏差）；金样工具 `D:\Desktop\sdkm资料\golden\golden.ps1`（14 场景字节级对比，基线 `baseline3`）。架构铁律已沉淀到本文件"工作区架构"段；GUI 接入约定见 `docs/gui-integration.md`。
 
-**任务**：让 sdkcore 成为纯数据 API（结构化返回值 + UI 无关事件），cli 是终端前端，未来 gui 另一前端；CLI 输出非 TTY 字节级不变。架构契约：`sdkcore::report`（CoreEvent / ProgressKind 7 场景枚举 / EventSink / ProgressHandle / NullSink）+ `SdkManager{config, env_operation, sink}`；`cli::terminal_sink::TerminalSink`（活跃 bar 槽 suspend 防交错 + 7 场景模板 + Drop 兜底）+ `manager()` 统一装配。关键约束见文档 §5.1（每操作独立 Manager+Sink 串行、Error 事件与 Result::Err 不重复、渲染端 Drop 兜底、resolve 预检查不替代执行段自查）。
+**Phase 1-3**（`1af78d7` list 渲染解耦 / `bed71de` 事件契约落地 / `aa35140` 确认上移调用端）：详见 cli重构.md 各 Phase 实施记录。
 
-**已完成（均已用户确认并 commit）**：
-- Phase 1 `1af78d7`：list 渲染解耦（core `local_overview_rows` 纯数据 / cli 渲染下沉；唯一批准行为差异 = "not found in store" 提示去重）
-- Phase 2 `bed71de`：事件契约落地（`SdkManager::new(sink)` 签名变更编译器强制装配；install/downloader/extractor/self_update/list 全链路宏→sink；sdkcore 移除 indicatif；MockSink 统一日志流测试覆盖事件+进度生命周期；修复备源下载双 bar 踩踏闪烁 + 3 处用户批准的 TTY 视觉调整）
-- Phase 3 `aa35140`：确认上移调用端（core 零 stdin：`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target` 三个只读 API + 删 3 处 prompt_confirm + `uninstall_sdk` 删 yes 参数；执行段自查保留；cli handler/TUI 补确认文案逐字搬）
+**Phase 4 `fe4c2be`**：输出扫尾（switch/uninstall/use_cmd/self_uninstall/config 写侧/symlink/shell_env/inject 全 sink 化）+ **EnvOperation 结构化**（写方法返回 `Vec<EnvAction>`，`report_env_actions` 转事件；MockEnv 机械适配返回类型）+ version/cache.rs 网络重试 warning 走 sink 参数 + **doctor 数据化**（`collect_doctor_report → DoctorReport`，cli 渲染分流）+ **init 拆分**（`check_init_env → InitCheck` 确认上移 + `init_sdkm(sink, force) → InitSummary`，装饰归 cli）+ **util 边界**（terminal.rs 渲染半区+宏迁 `cli::terminal`/`cli::macros`，`util::diagnostics` 收诊断数据，util 删 crossterm/unicode-width，cli 删 tokio）+ resolve 同名统一（use_cmd 改调 `resolve_installed_version`）。沙箱对比（WSL aa35140 基线 vs Phase 4，9 场景）抓出 2 个迁移 bug 已修：`remove_symlink` 返回 bool（幂等静默语义保真）、uninstall 嵌入 switch 文案参数顺序。
 
-**下一步 Phase 4（扫尾 + 依赖整理，清单见文档）**：version/cache.rs 5 处 warning、use_project_version(2)、config 写侧(4)、symlink.rs(2)、shell/inject.rs(6)、self_uninstall(8)、self_update 残留宏→sink；`env/windows.rs`+`env/unix.rs` 的输出**不持 sink**（EnvOperation 专注系统操作，业务层按结果发事件；需细节则返回结构化结果）——unix.rs 改动必须剥 cfg 验证 + WSL 编译；doctor 数据化 DoctorReport；init 拆 check+run+确认上移；util 模块边界（终端能力长期归 CLI，`cargo tree` 验证 sdkcore→util→crossterm 间接链收敛）；cli 删未用 tokio；grep 清零（sdkcore 零输出宏/零 prompt_confirm，init 的 2 处确认在此时拆）。然后 Phase 5 收尾（金样精简入库 cli 集成测试、CI 纳入 `cargo test --workspace`、CLAUDE.md 架构段+GUI 集成约定统一更新、平台表述如实）。
+**Phase 5（本提交）**：CLI 金样精简入库（根 `tests/cli_golden.rs` 11 场景：version/current 三来源/ls 空与缺失/config/未注册错误分流/hook 全文/env+use --shell 纯净性/use pin 端到端；去 ANSI 文本断言 + 路径归一化 + 环境污染屏障——防宿主 temp 残留 .sdkm.toml 混入三层解析）+ 独立 `.github/workflows/ci.yml`（push 非 master + PR 触发，ubuntu x86/arm + macos + windows 四 runner 跑 fmt/clippy/test；clippy 暂不 -D warnings——仓库尚有 20+ 预存在警告待基线清零）+ CLAUDE.md 架构段/进度段统一更新 + `docs/gui-integration.md`。
 
-**本重构期间的执行规矩**：① 每阶段完成 → 构建 + 金样对比 + 更新文档 → **用户确认后才 commit**（英文一行 conventional，不带 Claude 信息，不带 CLAUDE.md 进度更新——收尾统一）；② release 构建后覆盖 `D:\develop\sdk\.sdkm\sdkm.exe`（先备份 .bak）；③ 三检查 `cargo fmt --check` / `cargo test --workspace -j 2`（本机多目标并行会耗尽页面文件 os error 1455）/ `cargo clippy --all-targets`。
+**已知遗留（非阻塞，记录在案）**：ls 版本列表未显式排序（read_dir 枚举序透传，Windows 名序与 ext4 哈希序不同——排序语义需用户拍板后修）；`sdkcore/tests/env.rs` 直接操作真实注册表（违反沙箱测试规矩的既有测试，CI runner 一次性环境 + add/remove 自清理故不阻塞）；clippy 预存在警告 20+（collapsible_if 等，多在未改动文件）。
+
+**重构期间验证基线**：金样 14 场景 + 沙箱对比 9 场景字节级一致（Windows 金样、WSL 沙箱）；114 workspace 测试全绿；WSL 全量编译通过（unix.rs 真实编译）；macOS 由 CI 发版兜底。双平台部署二进制：Windows `D:\develop\sdk\.sdkm\sdkm.exe` + WSL `~/.sdkm/sdkm`（均 .bak 备份）。**待用户 TTY 冒烟**：init 四态（金样盲区）、install 真实下载富模板、hook 重开终端。
 
 ## 已知问题与注意事项
 
