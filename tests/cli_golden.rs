@@ -10,6 +10,7 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::process;
 use std::process::{Command, Output};
 
 // ── 沙箱 fixture ────────────────────────────────────────────────
