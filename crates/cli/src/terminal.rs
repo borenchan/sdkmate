@@ -6,7 +6,7 @@
 use anyhow::Result;
 use crossterm::style::Stylize;
 use std::env;
-use std::io::{self,IsTerminal, Write};
+use std::io::{self, IsTerminal, Write};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use util::consts::DIVIDER;
 use util::diagnostics::{build_bug_report_url, os_version, platform_info};
@@ -173,7 +173,6 @@ pub fn suggest_bug_report(command: &str, error_msg: &str) {
     detail(&format!("Platform: {}", platform_info()));
     detail(DIVIDER);
 }
-
 
 /// 当前会话是否交互终端（stdin+stdout 均 TTY）——TUI 路径与非 TTY 输出路径的分派判据
 pub fn is_tty() -> bool {

@@ -1,7 +1,7 @@
 use crate::CommandHandler;
 use crate::impls::install::install_with_confirm;
 use crate::impls::uninstall::uninstall_with_confirm;
-use crate::terminal::{pad_right,is_tty};
+use crate::terminal::{is_tty, pad_right};
 use crate::terminal_sink::manager;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
 use crate::{divider, info};
