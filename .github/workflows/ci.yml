@@ -1,0 +1,49 @@
+name: CI
+
+# 质量门禁：fmt / clippy / 全量测试，三系统 runner（对齐 release 矩阵的 gnu/macos/windows 逻辑目标；
+# ARM64 gnu 与 musl 由 release.yml 发版构建兜底，测试跑三大系统已覆盖平台敏感路径）
+# Linux 需 cmake（aws-lc-rs 构建依赖），对齐 CLAUDE.md 运行环境说明。
+on:
+  push:
+    branches-ignore:
+      - master # master 的质量验证由 release.yml 的发版链承载，避免重复跑
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake
+
+      - name: Install native build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
+      - uses: dtolnay/rust-toolchain@1.92.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # key 含 OS：防 aws-lc-sys 产物跨 OS 版本缓存污染（对齐 release.yml 做法）
+          key: ${{ matrix.os }}
+
+      - name: Format check
+        run: cargo fmt --check
+
+      # clippy 仅展示不阻塞：仓库尚有 20+ 预存在警告（collapsible_if 等，多为既有代码结构），
+      # 待基线清零后再收紧为 -D warnings
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features
+
+      - name: Test
+        run: cargo test --workspace -j 2
