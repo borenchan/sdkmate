@@ -1,7 +1,7 @@
 // 卸载本地已安装的 SDK 版本
 //
 // 复用既有逻辑（跨模块调用的均为已 pub 的公共 API，无需抽取通用文件）：
-// - list_local_sdk_versions / fuzzy_match_version_core：版本扫描 + 模糊匹配（与 install/switch 同源）
+// - list_local_sdk_versions / fuzzy_match_version_core：版本扫描（静默）+ 模糊匹配（与 install/switch 同源）
 // - switch_sdk_to_version：卸载当前版本且有其他版本时，复用 switch 流程切到其他版本（业务编排）
 // - remove_symlink / EnvOperation trait 方法 / config 快照回滚：底层公共 API
 

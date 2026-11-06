@@ -74,6 +74,10 @@ impl CommandHandler for ListHandler {
             (Some(sdk_name), false) => {
                 let sdk = manager.match_valid_sdk(sdk_name)?;
                 let versions = manager.list_local_sdk_versions(&sdk)?;
+                // "未装"提示归展示端（core 数据函数静默——它会污染 hook 的 stdout 捕获）
+                if versions.is_empty() {
+                    info!("SDK '{}' not found in store. Please install a version first.", sdk);
+                }
                 if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
                     let action = run_local_selector(&sdk.to_string(), &versions)?;
                     self.execute_action(action, &sdk)

@@ -115,7 +115,12 @@ impl SdkManager {
         Ok(rows)
     }
 
-    /// 获取本地 SDK 版本列表(数据层,供 TUI 选择器使用)
+    /// 获取本地 SDK 版本列表（纯数据：store 无该 SDK 返回空列表，零输出）
+    ///
+    /// "未装"提示归调用端——本函数被高频跨路径复用（resolve 预检查 / switch/uninstall
+    /// 执行段 / 项目层 env 注入 / TUI / ls），各自对空列表的语义不同（bail / 静默降级 /
+    /// 展示提示）；在数据函数里发提示会污染 `eval "$(sdkm env)"` 的 stdout 捕获（hook 报
+    /// command not found），并造成与调用端 bail 的重复提示
     pub fn list_local_sdk_versions(&self, sdk: &Sdk) -> Result<Vec<SdkVersionItem>> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdks_root_dir = get_installed_sdks_dir()?;
@@ -123,25 +128,22 @@ impl SdkManager {
             .read_dir()?
             .filter_map(|entry| entry.ok())
             .find(|entry| entry.file_name().to_string_lossy() == sdk.to_string());
-        if let Some(sdk_dir) = sdk_dir {
-            let result = sdk_dir
-                .path()
-                .read_dir()?
-                .filter_map(|entry| entry.ok())
-                .map(|sdk_version| {
-                    let sdk_version_dir = sdk_version.path();
-                    let is_active = sdk_conf
-                        .current_version
-                        .clone()
-                        .is_some_and(|current| current == sdk_version.file_name().to_string_lossy().as_ref());
-                    SdkVersionItem::new(sdk.clone(), sdk_version_dir, is_active)
-                })
-                .collect();
-            return Ok(result);
-        }
-        self.sink
-            .info(format!("SDK '{}' not found in store. Please install a version first.", sdk));
-        Ok(vec![])
+        let Some(sdk_dir) = sdk_dir else {
+            return Ok(vec![]);
+        };
+        Ok(sdk_dir
+            .path()
+            .read_dir()?
+            .filter_map(|entry| entry.ok())
+            .map(|sdk_version| {
+                let sdk_version_dir = sdk_version.path();
+                let is_active = sdk_conf
+                    .current_version
+                    .clone()
+                    .is_some_and(|current| current == sdk_version.file_name().to_string_lossy().as_ref());
+                SdkVersionItem::new(sdk.clone(), sdk_version_dir, is_active)
+            })
+            .collect())
     }
 
     /// 收集所有已注册 SDK 概览(config.sdks 全量 + store 安装状态 + current + 可否远程)
