@@ -7,6 +7,7 @@
 //! - 含宿主 PATH 的脚本（env/use --shell）只断言结构特征 + stdout 纯净性（无 UI 前缀）
 //! - 路径归一化为 {FX}；版本号场景前缀匹配（发版演化）
 
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -21,7 +22,7 @@ struct Sandbox {
 impl Sandbox {
     /// java 21.0.5(激活)/8.0.492 + maven 3.9.6 两 SDK 的标准 fixture
     fn new(tag: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("sdkm_golden_{}_{}", std::process::id(), tag));
+        let root = env::temp_dir().join(format!("sdkm_golden_{}_{}", process::id(), tag));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("store/java/21.0.5")).unwrap();
         fs::create_dir_all(root.join("store/java/8.0.492")).unwrap();

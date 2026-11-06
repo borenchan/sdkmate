@@ -6,6 +6,8 @@
 // - 按时区判断而非语言/IP：大陆统一为 UTC+8 无夏令时，IANA 时区名固定；
 //   新加坡/吉隆坡同为 +8 但不命中，避免误开
 
+use std::{env, fs};
+
 /// 中国大陆的 IANA 时区别名（含历史别名 Chongqing/Harbin/Urumqi，老系统仍可能使用）
 #[cfg(unix)]
 const CHINA_TZ_MARKERS: &[&str] = &["Shanghai", "Chongqing", "Harbin", "Urumqi"];
@@ -45,19 +47,19 @@ fn is_windows_china_timezone() -> bool {
 #[cfg(unix)]
 fn is_unix_china_timezone() -> bool {
     // $TZ 环境变量（可能带路径前缀，如 ":Asia/Shanghai"）
-    if let Ok(tz) = std::env::var("TZ") {
+    if let Ok(tz) = env::var("TZ") {
         if matches_china_tz(&tz) {
             return true;
         }
     }
     // /etc/timezone（Debian/Ubuntu 系）
-    if let Ok(content) = std::fs::read_to_string("/etc/timezone") {
+    if let Ok(content) = fs::read_to_string("/etc/timezone") {
         if matches_china_tz(content.trim()) {
             return true;
         }
     }
     // /etc/localtime 符号链接目标（RHEL/Arch 系，形如 ../usr/share/zoneinfo/Asia/Shanghai）
-    if let Ok(target) = std::fs::read_link("/etc/localtime") {
+    if let Ok(target) = fs::read_link("/etc/localtime") {
         if matches_china_tz(&target.to_string_lossy()) {
             return true;
         }

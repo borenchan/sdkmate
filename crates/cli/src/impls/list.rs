@@ -1,7 +1,7 @@
 use crate::CommandHandler;
 use crate::impls::install::install_with_confirm;
 use crate::impls::uninstall::uninstall_with_confirm;
-use crate::terminal::pad_right;
+use crate::terminal::{pad_right,is_tty};
 use crate::terminal_sink::manager;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
 use crate::{divider, info};
@@ -64,7 +64,7 @@ impl CommandHandler for ListHandler {
         match (&self.sdk, self.remote) {
             // 无 SDK → TTY 走两层 SDK/版本选择 TUI；非 TTY（管道/agent）打印已安装概览
             (None, false) => {
-                if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                if is_tty() {
                     self.run_sdk_browse_tui()
                 } else {
                     Self::show_local_overview(&manager)
@@ -78,7 +78,7 @@ impl CommandHandler for ListHandler {
                 if versions.is_empty() {
                     info!("SDK '{}' not found in store. Please install a version first.", sdk);
                 }
-                if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                if is_tty() {
                     let action = run_local_selector(&sdk.to_string(), &versions)?;
                     self.execute_action(action, &sdk)
                 } else {
@@ -89,7 +89,7 @@ impl CommandHandler for ListHandler {
             (Some(sdk_name), true) => {
                 let sdk = manager.match_valid_sdk(sdk_name)?;
                 // TTY 走 TUI 拿全量列表（搜索按全量过滤，--limit 不生效）；非 TTY 文本输出按 --limit 截断
-                let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+                let tty = is_tty();
                 let fetch_limit = if tty { u32::MAX } else { self.limit };
                 let RemoteVersionResult { items, total_count } =
                     manager.fetch_remote_version_list(&sdk, fetch_limit)?;
