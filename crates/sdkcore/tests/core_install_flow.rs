@@ -65,15 +65,43 @@ fn serve_routes(routes: Vec<(&'static str, Vec<u8>)>) -> String {
     base
 }
 
-/// 构造最小 GH Releases JSON（一个 stable release：当前平台资产 + 另一平台资产）
-fn gh_releases_body(base: &str, asset_win: &str, asset_unix: &str, version_tag: &str) -> String {
+/// 构造最小 GH Releases JSON（一个 stable release：资产表 (文件名，下载路径) 对，覆盖 CI 矩阵全宿主）
+fn gh_releases_body(base: &str, version_tag: &str, assets: &[(&str, &str)]) -> String {
+    let items: Vec<String> = assets
+        .iter()
+        .map(|(name, path)| format!(r#"{{"name":"{name}","browser_download_url":"{base}{path}"}}"#))
+        .collect();
     format!(
-        r#"[{{"tag_name":"{tag}","prerelease":false,"draft":false,"assets":[{{"name":"{win}","browser_download_url":"{base}/dl/{win}"}},{{"name":"{unix}","browser_download_url":"{base}/dl/{unix}"}}]}}]"#,
+        r#"[{{"tag_name":"{tag}","prerelease":false,"draft":false,"assets":[{list}]}}]"#,
         tag = version_tag,
-        win = asset_win,
-        unix = asset_unix,
-        base = base,
+        list = items.join(",")
     )
+}
+
+/// 标准 B mock 资产表：CI 四宿主（windows-x64 / linux-x64 / linux-arm64 / mac-arm64）各一条，
+/// 任一 runner 都能命中本平台资产（不命中且无模板时 install 会报错）
+const TOOL_ASSETS: &[(&str, &str)] = &[
+    ("tool-x86_64-pc-windows-msvc.zip", "/dl/tool-x86_64-pc-windows-msvc.zip"),
+    (
+        "tool-x86_64-unknown-linux-gnu.tar.gz",
+        "/dl/tool-x86_64-unknown-linux-gnu.tar.gz",
+    ),
+    (
+        "tool-aarch64-unknown-linux-gnu.tar.gz",
+        "/dl/tool-aarch64-unknown-linux-gnu.tar.gz",
+    ),
+    ("tool-aarch64-apple-darwin.tar.gz", "/dl/tool-aarch64-apple-darwin.tar.gz"),
+];
+
+/// 标准 B mock 的下载路由：windows 资产回 zip，linux/darwin 资产回真实 tar.gz
+/// （历史上 linux 路由误回 zip 字节流，linux 宿主解压报 invalid gzip header——Windows 盲区）
+fn tool_dl_routes(zip: Vec<u8>) -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("/dl/tool-x86_64-pc-windows-msvc.zip", zip),
+        ("/dl/tool-x86_64-unknown-linux-gnu.tar.gz", minimal_tar_gz()),
+        ("/dl/tool-aarch64-unknown-linux-gnu.tar.gz", minimal_tar_gz()),
+        ("/dl/tool-aarch64-apple-darwin.tar.gz", minimal_tar_gz()),
+    ]
 }
 
 // ─── 测试环境（沿用 uninstall.rs 惯例）──────────────────────────
@@ -224,6 +252,21 @@ fn minimal_zip() -> Vec<u8> {
     minimal_zip_at(false)
 }
 
+/// 最小 tar.gz 字节流（根布局 README.txt + demo.txt）：linux/darwin 资产的真实载荷
+fn minimal_tar_gz() -> Vec<u8> {
+    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
+    let mut add = |name: &str, data: &[u8]| {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append_data(&mut header, name, data)
+    };
+    add("README.txt", b"readme").unwrap();
+    add("demo.txt", b"payload").unwrap();
+    tar.into_inner().unwrap().finish().unwrap()
+}
+
 fn assert_installed(env: &TestEnv, sdk: &str, ver: &str, payload_rel: &str) {
     let dir = env.temp.join("store").join(sdk).join(ver);
     assert!(dir.exists(), "version dir missing: {}", dir.display());
@@ -246,18 +289,9 @@ fn assert_current(sdk: &str, ver: &str) {
 /// 标准 B（GitHub Releases）：GH API URL → 引擎解析 → 平台直链 → root 布局安装
 #[test]
 fn core_flow_github_releases_direct_link() {
-    let zip = minimal_zip();
     // 下载 server 与 releases server 分开起；body 里携带下载 server 的真实地址
-    let dl_base = serve_routes(vec![
-        ("/dl/tool-x86_64-pc-windows-msvc.zip", zip.clone()),
-        ("/dl/tool-x86_64-unknown-linux-gnu.tar.gz", zip),
-    ]);
-    let body = gh_releases_body(
-        &dl_base,
-        "tool-x86_64-pc-windows-msvc.zip",
-        "tool-x86_64-unknown-linux-gnu.tar.gz",
-        "v1.4.2",
-    );
+    let dl_base = serve_routes(tool_dl_routes(minimal_zip()));
+    let body = gh_releases_body(&dl_base, "v1.4.2", TOOL_ASSETS);
     let api_base = serve_routes(vec![("/api/repos/x/tool/releases", body.into_bytes())]);
 
     let config = SdkmConfig {
@@ -525,17 +559,8 @@ fn core_flow_fallback_download_bar_lifecycle() {
 /// 安装 + switch 符号链接链路（回归保护：引擎型 Custom SDK 走既有 switch 语义）
 #[test]
 fn switch_symlink_resolves_to_installed_version() {
-    let zip = minimal_zip();
-    let dl_base = serve_routes(vec![
-        ("/dl/tool-x86_64-pc-windows-msvc.zip", zip.clone()),
-        ("/dl/tool-x86_64-unknown-linux-gnu.tar.gz", zip),
-    ]);
-    let body = gh_releases_body(
-        &dl_base,
-        "tool-x86_64-pc-windows-msvc.zip",
-        "tool-x86_64-unknown-linux-gnu.tar.gz",
-        "v0.9.9",
-    );
+    let dl_base = serve_routes(tool_dl_routes(minimal_zip()));
+    let body = gh_releases_body(&dl_base, "v0.9.9", TOOL_ASSETS);
     let api_base = serve_routes(vec![("/api/repos/x/tool/releases", body.into_bytes())]);
 
     let config = SdkmConfig {

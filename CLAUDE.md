@@ -110,16 +110,19 @@ bin_dir = "bin"
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### GH Releases 引擎 CI 测试修复（feature/core-decouple 分支）
+### GH Releases 引擎 CI 测试修复（feature/core-decouple 分支，两轮）
 
-`9109099` 落地的 GH Releases 引擎（asset_selector + github_releases，内置 SDK 扩到 14 个）单测写死了 Windows 宿主期望，PR CI 的 ubuntu/macos runner 挂 10 个测试（Windows 资产 `unwrap()` None、端到端 `got `（空））——Windows 开发机盲区的测试版：本地全绿、CI 三系统全红。**运行时代码零改动**，仅修测试：
+`9109099` 落地的 GH Releases 引擎（asset_selector + github_releases，内置 SDK 扩到 14 个）的测试写死 Windows 宿主期望，PR CI 的 ubuntu/macos runner 大面积挂——Windows 开发机盲区的测试版：本地全绿、CI 三系统全红。**运行时代码零改动**，仅修测试，分两层：
 
-- `asset_selector.rs`：测试模块从 15 个精简到 1 个平台无关拒绝路径测试（校验和/签名/bsdiff/.msi 等非压缩包后缀任何宿主不命中）；命中类断言与编译期宿主耦合，删掉后由集成测试 `core_install_flow::core_flow_github_releases_direct_link` 兜底（每 runner 起本地 server 真实挑中本平台资产走下载→解压→安装全链路）
-- `github_releases.rs`：端到端断言从写死 "Windows 评测机选 plain" 改为与 `pick_asset` 当前平台结果对齐（平台无关且保留 prerelease 过滤/tag 剥前缀/排序链路覆盖）
+**单测层（`f73b370`）**：asset_selector 测试模块 15→1（仅留平台无关拒绝路径；命中类断言与编译期宿主耦合，删掉后由集成测试兜底）；github_releases 端到端断言改为与 `pick_asset` 当前平台结果对齐。
 
-验证：WSL linux x64 真实宿主实测命中/降权/拒绝 5 类场景全过（临时测试按规矩验证后已删）；workspace 全量绿。
+**集成测试层（本提交）**：WSL 复现出两处 mock 数据的 Windows 盲区——
+- `core_install_flow.rs`：标准 B 的 `.tar.gz` 路由误回 zip 字节流（linux 宿主解压报 invalid gzip header），且资产表只覆盖 windows-x64/linux-x64（ubuntu-arm/macos 宿主不命中且无模板 → install 报错）。修复：新增 `minimal_tar_gz()` 真实 tar.gz 载荷 + `TOOL_ASSETS` 资产表覆盖 CI 四宿主（windows-x64 / linux-gnu x64+arm64 / darwin arm64）；linux/darwin 路由回真实 tar.gz
+- `shell_integration.rs`：`env_script_layered_priority_with_venv` 把 bin 路径 `replace('/', "\\")` 造"Windows 风格路径"塞进 PATH 做稳定态模拟（Windows 上 replace 无操作恰好原生路径全绿；linux 上成反斜杠伪路径必挂），其余 7 个测试全是它 panic 毒锁 `LOCK` 的级联。修复：统一用平台原生路径
 
-**已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。**教训**：单测断言依赖编译期 `cfg!` 宿主常量时，要么 cfg! 分流要么交集成测试，不能裸写单一平台期望。
+验证：WSL linux x64 + Windows 双平台 workspace 全量绿、fmt 过。**教训**：测试 mock 数据与断言不能假定宿主平台（假载荷、路径分隔符替换都是 Windows 盲区变体）；多测试共享串行锁时，一个真失败会以毒锁级联放大，看 CI 失败清单先找非锁行号的那一个。
+
+**已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。
 
 ## 已知问题与注意事项
 
