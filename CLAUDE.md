@@ -119,10 +119,11 @@ bin_dir = "bin"
 **集成测试层（本提交）**：WSL 复现出两处 mock 数据的 Windows 盲区——
 - `core_install_flow.rs`：标准 B 的 `.tar.gz` 路由误回 zip 字节流（linux 宿主解压报 invalid gzip header），且资产表只覆盖 windows-x64/linux-x64（ubuntu-arm/macos 宿主不命中且无模板 → install 报错）。修复：新增 `minimal_tar_gz()` 真实 tar.gz 载荷 + `TOOL_ASSETS` 资产表覆盖 CI 四宿主（windows-x64 / linux-gnu x64+arm64 / darwin arm64）；linux/darwin 路由回真实 tar.gz
 - `shell_integration.rs`：`env_script_layered_priority_with_venv` 把 bin 路径 `replace('/', "\\")` 造"Windows 风格路径"塞进 PATH 做稳定态模拟（Windows 上 replace 无操作恰好原生路径全绿；linux 上成反斜杠伪路径必挂），其余 7 个测试全是它 panic 毒锁 `LOCK` 的级联。修复：统一用平台原生路径
+- `current.rs`（macOS 首次真跑 CI 暴露）：期望 origin 路径用未解析的 temp 路径，而 macOS `getcwd()` 解析符号链接（`/var` → `/private/var`），core 从 `current_dir` 向上爬必返回物理路径 → 断言失配；其余 4 个失败为毒锁级联。修复：期望路径取 `env::current_dir()` 本身对齐（**不可用 `fs::canonicalize`——Windows 上返回 `\\?\C:\` 前缀的 verbatim 路径反而失配**）
 
-验证：WSL linux x64 + Windows 双平台 workspace 全量绿、fmt 过。**教训**：测试 mock 数据与断言不能假定宿主平台（假载荷、路径分隔符替换都是 Windows 盲区变体）；多测试共享串行锁时，一个真失败会以毒锁级联放大，看 CI 失败清单先找非锁行号的那一个。
+验证：WSL linux x64 + Windows 双平台 workspace 全量绿、fmt 过。**教训**：测试 mock 数据与断言不能假定宿主平台（假载荷、路径分隔符替换、未解析 temp 路径都是 Windows 盲区变体）；多测试共享串行锁时，一个真失败会以毒锁级联放大，看 CI 失败清单先找非锁行号的那一个。
 
-**CI 矩阵精简（同批）**：4 runner × push/PR 双触发（同 commit 跑 8 job）→ 三大 OS 各一 latest（ubuntu/macos/windows，3 job），只留 push 触发（非 master）；ARM64/musl/macOS Intel 编译验证由 release.yml 发版七产物矩阵兜底。macos-14 label 在本仓库持续分配失败（`'macos-14-arm64-us-default' is not supported`，0 step 即取消，runner 池问题非代码问题），换 macos-latest 规避。
+**CI 矩阵精简（同批）**：4 runner × push/PR 双触发（同 commit 跑 8 job）→ 三大 OS 各一（3 job），只留 push 触发（非 master）；ARM64/musl/macOS Intel 编译验证由 release.yml 发版七产物矩阵兜底。**固定具体版本不用 latest**（`ubuntu-24.04`/`macos-15`/`windows-2025`）：GitHub 滚动 latest 时 glibc/Xcode/MSVC 跳变会让 CI 无预警变红（MACOSX_DEPLOYMENT_TARGET 教训），镜像退役前有公告届时手动升级；macos-14 label 在本仓库持续分配失败（`'macos-14-arm64-us-default' is not supported`，0 step 即取消，runner 池问题），换 macos-15 规避。
 
 **已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。
 

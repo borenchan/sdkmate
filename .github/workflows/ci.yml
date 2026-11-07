@@ -1,6 +1,8 @@
 name: CI
 
-# 质量门禁：fmt / clippy / 全量测试。基础验证矩阵：三大 OS 各一（latest）；
+# 质量门禁：fmt / clippy / 全量测试。基础验证矩阵：三大 OS 各一。
+# 固定具体版本不用 latest：GitHub 滚动 latest 时 glibc/Xcode/MSVC 跳变会让 CI 无预警变红
+# （MACOSX_DEPLOYMENT_TARGET 教训）；镜像退役前 GitHub 会提前公告，届时手动升级即可。
 # ARM64 / musl / macOS Intel 等完整目标由 release.yml 发版七产物矩阵兜底（发版必真编译）。
 # 只留 push 触发（非 master）：PR 与 push 是同一 commit，双触发纯重复跑两遍。
 on:
@@ -15,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-15, windows-2025]
     steps:
       - uses: actions/checkout@v4
 

@@ -180,13 +180,18 @@ fn project_pin_fuzzy_resolves_with_path() {
     let env = setup(&config);
     make_version_dir(&env, "java", "17.0.10");
     make_version_dir(&env, "java", "21.0.2+9");
-    let proj = setup_project(&env, &[("java", "21")]);
+    setup_project(&env, &[("java", "21")]);
     let manager = make_manager(config);
     let java = Sdk::from_str("java").unwrap();
 
     let ev = manager.effective_version(&java).unwrap();
     assert_eq!(ev.version, "21.0.2+9");
-    assert_eq!(ev.origin, VersionOrigin::Project(proj.join(".sdkm.toml")));
+    // 期望路径取 cwd 本身：macOS getcwd 会解析符号链接（/var → /private/var），
+    // core 从 current_dir 向上爬，origin 必然是 cwd 的物理形式
+    assert_eq!(
+        ev.origin,
+        VersionOrigin::Project(env::current_dir().unwrap().join(".sdkm.toml"))
+    );
 }
 
 /// 无会话无 pin：全局层 current_version 兜底
@@ -283,5 +288,9 @@ fn project_config_found_from_subdirectory() {
 
     let ev = manager.effective_version(&java).unwrap();
     assert_eq!(ev.version, "21.0.2+9");
-    assert_eq!(ev.origin, VersionOrigin::Project(proj.join(".sdkm.toml")));
+    // 期望路径取 cwd 物理形式的父目录：macOS getcwd 解析符号链接（/var → /private/var），
+    // core 从 current_dir 向上爬，origin 必然基于 cwd 的物理形式；不可用 canonicalize
+    // （Windows 上会加 \\?\ 前缀反而失配）
+    let phys_proj = env::current_dir().unwrap().parent().unwrap().to_path_buf();
+    assert_eq!(ev.origin, VersionOrigin::Project(phys_proj.join(".sdkm.toml")));
 }
