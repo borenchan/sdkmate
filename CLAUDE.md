@@ -22,13 +22,22 @@ cargo clippy --all-targets --all-features  # 代码检查
 三成员 Cargo workspace + 根二进制包：
 
 ```
-sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs
-  crates/cli    → CLI 层：clap 命令定义 + handler 实现
-  crates/sdkcore → 核心业务逻辑：config、init、install、list、switch、version、env 操作、符号链接
-  crates/util   → 共享工具：宏、SDK 类型、终端输出、配置辅助、路径
+sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs；tests/cli_golden.rs（CLI 集成金样）
+  crates/cli    → CLI 前端：clap 命令定义 + handler 实现 + terminal_sink（事件适配器）
+                  + terminal.rs/macros.rs（终端渲染原语与输出宏）
+  crates/sdkcore → 核心业务（纯数据 API）：config、init、install、list、switch、version、
+                   env 操作、符号链接；report.rs（事件契约）
+  crates/util   → 共享工具：SDK 类型、配置辅助、路径、shell backend、诊断数据（diagnostics）
 ```
 
 **依赖关系**：`cli → sdkcore, util`；`sdkcore → util`；`util` 无内部依赖。所有 crate 继承 workspace 元数据，均为 `publish = false`。
+
+**分层铁律（GUI 铺路，2026-11-06 落地）**：
+- **sdkcore 零打印、零 stdin、零终端渲染依赖**——过程消息经 `sdkcore::report`（`CoreEvent` / `EventSink` / `ProgressKind` 7 场景 / `ProgressHandle` Drop 兜底 / `NullSink`）通知前端；命令结果走结构化返回值；最终失败走 `Result::Err`（core 不对同一失败再发 Error 事件）。文案归 core（事件说什么），样式归前端（TerminalSink 怎么渲染）
+- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus；同步 API 内部 block_on——GUI 必须在专用后台线程调用（约定见 `docs/gui-integration.md`）
+- **确认交互归调用端**：core 零 stdin；`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target`/`check_init_env` 产出决策数据，cli prompt / GUI 弹窗确认后调执行 API；执行段仍自查关键状态（不信任预检查结果）
+- **EnvOperation 不感知 UI**：写方法返回 `Vec<EnvAction>` 结构化动作，业务层经 `report_env_actions` 转事件
+- **util 不含终端渲染**：颜色/光标/表格/prompt/输出宏归 cli（`cli::terminal` + `cli::macros`）；util 只留通用原语（`util::diagnostics` 收 os_version/platform_info/build_bug_report_url）。`cargo tree -p sdkcore -p util` 验证 GUI 依赖链零 crossterm/unicode-width/indicatif
 
 **sdkcore 内部**：`version/` 是版本解析公共模块（install/switch/list 共用），下载 URL 构建留在 `install/download_url`（install 专属）。各模块职责见源码文件，不在此赘述。
 
@@ -73,7 +82,7 @@ bin_dir = "bin"
 ### 错误处理与输出
 - 全项目使用 `anyhow::Result`（启用 backtrace 特性）；`anyhow::bail!` 和 `.context()` 处理错误
 - 无自定义错误类型，不使用 thiserror（`BugReport` 标记类型除外——用于 CLI 层检测不可由用户解决的错误）
-- 终端输出通过自定义宏：`info!`、`success!`、`warning!`、`error!`、`detail!`（crossterm 彩色，不是 `log` crate）
+- **输出分层**：sdkcore 零打印，过程消息经 `SdkManager.sink`（`sdkcore::report` 事件契约）发前端；cli 直接输出用 `crate::{info!, success!, warning!, error!, detail!}` 宏（定义在 `cli/src/macros.rs`，渲染在 `cli/src/terminal.rs`，crossterm 彩色，不是 `log` crate）
 - CLI 错误：用 `error!` 宏打印；debug 构建额外显示 backtrace；检测 `BugReport` 标记时提示 GitHub issue URL；失败时 `process::exit(1)`
 
 ## CLI 命令结构
@@ -86,7 +95,7 @@ bin_dir = "bin"
 | `sdkm list [SDK] [--remote] [--limit N]` | `ls`, `l` | cli/ListHandler |
 | `sdkm switch <SDK> <VERSION>` | `s` | cli/SwitchHandler |
 | `sdkm use <SDK> <VERSION> [--shell]` | — | cli/UseHandler |
-| `sdkm env [SHELL]` | — | cli/EnvHandler |
+| `sdkm env [--shell SHELL]` | — | cli/EnvHandler |
 | `sdkm hook [SHELL]` | — | cli/HookHandler |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler |
 | `sdkm config` | — | cli/ConfigHandler |
@@ -97,23 +106,26 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-03）
+## 当前开发进度（2026-11-07）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 2026-11-03 —— `sdkm current` 三层生效版本解析 + 来源标注（issue #22）+ TUI tip 轮换节流
+### GH Releases 引擎 CI 测试修复（feature/core-decouple 分支，两轮）
 
-**背景**（issue #22）：多级作用域机制（session `SDKM_ACTIVE_*` > project `.sdkm.toml` pin > global `config.toml current_version`）对用户不可见——旧 `sdkm current` 只读 global 层的 `current_version`，pin/use --shell 生效时显示版本与实际生效不一致，用户无法定位"现在跑的是谁的版本"。
+`9109099` 落地的 GH Releases 引擎（asset_selector + github_releases，内置 SDK 扩到 14 个）的测试写死 Windows 宿主期望，PR CI 的 ubuntu/macos runner 大面积挂——Windows 开发机盲区的测试版：本地全绿、CI 三系统全红。**运行时代码零改动**，仅修测试，分两层：
 
-**实现（只增展示、零原有逻辑修改，用户硬约束）**：新增 `sdkcore/src/current.rs`——`VersionOrigin` 枚举（Session/Project(PathBuf)/Global，Display 输出 `session`/`project (路径)`/`global`）+ `EffectiveVersion{version, origin}` + `SdkManager::effective_version[_with]` 三层查询链，复用原子函数 `session_env_value`（env.rs 私有 → **pub(crate)**，唯一触碰原有文件处）/`find_project_config`/`list_local_sdk_versions`/`fuzzy_match_version_core`。**不重构 env.rs 的 `generate_env_script_inner`**（hook 热路径、脚本导向不带层信息）——current 独立薄查询链，防漂移三件套：共享原子函数 + 模块文档交叉引用声明同步义务 + 守卫测试（失效 session pin 压制 project 直落 global，锁定 env.rs:141 契约）。
+**单测层（`f73b370`）**：asset_selector 测试模块 15→1（仅留平台无关拒绝路径；命中类断言与编译期宿主耦合，删掉后由集成测试兜底）；github_releases 端到端断言改为与 `pick_asset` 当前平台结果对齐。
 
-**语义**：session/project 层值经 fuzzy 解析为**精确版本**后展示（与实际 PATH 生效一致）；pin 失效（未装/匹配不上）**静默降级** global（用户拍板，不加 warning——hook 路径已有 stderr 提示）；global 层 `current_version` 原样不重校验。展示：单 SDK `ℹ️  java 25.0.0 (session)`；全表三列 `sdk | current | source`，source 无值统一 `N/A`（current 列同款）。三档渐进着色（`VersionOrigin::styled()` 富文本）：session 品红斜体 > project 黄斜体（**路径段 dim 淡化**）> global 暗灰斜体。
+**集成测试层（本提交）**：WSL 复现出两处 mock 数据的 Windows 盲区——
+- `core_install_flow.rs`：标准 B 的 `.tar.gz` 路由误回 zip 字节流（linux 宿主解压报 invalid gzip header），且资产表只覆盖 windows-x64/linux-x64（ubuntu-arm/macos 宿主不命中且无模板 → install 报错）。修复：新增 `minimal_tar_gz()` 真实 tar.gz 载荷 + `TOOL_ASSETS` 资产表覆盖 CI 四宿主（windows-x64 / linux-gnu x64+arm64 / darwin arm64）；linux/darwin 路由回真实 tar.gz
+- `shell_integration.rs`：`env_script_layered_priority_with_venv` 把 bin 路径 `replace('/', "\\")` 造"Windows 风格路径"塞进 PATH 做稳定态模拟（Windows 上 replace 无操作恰好原生路径全绿；linux 上成反斜杠伪路径必挂），其余 7 个测试全是它 panic 毒锁 `LOCK` 的级联。修复：统一用平台原生路径
+- `current.rs`（macOS 首次真跑 CI 暴露）：期望 origin 路径用未解析的 temp 路径，而 macOS `getcwd()` 解析符号链接（`/var` → `/private/var`），core 从 `current_dir` 向上爬必返回物理路径 → 断言失配；其余 4 个失败为毒锁级联。修复：期望路径取 `env::current_dir()` 本身对齐（**不可用 `fs::canonicalize`——Windows 上返回 `\\?\C:\` 前缀的 verbatim 路径反而失配**）
 
-**配套与架构**：`util/terminal.rs` 新增 `display_width`（ANSI 转义不计宽，`pad_right`/`print_table` 列宽改用——富文本单元格参与表格对齐不错位；对纯文本调用者行为不变）；`print_table` 加 `col_gap` 列间距参数（current 表用 4）。**展示/核心分层（用户架构决策）**：core 只做纯数据 API（`effective_version`/`effective_versions_all` 返回 `EffectiveVersions{entries, skipped}`，零打印零输出宏），展示逻辑全部下沉 cli 层（`CurrentHandler::run` + `styled_origin`：三档渐进富文本 session 品红斜体 > project 黄斜体路径 dim > global 暗灰斜体）——为将来 GUI 集成铺路；`show_local_sdks_current` 从 list.rs 删除对号入座。docs：use --shell 的 PowerShell 示例换 `sdkm use java 21 --shell | iex`（usage.md/commands.md 两处；**hook 的 `-join` IEX 写法不换**——hook 脚本是跨多行 prompt 函数，逐行管道执行破坏语法）。**提交规矩（新）**：文档修改（docs/*.md、CLAUDE.md）不混进 feat/fix，单独 `docs:` commit。**排查备忘**：PS 5.1 捕获 native 输出时 stderr 会被包成 ErrorRecord 混入（warning!/info! 走 stdout、error! 走 stderr），IEX 执行非脚本文本即报错——先确认命令带 `--shell`；用户终端"环境变量名或值太长"= 会话实时 PATH 超 32767（注册表 PATH 正常 ~2k），新开终端即愈。
+验证：WSL linux x64 + Windows 双平台 workspace 全量绿、fmt 过。**教训**：测试 mock 数据与断言不能假定宿主平台（假载荷、路径分隔符替换、未解析 temp 路径都是 Windows 盲区变体）；多测试共享串行锁时，一个真失败会以毒锁级联放大，看 CI 失败清单先找非锁行号的那一个。
 
-**验证**：`tests/current.rs` 沙箱 7 用例（三层优先级/模糊精确化/双失效降级/漂移守卫/子目录向上查找）+ sdkcore 全量 98 用例全绿，clippy 零警告；临时目录冒烟 8 场景（三档单查/同表/失效降级/未注册报错不变/N/A）。未发版。
+**CI 矩阵精简（同批）**：4 runner × push/PR 双触发（同 commit 跑 8 job）→ 三大 OS 各一（3 job），只留 push 触发（非 master）；ARM64/musl/macOS Intel 编译验证由 release.yml 发版七产物矩阵兜底。**固定具体版本不用 latest**（`ubuntu-24.04`/`macos-15`/`windows-2025`）：GitHub 滚动 latest 时 glibc/Xcode/MSVC 跳变会让 CI 无预警变红（MACOSX_DEPLOYMENT_TARGET 教训），镜像退役前有公告届时手动升级；macos-14 label 在本仓库持续分配失败（`'macos-14-arm64-us-default' is not supported`，0 step 即取消，runner 池问题），换 macos-15 规避。
 
-**④ TUI tips💡 区域随 size 回填疯狂闪烁（同日，`sdkm ls`）**：size 渐进渲染优化的漏网之鱼——`tip_idx` 挂在主循环**每次迭代**上，size 计算中 120ms 短轮询每轮回填都重绘，tip 也跟着 120ms 换一条；size 算完回退 3s 长轮询后自然安静（"3s 节奏"只在注释没在代码）。**修复**：tip 轮换改独立 `Instant` 时间锚点（`last_tip_at`，≥3s 才推进下一条），与重绘原因彻底解耦；两个 TUI（`run_sdk_selector_inner` + `run_selector_inner`）同型修改。用户 Windows 实测通过。
+**已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。
 
 ## 已知问题与注意事项
 

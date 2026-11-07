@@ -1,19 +1,25 @@
 use crate::config::SdkmConfig;
 use crate::env::{EnvOperation, OsEnvOperation};
+use crate::report::EventSink;
 use std::str::FromStr;
+use std::sync::Arc;
 use util::sdk::Sdk;
 
 pub struct SdkManager {
     pub config: SdkmConfig,
     pub env_operation: Box<dyn EnvOperation>,
+    /// 过程事件槽：core 经此通知前端过程消息/进度（CLI 装终端适配器，GUI 可换自定义）
+    pub sink: Arc<dyn EventSink>,
 }
 
 impl SdkManager {
-    pub fn new() -> anyhow::Result<SdkManager> {
+    /// 显式装配事件槽构造——core 自身零打印，输出形态由前端决定
+    pub fn new(sink: Arc<dyn EventSink>) -> anyhow::Result<SdkManager> {
         let config = SdkmConfig::read_from_disk()?;
         Ok(SdkManager {
             config,
             env_operation: Box::new(OsEnvOperation {}),
+            sink,
         })
     }
     /// 校验 SDK 名称是否在配置中注册

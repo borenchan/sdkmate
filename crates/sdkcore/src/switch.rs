@@ -1,8 +1,10 @@
 use crate::config::SdkConfig;
 use crate::config::SdkmConfig;
+use crate::env::report_env_actions;
 use crate::env::split_path_entries;
 use crate::link::symlink::{create_symlink, read_symlink_target, remove_symlink};
 use crate::manager::SdkManager;
+use crate::report::EventSink;
 use crate::version::fuzzy_match_version_core;
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
@@ -12,9 +14,12 @@ use util::builtin::primary_executables_for;
 use util::config_helper::PLACEHOLDER_SDK_DIR;
 use util::consts::BugReportError;
 use util::sdk::Sdk;
-use util::success;
-use util::terminal::prompt_confirm;
-use util::{detail, info, warning};
+
+/// resolve_local_version 的返回：精确版本 + 是否模糊命中（调用端据此决定是否确认）
+pub struct ResolvedLocalVersion {
+    pub version: String,
+    pub fuzzy_matched: bool,
+}
 
 /// switch 操作前的系统状态快照，用于失败时回滚
 struct SwitchSnapshot {
@@ -46,7 +51,7 @@ macro_rules! try_step {
     ($expr:expr, $snapshot:expr, $manager:expr, $msg:expr $(, $fmt_arg:expr)* $(,)?) => {
         match $expr {
             Err(e) => {
-                warning!($msg $(, $fmt_arg)*);
+                $manager.sink.warning(format!($msg $(, $fmt_arg)*));
                 rollback($snapshot, $manager)?;
                 // 已知权限错误（access denied 5 / EACCES 13、privilege not held 1314）属用户环境问题，
                 // 提示自行解决；其余未知错误标记 bug report
@@ -65,30 +70,41 @@ macro_rules! try_step {
 }
 
 impl SdkManager {
+    /// 解析本地已装版本（模糊输入 → 精确版本）。只读，供调用端展示解析结果并获取确认
+    /// （模糊确认在调用端做，core 零 stdin）；执行段自行重新校验，不信任本结果。
+    pub fn resolve_installed_version(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedLocalVersion> {
+        let versions = self.list_local_sdk_versions(sdk)?;
+        if versions.is_empty() {
+            bail!(
+                "`{}` has no installed versions. Install it first (`sdkm install {} {}`)",
+                sdk,
+                sdk,
+                version_input
+            );
+        }
+        let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
+        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
+        Ok(ResolvedLocalVersion {
+            version: matched.full_version,
+            fuzzy_matched: matched.fuzzy_matched,
+        })
+    }
+
     pub fn switch_sdk_to_version(&mut self, sdk: &Sdk, sdk_version: &str) -> Result<()> {
         // ── Phase 0: 前置检查(只读操作,无副作用) ──
         let versions = self.list_local_sdk_versions(sdk)?;
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
 
-        // 模糊匹配本地已安装版本(与 install 共用核心)
+        // 模糊匹配本地已安装版本(与 install 共用核心)——执行段自查：
+        // 调用端确认期间状态可能变化（版本被删/新增），不信任预检查结果
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
         let matched = fuzzy_match_version_core(&version_strings, sdk_version)?;
         let target_version = matched.full_version;
 
-        // 模糊命中时交互确认(与 install 一致)
-        if matched.fuzzy_matched {
-            let confirmed = prompt_confirm(&format!(
-                "Resolved '{}' → '{}'. Switch to this version?",
-                sdk_version, target_version
-            ))?;
-            if !confirmed {
-                bail!("Switch cancelled by user");
-            }
-        }
-
         let is_active = versions.iter().any(|v| v.is_active && v.sdk_version == target_version);
         if is_active {
-            success!("switch sdk `{}` to version `{}` success!", sdk, target_version);
+            self.sink
+                .success(format!("switch sdk `{sdk}` to version `{target_version}` success!"));
             return Ok(());
         }
         let current_version_sdk = versions.into_iter().find(|v| v.sdk_version == target_version).context(format!(
@@ -133,28 +149,35 @@ impl SdkManager {
             self,
             "Failed to create symlink, rolling back..."
         );
+        self.sink.info(format!(
+            "success create symlink, link path: {} original path: {}",
+            sdk_symlink_dir.display(),
+            current_version_sdk.sdk_dir.display()
+        ));
 
         // 仅当 bin 目录不在 PATH 中时才添加环境变量和路径
         let need_add_path = !path.contains(sdk_symlink_bin_cow.as_ref());
 
         // Step 3b: 设置额外环境变量
         if need_add_path {
-            try_step!(
+            let actions = try_step!(
                 self.env_operation.set_sdk_envs(&extra_envs),
                 &snapshot,
                 self,
                 "Failed to set env vars, rolling back..."
             );
+            report_env_actions(self.sink.as_ref(), &actions);
         }
 
         // Step 3c: 添加主 bin 目录到 PATH
         if need_add_path {
-            try_step!(
+            let actions = try_step!(
                 self.env_operation.add_sdk_path(sdk_symlink_bin_cow.as_ref()),
                 &snapshot,
                 self,
                 "Failed to add main path, rolling back..."
             );
+            report_env_actions(self.sink.as_ref(), &actions);
             snapshot.added_path_entries.push(sdk_symlink_bin_cow.to_string());
         }
 
@@ -164,17 +187,18 @@ impl SdkManager {
             if extra_bin_dir.exists() {
                 let extra_bin_cow = extra_bin_dir.to_string_lossy();
                 if !path.contains(extra_bin_cow.as_ref()) {
-                    try_step!(
+                    let actions = try_step!(
                         self.env_operation.add_sdk_path(extra_bin_cow.as_ref()),
                         &snapshot,
                         self,
                         "Failed to add extra path `{}`, rolling back...",
                         extra_path
                     );
+                    report_env_actions(self.sink.as_ref(), &actions);
                     snapshot.added_path_entries.push(extra_bin_cow.to_string());
                 }
             } else {
-                warning!("extra_path `{}` does not exist, skipping", extra_path);
+                self.sink.warning(format!("extra_path `{extra_path}` does not exist, skipping"));
             }
         }
 
@@ -192,8 +216,12 @@ impl SdkManager {
 
         // ── Phase 4: 成功完成 ──
         // hook 已注入时按回车（prompt 触发 sdkm env 重建 PATH）即生效；未注入（手动 eval 场景）仍需重启
-        info!("PATH has been updated. Press Enter to apply, or restart your terminal if hooks are not installed.");
-        success!("switch sdk `{}` to version `{}` success!", sdk, target_version);
+        self.sink.info(
+            "PATH has been updated. Press Enter to apply, or restart your terminal if hooks are not installed."
+                .to_string(),
+        );
+        self.sink
+            .success(format!("switch sdk `{sdk}` to version `{target_version}` success!"));
         Ok(())
     }
 
@@ -242,9 +270,11 @@ impl SdkManager {
     /// sdkm 路径前置添加（最高优先级），冲突路径自然被覆盖
     fn handle_path_conflicts(&self, sdk: &Sdk, conflicts: &[String]) -> Result<()> {
         for conflict in conflicts {
-            warning!("Found existing SDK[{}] path at '{}' in PATH.", sdk, conflict);
+            self.sink
+                .warning(format!("Found existing SDK[{sdk}] path at '{conflict}' in PATH."));
         }
-        info!("sdkm's path has highest priority, these conflicts won't affect your usage.");
+        self.sink
+            .info("sdkm's path has highest priority, these conflicts won't affect your usage.".to_string());
         Ok(())
     }
 }
@@ -252,10 +282,17 @@ impl SdkManager {
 // ── 回滚函数 ──
 
 /// 回滚符号链接：删除新链接，恢复旧链接（如果旧链接存在）
-fn rollback_symlink(snapshot: &SwitchSnapshot) -> Result<()> {
-    remove_symlink(&snapshot.symlink_path)?;
+fn rollback_symlink(snapshot: &SwitchSnapshot, sink: &dyn EventSink) -> Result<()> {
+    if remove_symlink(&snapshot.symlink_path)? {
+        sink.detail(format!("removed symlink at {}", snapshot.symlink_path.display()));
+    }
     if let Some(old_target) = &snapshot.old_symlink_target {
         create_symlink(old_target, &snapshot.symlink_path)?;
+        sink.info(format!(
+            "success create symlink, link path: {} original path: {}",
+            snapshot.symlink_path.display(),
+            old_target.display()
+        ));
     }
     Ok(())
 }
@@ -272,10 +309,12 @@ fn rollback_envs(snapshot: &SwitchSnapshot, manager: &SdkManager) -> Result<()> 
         }
     }
     if !restore_envs.is_empty() {
-        manager.env_operation.restore_sdk_envs(&restore_envs)?;
+        let actions = manager.env_operation.restore_sdk_envs(&restore_envs)?;
+        report_env_actions(manager.sink.as_ref(), &actions);
     }
     for key in unset_keys {
-        manager.env_operation.unset_sdk_env(&key)?;
+        let actions = manager.env_operation.unset_sdk_env(&key)?;
+        report_env_actions(manager.sink.as_ref(), &actions);
     }
     Ok(())
 }
@@ -283,7 +322,8 @@ fn rollback_envs(snapshot: &SwitchSnapshot, manager: &SdkManager) -> Result<()> 
 /// 回滚 PATH：按反序移除所有已添加的路径条目
 fn rollback_paths(snapshot: &SwitchSnapshot, manager: &SdkManager) -> Result<()> {
     for path_entry in snapshot.added_path_entries.iter().rev() {
-        manager.env_operation.remove_sdk_path(path_entry)?;
+        let actions = manager.env_operation.remove_sdk_path(path_entry)?;
+        report_env_actions(manager.sink.as_ref(), &actions);
     }
     Ok(())
 }
@@ -318,7 +358,7 @@ fn rollback(snapshot: &SwitchSnapshot, manager: &mut SdkManager) -> Result<()> {
             suggestion: "Check your system environment variables settings.",
         });
     }
-    if rollback_symlink(snapshot).is_err() {
+    if rollback_symlink(snapshot, manager.sink.as_ref()).is_err() {
         failures.push(RollbackFailure {
             description: format!(
                 "Symlink at {} could not be restored — SDK may be unavailable.",
@@ -329,10 +369,10 @@ fn rollback(snapshot: &SwitchSnapshot, manager: &mut SdkManager) -> Result<()> {
     }
 
     if !failures.is_empty() {
-        warning!("Switch failed and rollback was incomplete:");
+        manager.sink.warning("Switch failed and rollback was incomplete:".to_string());
         for f in &failures {
-            detail!("• {}", f.description);
-            detail!("  → {}", f.suggestion);
+            manager.sink.detail(format!("• {}", f.description));
+            manager.sink.detail(format!("  → {}", f.suggestion));
         }
     }
 

@@ -4,6 +4,7 @@
 // 本模块只负责"版本发现"(把 HTTP 响应解析为 VersionEntry 列表)+ 解析编排。
 
 use crate::config::NetworkConfig;
+use crate::report::EventSink;
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use serde::Deserialize;
@@ -104,6 +105,7 @@ pub fn get_version_discovery(sdk: &Sdk, _version_url: &str) -> Box<dyn VersionDi
 // ─── 通用 resolve 入口 ──────────────────────────────────────────
 
 /// 通用版本解析入口:主备切换 + 缓存 + 模糊匹配
+#[allow(clippy::too_many_arguments)] // 解析编排参数天然多（同 fetch_version_data），打包反而模糊
 pub async fn resolve_sdk_version(
     client: &Client,
     discovery: &dyn VersionDiscovery,
@@ -114,8 +116,9 @@ pub async fn resolve_sdk_version(
     headers: Option<HashMap<String, String>>,
     cache_ttl_secs: u64,
     network: &NetworkConfig,
+    sink: &dyn EventSink,
 ) -> Result<ResolvedVersion> {
-    let body = fetch_version_data(client, source, cache_key, sdk_label, headers, cache_ttl_secs, network).await?;
+    let body = fetch_version_data(client, source, cache_key, sdk_label, headers, cache_ttl_secs, network, sink).await?;
     let entries = discovery.parse_version_data(&body)?;
     fuzzy_match_version(&entries, version_input)
 }

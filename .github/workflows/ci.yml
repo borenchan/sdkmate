@@ -1,0 +1,48 @@
+name: CI
+
+# 质量门禁：fmt / clippy / 全量测试。基础验证矩阵：三大 OS 各一。
+# 固定具体版本不用 latest：GitHub 滚动 latest 时 glibc/Xcode/MSVC 跳变会让 CI 无预警变红
+# （MACOSX_DEPLOYMENT_TARGET 教训）；镜像退役前 GitHub 会提前公告，届时手动升级即可。
+# ARM64 / musl / macOS Intel 等完整目标由 release.yml 发版七产物矩阵兜底（发版必真编译）。
+# 只留 push 触发（非 master）：PR 与 push 是同一 commit，双触发纯重复跑两遍。
+on:
+  push:
+    branches-ignore:
+      - master # master 的质量验证由 release.yml 的发版链承载，避免重复跑
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native build deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake
+
+      - name: Install native build deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
+      - uses: dtolnay/rust-toolchain@1.92.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # key 含 OS：防 aws-lc-sys 产物跨 OS 版本缓存污染（对齐 release.yml 做法）
+          key: ${{ matrix.os }}
+
+      - name: Format check
+        run: cargo fmt --check
+
+      # clippy 仅展示不阻塞：仓库尚有 20+ 预存在警告（collapsible_if 等，多为既有代码结构），
+      # 待基线清零后再收紧为 -D warnings
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features
+
+      - name: Test
+        run: cargo test --workspace -j 2

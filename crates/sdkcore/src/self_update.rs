@@ -15,18 +15,16 @@
 use crate::install::downloader::{build_download_client, download_with_retry};
 use crate::install::extractor::extract_archive;
 use crate::manager::SdkManager;
+use crate::report::{EventSink, ProgressKind};
 use anyhow::{Context, Result, bail};
-use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 use util::consts::SDKM_TMP_DIR;
 use util::path::get_sdkm_home;
-use util::{detail, info, success};
 
 /// GitHub releases/latest API（拿 tag_name + assets 下载 URL，单请求）
 const RELEASES_API: &str = "https://api.github.com/repos/borenchan/sdkmate/releases/latest";
@@ -51,7 +49,7 @@ impl SdkManager {
     pub fn update_self(&self, check: bool, rollback: bool) -> Result<()> {
         // --rollback 是纯本地操作，不联网、不需 runtime
         if rollback {
-            return do_rollback();
+            return do_rollback(self.sink.as_ref());
         }
         let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
         rt.block_on(self.update_self_async(check))
@@ -64,7 +62,7 @@ impl SdkManager {
 
         // ── 查询 GitHub 最新 release ──
         // token 只注入 GH API 请求（不再走 client 全局 header，避免镜像下载把 token 发给第三方）
-        info!("checking latest release from GitHub...");
+        self.sink.info("checking latest release from GitHub...".to_string());
         let mut req = client.get(RELEASES_API).header("Accept", "application/vnd.github+json");
         if let Some(token) = &self.config.network.github_token {
             req = req.header("Authorization", format!("Bearer {}", token));
@@ -80,18 +78,19 @@ impl SdkManager {
         let release: LatestRelease = resp.json().await.context("Failed to parse latest release JSON")?;
         let latest_version = strip_v(&release.tag_name).to_string();
 
-        detail!("current: v{}", CURRENT_VERSION);
-        detail!("latest:  v{}", latest_version);
+        self.sink.detail(format!("current: v{}", CURRENT_VERSION));
+        self.sink.detail(format!("latest:  v{}", latest_version));
 
         // 只升不降：远程不更新于当前 → 已是最新
         if !is_newer(&latest_version, CURRENT_VERSION) {
-            success!("sdkm is already up to date (v{})", CURRENT_VERSION);
+            self.sink.success(format!("sdkm is already up to date (v{})", CURRENT_VERSION));
             return Ok(());
         }
 
         if check {
-            info!("update available: v{} → v{}", CURRENT_VERSION, latest_version);
-            info!("run `sdkm self update` (without --check) to apply");
+            self.sink
+                .info(format!("update available: v{} → v{}", CURRENT_VERSION, latest_version));
+            self.sink.info("run `sdkm self update` (without --check) to apply".to_string());
             return Ok(());
         }
 
@@ -117,19 +116,21 @@ impl SdkManager {
         fs::create_dir_all(&work_dir).context("Failed to create self_update work directory")?;
         let archive_path = work_dir.join(asset_name);
 
-        info!("downloading {}...", asset_name);
-        let pb = download_progress("Downloading sdkm...");
-        download_with_retry(&client, &download_url, &archive_path, &pb, 3).await?;
-        pb.finish_with_message("download complete");
+        self.sink.info(format!("downloading {}...", asset_name));
+        let pb = self
+            .sink
+            .progress(ProgressKind::SelfUpdateDownload, "Downloading sdkm...".to_string());
+        download_with_retry(&client, &download_url, &archive_path, pb.as_ref(), self.sink.as_ref(), 3).await?;
+        pb.finish_with_message("download complete".to_string());
 
         // ── 解压取包内 .sdkm/sdkm[.exe] ──
         let extract_dir = work_dir.join("extract");
         if extract_dir.exists() {
             let _ = fs::remove_dir_all(&extract_dir);
         }
-        let ex_pb = spinner_progress("Extracting...");
-        extract_archive(&archive_path, &extract_dir, &ex_pb)?;
-        ex_pb.finish_with_message("extraction complete");
+        let ex_pb = self.sink.progress(ProgressKind::SelfUpdateExtract, "Extracting...".to_string());
+        extract_archive(&archive_path, &extract_dir, ex_pb.as_ref())?;
+        ex_pb.finish_with_message("extraction complete".to_string());
 
         let new_exe = extract_dir.join(".sdkm").join(current_bin_name());
         if !new_exe.exists() {
@@ -143,8 +144,9 @@ impl SdkManager {
         let _ = fs::remove_file(&archive_path);
         let _ = fs::remove_dir_all(&extract_dir);
 
-        success!("sdkm updated to v{}", latest_version);
-        info!("previous version backed up; run `sdkm self update --rollback` to restore it");
+        self.sink.success(format!("sdkm updated to v{}", latest_version));
+        self.sink
+            .info("previous version backed up; run `sdkm self update --rollback` to restore it".to_string());
         Ok(())
     }
 }
@@ -199,7 +201,7 @@ fn replace_binary(exe: &Path, new_exe: &Path, target_version: &str) -> Result<()
 /// --rollback：把 work/.bak 恢复为当前 exe（本地，不联网）
 ///
 /// 备份不存在 → 不允许回滚（bail）。
-fn do_rollback() -> Result<()> {
+fn do_rollback(sink: &dyn EventSink) -> Result<()> {
     let exe = env::current_exe().context("cannot locate sdkm executable")?;
     let work = work_dir()?;
     fs::create_dir_all(&work).context("Failed to create self_update work directory")?;
@@ -227,7 +229,7 @@ fn do_rollback() -> Result<()> {
             // discard 是刚被 rename 走的原 running exe 副本，Windows 上进程仍占用可能删不掉；
             // 删不掉则留在 work_dir（不污染 exe 目录），下次 self update / --rollback 开头 clean_leftovers 清理
             let _ = fs::remove_file(&discard);
-            success!("rolled back to previous version ({})", out.trim());
+            sink.success(format!("rolled back to previous version ({})", out.trim()));
             Ok(())
         }
         Err(e) => {
@@ -361,30 +363,4 @@ fn first_digits(seg: &str) -> u64 {
 /// latest 是否更新于 current（只升不降）
 fn is_newer(latest: &str, current: &str) -> bool {
     parse_ver(latest) > parse_ver(current)
-}
-
-/// 下载进度条（bytes bar）
-fn download_progress(msg: &str) -> ProgressBar {
-    let pb = ProgressBar::new(0);
-    pb.set_style(
-        ProgressStyle::with_template("  {msg}\n  {bar:40.green/blue} {bytes}/{total_bytes} ({bytes_per_sec})")
-            .unwrap()
-            .progress_chars("▓▒░"),
-    );
-    pb.set_message(msg.to_owned());
-    pb.enable_steady_tick(Duration::from_millis(500));
-    pb
-}
-
-/// 解压 spinner
-fn spinner_progress(msg: &str) -> ProgressBar {
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("  {spinner} {msg}")
-            .unwrap()
-            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-    );
-    pb.set_message(msg.to_owned());
-    pb.enable_steady_tick(Duration::from_millis(100));
-    pb
 }

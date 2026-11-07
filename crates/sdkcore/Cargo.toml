@@ -11,13 +11,10 @@ description.workspace = true
 util = { workspace = true }
 reqwest = {workspace = true}
 anyhow = { workspace = true}
-crossterm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
-unicode-width = { workspace = true }
 tokio = { workspace = true }
-indicatif = { workspace = true }
 jwalk = { workspace = true }
 zip = { workspace = true }
 flate2 = { workspace = true }
@@ -32,7 +29,6 @@ windows-sys = { workspace = true}
 [dev-dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true }
-indicatif = { workspace = true }
 
 [lints]
 workspace = true

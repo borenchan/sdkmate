@@ -1,8 +1,8 @@
 //! 项目级配置 `.sdkm.toml`：摊平 KV（`java = "21"`），会话 > 项目 > 全局三层中的项目层。
 //!
 //! 读（runtime）：从 PWD 向上递归找第一个 `.sdkm.toml` 命中即停；格式错误静默降级
-//! （返空配置，不阻断 shell hook）。写（user action）：只写当前目录；写前向上探测
-//! 父级配置，命中则 warning 提示覆盖关系。原子写（tmp+rename）。
+//! （返空配置，不阻断 shell hook）。写（user action）：只写当前目录；父级覆盖关系
+//! 由调用方经 [`find_parent_config`] 探测后自行提示（core 零输出）。原子写（tmp+rename）。
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use util::consts::PROJECT_CONFIG_FILE_NAME;
-use util::warning;
 
 /// 项目级配置：SDK 名 → 期望版本（摊平 KV，BTreeMap 序列化按 key 排序保证确定性）
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -59,12 +58,9 @@ pub fn read_project_config(path: &Path) -> ProjectConfig {
 
 /// 写项目配置到指定目录（原子写 tmp+rename）
 ///
-/// 写前向上探测父级是否已有 `.sdkm.toml`，命中则 warning 提示覆盖关系。
+/// 父级冲突探测由调用方经 [`find_parent_config`] 自行决定如何提示（core 零输出）。
 pub fn write_project_config(dir: &Path, cfg: &ProjectConfig) -> Result<()> {
     let config_path = dir.join(PROJECT_CONFIG_FILE_NAME);
-
-    // 父级冲突检测：当前目录自身配置不算，只看更上层
-    warn_parent_config(dir)?;
 
     let content = toml::to_string_pretty(cfg).context("Failed to serialize project config to TOML")?;
 
@@ -80,29 +76,26 @@ pub fn write_project_config(dir: &Path, cfg: &ProjectConfig) -> Result<()> {
     Ok(())
 }
 
-/// 向上探测父级目录是否已存在 `.sdkm.toml`，存在则 warning（只提示不阻断）
-fn warn_parent_config(dir: &Path) -> Result<()> {
+/// 向上探测父级目录是否已存在 `.sdkm.toml`（当前目录自身不算，只看更上层），
+/// 命中返回该配置文件路径，供调用方提示父级覆盖关系
+pub fn find_parent_config(dir: &Path) -> Option<PathBuf> {
     let mut parent = dir.to_path_buf();
     if !parent.pop() {
-        return Ok(());
+        return None;
     }
     let mut visited: Vec<PathBuf> = Vec::new();
     loop {
         if visited.contains(&parent) {
-            return Ok(());
+            return None;
         }
         visited.push(parent.clone());
 
         let config_path = parent.join(PROJECT_CONFIG_FILE_NAME);
         if config_path.is_file() {
-            warning!(
-                "Found parent config at '{}'. Creating a new config here will override it for this directory.",
-                config_path.display()
-            );
-            return Ok(());
+            return Some(config_path);
         }
         if !parent.pop() {
-            return Ok(());
+            return None;
         }
     }
 }

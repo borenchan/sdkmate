@@ -220,8 +220,8 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
+ "indicatif",
  "sdkcore",
- "tokio",
  "unicode-width",
  "util",
 ]
@@ -1430,9 +1430,7 @@ name = "sdkcore"
 version = "0.5.5"
 dependencies = [
  "anyhow",
- "crossterm",
  "flate2",
- "indicatif",
  "jwalk",
  "regex-lite",
  "reqwest",
@@ -1441,7 +1439,6 @@ dependencies = [
  "tar",
  "tokio",
  "toml",
- "unicode-width",
  "url",
  "util",
  "windows-sys 0.61.2",
@@ -1931,9 +1928,7 @@ version = "0.5.5"
 dependencies = [
  "anyhow",
  "clap",
- "crossterm",
  "serde",
- "unicode-width",
  "url",
  "winreg",
 ]

@@ -9,6 +9,7 @@ pub mod link;
 pub mod list;
 pub mod manager;
 pub mod project_config;
+pub mod report;
 pub mod self_uninstall;
 pub mod self_update;
 pub mod shell;

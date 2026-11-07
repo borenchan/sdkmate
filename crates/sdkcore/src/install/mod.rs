@@ -1,7 +1,6 @@
 pub mod download_url;
 pub mod downloader;
 pub mod extractor;
-pub mod progress;
 
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -9,10 +8,10 @@ use std::path::PathBuf;
 use util::consts::SDKM_TMP_DIR;
 use util::path::{get_installed_sdks_dir, get_sdkm_home};
 use util::sdk::{BuiltinSdk, Sdk};
-use util::terminal::prompt_confirm;
-use util::{bail_bug, detail, info, try_bug, warning};
+use util::{bail_bug, try_bug};
 
 use crate::manager::SdkManager;
+use crate::report::ProgressKind;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{
     ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
@@ -20,34 +19,29 @@ use crate::version::{
 use download_url::build_download_url;
 use downloader::{build_download_client, build_reqwest_client, download_with_retry};
 use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
-use progress::InstallProgress;
 use util::builtin::find_seed_by_variant;
 
 impl SdkManager {
-    /// 安装 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）
-    pub fn install_sdk(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
+    /// 解析安装版本（模糊输入 → 精确版本；网络查询/缓存/主备源）。只读零副作用，
+    /// 供调用端展示解析结果并获取用户确认后，再经 [`install_sdk`] 执行安装；
+    /// 模糊确认在调用端做（core 零 stdin）
+    pub fn resolve_install_version(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
         let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
-        // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
-        rt.block_on(self.install_sdk_async(sdk, version_input, auto_switch))?;
-        Ok(())
+        rt.block_on(self.resolve_install_version_async(sdk, version_input))
     }
 
-    /// 异步安装核心流程：通用主备 + 模糊匹配 + 交互确认
-    async fn install_sdk_async(&mut self, sdk: &Sdk, version_input: &str, auto_switch: bool) -> Result<()> {
+    /// 异步版本解析（原 install 流程 Phase 1 段整体迁入）
+    async fn resolve_install_version_async(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
 
-        // 先清理该 sdk 上次中断的残留，避免旧 sdk.zip/extracted 污染本次
-        let sdk_tmp_root = get_sdkm_home()?.join(SDKM_TMP_DIR).join(&sdk_name);
-        if sdk_tmp_root.exists()
-            && let Err(e) = fs::remove_dir_all(&sdk_tmp_root)
-        {
-            warning!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e);
-        }
-
-        // ── Phase 1: 版本解析 ────────────────────────────────────
-        let resolve_pb = InstallProgress::new_resolve(&sdk_name, version_input);
+        // 文案区分：ls 浏览模式无版本输入（空串）→ 拉取远程列表；install 场景为版本解析
+        let resolve_title = if version_input.is_empty() {
+            format!("Fetching remote versions for {}...", sdk_name)
+        } else {
+            format!("Resolving version '{}' for {}...", version_input, sdk_name)
+        };
+        let resolve_pb = self.sink.progress(ProgressKind::Resolve, resolve_title);
         let client = build_reqwest_client(&self.config.network)?;
 
         let resolved = if let Sdk::Built(BuiltinSdk::Java) = sdk {
@@ -103,23 +97,39 @@ impl SdkManager {
                     headers,
                     self.config.network.cache_ttl_secs as u64,
                     &self.config.network,
+                    self.sink.as_ref(),
                 )
                 .await?
             }
         };
 
-        // resolve 已完成,先停止 spinner,避免其 steady_tick 的 \r 覆盖后续交互提示
+        // resolve 已完成,先停止 spinner（finish 定格帧也供非 TTY 之外的展示收尾）
         resolve_pb.finish_with_message(format!("✅ Resolved: {} → {}", version_input, resolved.full_version));
+        Ok(resolved)
+    }
 
-        // ── 模糊匹配交互确认 ────────────────────────────────────
-        if resolved.fuzzy_matched {
-            let confirmed = prompt_confirm(&format!(
-                "Resolved '{}' → '{}'. Install this version?",
-                version_input, resolved.full_version
-            ))?;
-            if !confirmed {
-                bail!("Installation cancelled by user");
-            }
+    /// 安装已解析的 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）。
+    /// 版本解析与模糊确认归调用端（resolve_install_version）；执行段保留已装检测自查
+    pub fn install_sdk(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
+        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
+        // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
+        rt.block_on(self.install_sdk_async(sdk, resolved, auto_switch))?;
+        Ok(())
+    }
+
+    /// 异步安装核心流程：通用主备 + 已装检测 + 下载解压验证清理
+    async fn install_sdk_async(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
+        let sdk_conf = self.config.find_sdk_ok(sdk)?;
+        let sdk_name = sdk.to_string();
+
+        // 先清理该 sdk 上次中断的残留，避免旧 sdk.zip/extracted 污染本次
+        let sdk_tmp_root = get_sdkm_home()?.join(SDKM_TMP_DIR).join(&sdk_name);
+        if sdk_tmp_root.exists()
+            && let Err(e) = fs::remove_dir_all(&sdk_tmp_root)
+        {
+            self.sink
+                .warning(format!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e));
         }
 
         let full_version = &resolved.full_version;
@@ -128,14 +138,19 @@ impl SdkManager {
         let store_dir = get_installed_sdks_dir()?;
         let version_dir = store_dir.join(&sdk_name).join(full_version);
         if version_dir.exists() {
-            warning!("{} {} is already installed locally.", sdk_name, full_version);
-            info!("If you want to reinstall, remove it first: delete {}", version_dir.display());
+            self.sink
+                .warning(format!("{} {} is already installed locally.", sdk_name, full_version));
+            self.sink.info(format!(
+                "If you want to reinstall, remove it first: delete {}",
+                version_dir.display()
+            ));
             if auto_switch {
                 self.switch_sdk_to_version(sdk, full_version)?;
             }
             return Ok(());
         }
-        info!("{} {} is not installed locally, proceeding...", sdk_name, full_version);
+        self.sink
+            .info(format!("{} {} is not installed locally, proceeding...", sdk_name, full_version));
 
         // ── Phase 3: 构建下载 URL（主/备）─────────────────────────
         let download_url = if let Some(direct) = resolved.download_url.clone() {
@@ -158,7 +173,7 @@ impl SdkManager {
         };
         // GitHub 下载镜像重写（白名单域名拼前缀；关闭态原样返回）
         let download_url = self.config.network.mirror_github_url(&download_url);
-        detail!("Download URL (primary): {}", download_url);
+        self.sink.detail(format!("Download URL (primary): {}", download_url));
 
         let download_fallback_url = sdk_conf
             .download_fallback_url
@@ -185,7 +200,7 @@ impl SdkManager {
         let tmp_root = sdkm_home.join(SDKM_TMP_DIR);
         let tmp_dir = tmp_root.join(&sdk_name).join(full_version);
         try_bug!(fs::create_dir_all(&tmp_dir).context("Failed to create temporary directory"));
-        detail!("Temporary directory: {}", tmp_dir.display());
+        self.sink.detail(format!("Temporary directory: {}", tmp_dir.display()));
 
         let archive_filename = derive_archive_filename(&download_url);
         let tmp_archive_path = tmp_dir.join(&archive_filename);
@@ -194,36 +209,68 @@ impl SdkManager {
 
         // ── Phase 5: 下载（主/备）───────────────────────────────────
         let download_client = build_download_client(&self.config.network)?;
-        let download_pb = InstallProgress::new_download(&sdk_name, full_version);
+        let download_pb = self
+            .sink
+            .progress(ProgressKind::Download, format!("Downloading {} {}...", sdk_name, full_version));
 
         // 先尝试主源下载
-        let download_result =
-            download_with_retry(&download_client, &download_url, &tmp_archive_path, &download_pb.pb, 3).await;
+        let download_result = download_with_retry(
+            &download_client,
+            &download_url,
+            &tmp_archive_path,
+            download_pb.as_ref(),
+            self.sink.as_ref(),
+            3,
+        )
+        .await;
 
+        // 主备源任一成功的 bar（成功消息由实际下载的 bar 收尾，主源 bar 不复活）
+        let active_pb;
         let final_download_url = if download_result.is_err() && download_fallback_url.is_some() {
             // 主源下载失败，尝试备源
             let fallback_url = download_fallback_url.unwrap();
-            warning!("Primary download failed, trying fallback URL: {}", truncate(&fallback_url, 80));
-            let fallback_pb = InstallProgress::new_download(&sdk_name, full_version);
+            self.sink.warning(format!(
+                "Primary download failed, trying fallback URL: {}",
+                truncate(&fallback_url, 80)
+            ));
+            // 主源 bar 显式收尾（停 tick + 清残帧）：句柄仍存活、Drop 兜底不触发，
+            // 不收尾会与备源 bar 双活重绘互相踩踏（终端闪烁，既有缺陷，本次修复）
+            download_pb.finish_and_clear();
+            let fallback_pb = self
+                .sink
+                .progress(ProgressKind::Download, format!("Downloading {} {}...", sdk_name, full_version));
             let fallback_filename = derive_archive_filename(&fallback_url);
             let fallback_archive_path = tmp_dir.join(&fallback_filename);
-            download_with_retry(&download_client, &fallback_url, &fallback_archive_path, &fallback_pb.pb, 3).await?;
+            download_with_retry(
+                &download_client,
+                &fallback_url,
+                &fallback_archive_path,
+                fallback_pb.as_ref(),
+                self.sink.as_ref(),
+                3,
+            )
+            .await?;
             // 更新后续使用的文件名和路径
+            active_pb = fallback_pb;
             fallback_url
         } else {
             download_result?;
+            active_pb = download_pb;
             download_url
         };
-        download_pb.finish_with_message(format!("✅ Downloaded {} {}", sdk_name, full_version));
+        active_pb.finish_with_message(format!("✅ Downloaded {} {}", sdk_name, full_version));
 
         // ── Phase 6: 解压 ────────────────────────────────────────
         let actual_archive_path = tmp_dir.join(derive_archive_filename(&final_download_url));
-        let extract_pb = if is_zip {
-            InstallProgress::new_extract_zip(&sdk_name, full_version)
+        let extract_kind = if is_zip {
+            ProgressKind::ExtractZip
         } else {
-            InstallProgress::new_extract_tar_gz(&sdk_name, full_version)
+            ProgressKind::ExtractTarGz
         };
-        try_bug!(extract_archive(&actual_archive_path, &tmp_extracted_path, &extract_pb.pb));
+        let extract_pb = self
+            .sink
+            .progress(extract_kind, format!("Extracting {} {}...", sdk_name, full_version));
+        try_bug!(extract_archive(&actual_archive_path, &tmp_extracted_path, extract_pb.as_ref()));
         extract_pb.finish_with_message(format!("✅ Extracted {} {}", sdk_name, full_version));
 
         // ── Phase 7: 验证解压结果 ────────────────────────────────
@@ -233,12 +280,16 @@ impl SdkManager {
         }
 
         // ── Phase 8: 目录调整 ────────────────────────────────────
-        let move_pb = InstallProgress::new_verify();
+        let move_pb = self
+            .sink
+            .progress(ProgressKind::Verify, "Verifying installation...".to_string());
         try_bug!(normalize_extracted_dir(&tmp_extracted_path, &version_dir));
         move_pb.finish_with_message(format!("📂 Moved to {}", version_dir.display()));
 
         // ── Phase 9: 验证安装 ────────────────────────────────────
-        let verify_pb = InstallProgress::new_verify();
+        let verify_pb = self
+            .sink
+            .progress(ProgressKind::Verify, "Verifying installation...".to_string());
         if let Err(e) = verify_extraction(&version_dir, sdk_conf.bin_dir.as_deref()) {
             let _ = fs::remove_dir_all(&version_dir);
             cleanup_temp(&tmp_dir)?;
@@ -248,16 +299,24 @@ impl SdkManager {
 
         // ── Phase 10: 清理临时文件 ──────────────────────────────
         cleanup_temp(&tmp_dir)?;
-        detail!("Temporary files cleaned up.");
+        self.sink.detail("Temporary files cleaned up.".to_string());
 
         // ── Phase 11: 自动切换 ──────────────────────────────────
         if auto_switch {
-            InstallProgress::print_switching(&sdk_name, full_version);
+            self.sink.info(format!("🔗 Switching {} to {}...", sdk_name, full_version));
             self.switch_sdk_to_version(sdk, full_version)?;
         }
 
         // ── Phase 12: 安装完成 ──────────────────────────────────
-        InstallProgress::print_success(&sdk_name, full_version, auto_switch);
+        if auto_switch {
+            self.sink
+                .success(format!("{} {} installed and switched successfully!", sdk_name, full_version));
+        } else {
+            self.sink.success(format!(
+                "{} {} installed successfully! (not switched, use 'sdkm switch {} {}' to activate)",
+                sdk_name, full_version, sdk_name, full_version
+            ));
+        }
 
         Ok(())
     }

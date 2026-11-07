@@ -1,16 +1,16 @@
 use crate::CommandHandler;
+use crate::terminal_sink::manager;
+use crate::{detail, info, success, warning};
 use anyhow::{Context, Result};
 use clap::Parser;
 use sdkcore::config::{
     ConfigKey, SdkConfig, SdkmConfig, ValidatedValue, ValueType, field_type, mask_by_type, parse_config_key,
     validate_by_type,
 };
-use sdkcore::manager::SdkManager;
 use std::collections::HashMap;
 use std::env;
 use std::process::Command;
 use util::path::get_sdkm_config_path;
-use util::{detail, info, success, warning};
 
 #[derive(Debug, Parser)]
 pub struct ConfigHandler {
@@ -138,7 +138,7 @@ impl CommandHandler for ConfigHandler {
 
 impl ConfigSetHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         // 解析键名
         let key = parse_config_key(&self.key)?;
@@ -162,7 +162,7 @@ impl ConfigSetHandler {
         let validated = validate_by_type(&self.value, &ty)?;
 
         // 设置值
-        manager.config.set_value(&key, validated)?;
+        manager.config.set_value(&key, validated, manager.sink.as_ref())?;
 
         // 脱敏后的确认输出
         let display_value = mask_by_type(&self.value, &ty);
@@ -173,7 +173,7 @@ impl ConfigSetHandler {
 
 impl ConfigGetHandler {
     fn run(&self) -> Result<()> {
-        let manager = SdkManager::new()?;
+        let manager = manager()?;
 
         // 解析键名
         let key = parse_config_key(&self.key)?;
@@ -200,7 +200,7 @@ impl ConfigGetHandler {
 }
 
 fn run_list() -> Result<()> {
-    let manager = SdkManager::new()?;
+    let manager = manager()?;
     let entries = manager.config.list_all_values();
 
     for (key, value) in &entries {
@@ -211,7 +211,7 @@ fn run_list() -> Result<()> {
 
 impl ConfigDeleteHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         // 解析键名
         let key = parse_config_key(&self.key)?;
@@ -237,7 +237,7 @@ impl ConfigDeleteHandler {
         }
 
         // 删除值
-        manager.config.delete_value(&key)?;
+        manager.config.delete_value(&key, manager.sink.as_ref())?;
 
         success!("{} has been deleted (reset to default: {})", key.display(), meta.default_desc);
         Ok(())
@@ -302,7 +302,7 @@ fn detect_editor() -> String {
 
 impl AddSdkHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
         // 校验 name 不重名
         if manager.config.sdks.iter().any(|s| s.name == self.name) {
@@ -374,7 +374,7 @@ impl AddSdkHandler {
             arch_style: None,
         };
 
-        manager.config.add_sdk(sdk_config)?;
+        manager.config.add_sdk(sdk_config, manager.sink.as_ref())?;
 
         success!("SDK '{}' added to config.", self.name);
         if self.download_url.is_some() {
@@ -392,9 +392,9 @@ impl AddSdkHandler {
 
 impl RemoveSdkHandler {
     fn run(&self) -> Result<()> {
-        let mut manager = SdkManager::new()?;
+        let mut manager = manager()?;
 
-        manager.config.remove_sdk(&self.name)?;
+        manager.config.remove_sdk(&self.name, manager.sink.as_ref())?;
 
         success!("SDK '{}' removed from config.", self.name);
         Ok(())

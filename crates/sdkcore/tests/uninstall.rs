@@ -4,9 +4,10 @@
 
 use anyhow::Result;
 use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
-use sdkcore::env::EnvOperation;
+use sdkcore::env::{EnvAction, EnvOperation};
 use sdkcore::link::symlink::{create_symlink, read_symlink_target};
 use sdkcore::manager::SdkManager;
+use sdkcore::report::null_sink;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
@@ -35,28 +36,28 @@ struct MockEnv {
 }
 
 impl EnvOperation for MockEnv {
-    fn set_sdk_envs(&self, _envs: &HashMap<String, String>) -> Result<()> {
-        Ok(())
+    fn set_sdk_envs(&self, _envs: &HashMap<String, String>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn add_sdk_path(&self, _sdk_path: &str) -> Result<()> {
-        Ok(())
+    fn add_sdk_path(&self, _sdk_path: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_path(&self) -> Result<String> {
         Ok(String::new()) // 空 PATH → switch 判定 need_add_path=true
     }
-    fn remove_sdk_path(&self, sdk_path: &str) -> Result<()> {
+    fn remove_sdk_path(&self, sdk_path: &str) -> Result<Vec<EnvAction>> {
         self.state.borrow_mut().removed_paths.push(sdk_path.to_string());
-        Ok(())
+        Ok(Vec::new())
     }
     fn get_env_value(&self, _key: &str) -> Result<Option<String>> {
         Ok(None)
     }
-    fn unset_sdk_env(&self, key: &str) -> Result<()> {
+    fn unset_sdk_env(&self, key: &str) -> Result<Vec<EnvAction>> {
         self.state.borrow_mut().unset_envs.push(key.to_string());
-        Ok(())
+        Ok(Vec::new())
     }
-    fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<()> {
-        Ok(())
+    fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
 }
 
@@ -118,6 +119,7 @@ fn make_manager(config: SdkmConfig) -> (SdkManager, Rc<RefCell<MockState>>) {
     let manager = SdkManager {
         config,
         env_operation: Box::new(MockEnv { state: state.clone() }),
+        sink: null_sink(),
     };
     (manager, state)
 }
@@ -150,7 +152,7 @@ fn uninstall_non_active_keeps_current() {
 
     let (mut manager, state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    manager.uninstall_sdk(&sdk, "17", true).unwrap();
+    manager.uninstall_sdk(&sdk, "17").unwrap();
 
     assert!(!java17.exists(), "java/17 dir should be removed");
     assert!(java21.exists(), "java/21 dir should remain");
@@ -175,7 +177,7 @@ fn uninstall_active_with_other_switches() {
 
     let (mut manager, _state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    manager.uninstall_sdk(&sdk, "21", true).unwrap();
+    manager.uninstall_sdk(&sdk, "21").unwrap();
 
     assert!(!java21.exists(), "active java/21 dir should be removed");
     assert!(java17.exists(), "java/17 should remain (switched target)");
@@ -200,7 +202,7 @@ fn uninstall_active_only_cleans_env() {
 
     let (mut manager, state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    manager.uninstall_sdk(&sdk, "21", true).unwrap();
+    manager.uninstall_sdk(&sdk, "21").unwrap();
 
     assert!(!java21.exists(), "java/21 dir should be removed");
     assert!(!links_java.exists(), "symlink should be cleaned");
@@ -233,7 +235,7 @@ fn uninstall_nonexistent_version_bails() {
 
     let (mut manager, _state) = make_manager(config);
     let sdk = manager.match_valid_sdk("java").unwrap();
-    let res = manager.uninstall_sdk(&sdk, "99", true);
+    let res = manager.uninstall_sdk(&sdk, "99");
     assert!(res.is_err(), "uninstalling nonexistent version should bail");
     assert!(java21.exists(), "java/21 should remain untouched");
 }

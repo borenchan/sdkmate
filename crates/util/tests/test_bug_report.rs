@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use util::consts::BugReportError;
-use util::terminal::build_bug_report_url;
+use util::diagnostics::build_bug_report_url;
 
 /// 测试 BugReportError 包装与检测机制
 #[test]

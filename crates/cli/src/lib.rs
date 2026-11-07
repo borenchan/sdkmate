@@ -16,11 +16,14 @@ use crossterm::style::Stylize;
 use std::env;
 use std::process::ExitCode;
 use util::consts::{ABOUT, BANNER, BugReportError};
-use util::error;
-use util::terminal::suggest_bug_report;
 
 mod impls;
+mod macros;
+mod terminal;
+mod terminal_sink;
 mod tui;
+
+use crate::terminal::suggest_bug_report;
 
 #[derive(Debug, Parser)]
 #[command(name = "sdkm", author,  version, about = ABOUT.cyan().to_string(), long_about = BANNER.cyan().to_string())]

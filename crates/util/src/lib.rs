@@ -1,10 +1,10 @@
 pub mod builtin;
 pub mod config_helper;
 pub mod consts;
+pub mod diagnostics;
 pub mod macros;
 pub mod path;
 pub mod region;
 pub mod sdk;
 pub mod shell;
 pub mod shell_backend;
-pub mod terminal;

@@ -2,6 +2,7 @@
 // sdkmate 配置系统——结构体、序列化、磁盘读写、配置操作 API
 // ──────────────────────────────────────────────────────
 
+use crate::report::EventSink;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -348,8 +349,8 @@ impl SdkmConfig {
         }
     }
 
-    /// 设置配置键的值（修改内存 + 原子写入磁盘 + 回滚保障）
-    pub fn set_value(&mut self, key: &ConfigKey, validated: ValidatedValue) -> Result<()> {
+    /// 设置配置键的值（修改内存 + 原子写入磁盘 + 回滚保障；回滚告警经 sink 发事件）
+    pub fn set_value(&mut self, key: &ConfigKey, validated: ValidatedValue, sink: &dyn EventSink) -> Result<()> {
         let snapshot = take_config_snapshot()?;
 
         // 修改内存中的配置
@@ -357,11 +358,11 @@ impl SdkmConfig {
 
         // 原子写入磁盘，失败时自动回滚
         if let Err(e) = self.atomic_write_to_disk() {
-            util::warning!("Failed to write config, rolling back...");
+            sink.warning("Failed to write config, rolling back...".to_string());
             if rollback_config(&snapshot).is_err() {
                 if rollback_config_from_raw(&snapshot).is_err() {
-                    util::warning!("Config rollback failed! Your config file may be corrupted.");
-                    util::detail!("Manual recovery may be needed. Re-run `sdkm init --force` to reset.");
+                    sink.warning("Config rollback failed! Your config file may be corrupted.".to_string());
+                    sink.detail("Manual recovery may be needed. Re-run `sdkm init --force` to reset.".to_string());
                 }
             }
             return Err(util::consts::BugReportError::wrap(e));
@@ -413,9 +414,9 @@ impl SdkmConfig {
         }
     }
 
-    /// 删除配置键的值（恢复为默认值/None + 原子写入磁盘 + 回滚保障）
+    /// 删除配置键的值（恢复为默认值/None + 原子写入磁盘 + 回滚保障；回滚告警经 sink 发事件）
     /// 内置 SDK 字段和不可删除字段返回错误
-    pub fn delete_value(&mut self, key: &ConfigKey) -> Result<()> {
+    pub fn delete_value(&mut self, key: &ConfigKey, sink: &dyn EventSink) -> Result<()> {
         // 检查是否可删除
         let meta = self.key_meta_for(key);
         if !meta.deletable {
@@ -433,10 +434,10 @@ impl SdkmConfig {
 
         // 原子写入磁盘
         if let Err(e) = self.atomic_write_to_disk() {
-            util::warning!("Failed to write config, rolling back...");
+            sink.warning("Failed to write config, rolling back...".to_string());
             if rollback_config(&snapshot).is_err() {
                 if rollback_config_from_raw(&snapshot).is_err() {
-                    util::warning!("Config rollback failed! Your config file may be corrupted.");
+                    sink.warning("Config rollback failed! Your config file may be corrupted.".to_string());
                 }
             }
             return Err(util::consts::BugReportError::wrap(e));
@@ -573,9 +574,9 @@ impl SdkmConfig {
         entries
     }
 
-    /// 新增自定义 SDK 条目（原子写入 + 回滚保障）
+    /// 新增自定义 SDK 条目（原子写入 + 回滚保障；回滚告警经 sink 发事件）
     /// 校验：name 不与已有 SDK 重名
-    pub fn add_sdk(&mut self, sdk_config: SdkConfig) -> Result<()> {
+    pub fn add_sdk(&mut self, sdk_config: SdkConfig, sink: &dyn EventSink) -> Result<()> {
         // 检查是否重名
         if self.sdks.iter().any(|s| s.name == sdk_config.name) {
             bail!(
@@ -589,10 +590,10 @@ impl SdkmConfig {
         self.sdks.push(sdk_config);
 
         if let Err(e) = self.atomic_write_to_disk() {
-            util::warning!("Failed to write config, rolling back...");
+            sink.warning("Failed to write config, rolling back...".to_string());
             if rollback_config(&snapshot).is_err() {
                 if rollback_config_from_raw(&snapshot).is_err() {
-                    util::warning!("Config rollback failed!");
+                    sink.warning("Config rollback failed!".to_string());
                 }
             }
             return Err(util::consts::BugReportError::wrap(e));
@@ -601,8 +602,8 @@ impl SdkmConfig {
         Ok(())
     }
 
-    /// 移除 SDK 条目（内置 SDK 不可移除）
-    pub fn remove_sdk(&mut self, name: &str) -> Result<()> {
+    /// 移除 SDK 条目（内置 SDK 不可移除；回滚告警经 sink 发事件）
+    pub fn remove_sdk(&mut self, name: &str, sink: &dyn EventSink) -> Result<()> {
         // 内置 SDK 不可移除
         if SdkmConfig::is_builtin_sdk(name) {
             bail!(
@@ -621,10 +622,10 @@ impl SdkmConfig {
         self.sdks.remove(index.unwrap());
 
         if let Err(e) = self.atomic_write_to_disk() {
-            util::warning!("Failed to write config, rolling back...");
+            sink.warning("Failed to write config, rolling back...".to_string());
             if rollback_config(&snapshot).is_err() {
                 if rollback_config_from_raw(&snapshot).is_err() {
-                    util::warning!("Config rollback failed!");
+                    sink.warning("Config rollback failed!".to_string());
                 }
             }
             return Err(util::consts::BugReportError::wrap(e));

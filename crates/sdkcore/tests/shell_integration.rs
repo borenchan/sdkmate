@@ -11,12 +11,13 @@
 
 use anyhow::Result;
 use sdkcore::config::{NetworkConfig, SdkConfig, SdkmConfig};
-use sdkcore::env::EnvOperation;
+use sdkcore::env::{EnvAction, EnvOperation};
 use sdkcore::hook_cache::{
     CACHE_SCHEMA_VERSION, HookCache, HookEntry, current_session_fingerprint, global_fingerprint,
 };
 use sdkcore::manager::SdkManager;
 use sdkcore::project_config::ProjectConfig;
+use sdkcore::report::null_sink;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs;
@@ -39,26 +40,26 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 struct MockEnv;
 
 impl EnvOperation for MockEnv {
-    fn set_sdk_envs(&self, _: &HashMap<String, String>) -> Result<()> {
-        Ok(())
+    fn set_sdk_envs(&self, _: &HashMap<String, String>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn add_sdk_path(&self, _: &str) -> Result<()> {
-        Ok(())
+    fn add_sdk_path(&self, _: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_path(&self) -> Result<String> {
         Ok(String::new())
     }
-    fn remove_sdk_path(&self, _: &str) -> Result<()> {
-        Ok(())
+    fn remove_sdk_path(&self, _: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
     fn get_env_value(&self, _: &str) -> Result<Option<String>> {
         Ok(None)
     }
-    fn unset_sdk_env(&self, _: &str) -> Result<()> {
-        Ok(())
+    fn unset_sdk_env(&self, _: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
-    fn restore_sdk_envs(&self, _: &HashMap<String, Option<String>>) -> Result<()> {
-        Ok(())
+    fn restore_sdk_envs(&self, _: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
     }
 }
 
@@ -123,6 +124,7 @@ fn make_manager(config: SdkmConfig) -> SdkManager {
     SdkManager {
         config,
         env_operation: Box::new(MockEnv),
+        sink: null_sink(),
     }
 }
 
@@ -384,31 +386,26 @@ fn env_script_layered_priority_with_venv() {
     }
 
     let manager = make_manager(config);
-    let bin_win = java_dir.join("bin").to_string_lossy().replace('/', "\\");
-    let bin_unix: String = java_dir.join("bin").to_string_lossy().into_owned();
-    // PATH 行输出为 bash 语法（条目固定 `:` 连接，与平台无关）
+    // 平台原生 bin 路径（Windows 反斜杠/linux 正斜杠；输出行为 bash 语法，条目固定 `:` 连接）
+    let bin_dir_str: String = java_dir.join("bin").to_string_lossy().into_owned();
     for script in [
         manager.generate_env_script_cached(Shell::Bash, &proj),
         manager.generate_env_script_cached(Shell::Bash, &proj),
     ] {
         // pin 生效：top 段（会话/项目）压过 venv 前插
-        let line_win = format!("export PATH=\"{bin_win}:htc/bin:usr/bin\"");
-        let line_unix = format!("export PATH=\"{bin_unix}:htc/bin:usr/bin\"");
-        assert!(
-            script.contains(&line_win) || script.contains(&line_unix),
-            "pin 的 top 段应顶到 venv 前，got: {script}"
-        );
+        let line_top = format!("export PATH=\"{bin_dir_str}:htc/bin:usr/bin\"");
+        assert!(script.contains(&line_top), "pin 的 top 段应顶到 venv 前，got: {script}");
         assert!(!script.contains("old/sdkm/bin"), "旧注入条目应被剥除，got: {script}");
     }
 
     // 稳定态：模拟首次 eval 后的 shell 状态（java bin 已最前、INJECTED 已更新）→ 幂等不变
     unsafe {
-        env::set_var("PATH", format!("{bin_win}{sep}htc/bin{sep}usr/bin"));
-        env::set_var(ENV_HOOK_INJECTED_PATHS, &bin_win);
+        env::set_var("PATH", format!("{bin_dir_str}{sep}htc/bin{sep}usr/bin"));
+        env::set_var(ENV_HOOK_INJECTED_PATHS, &bin_dir_str);
     }
     let stable = manager.generate_env_script_cached(Shell::Bash, &proj);
     assert!(
-        stable.contains(&format!("export PATH=\"{bin_win}:htc/bin:usr/bin\"")),
+        stable.contains(&format!("export PATH=\"{bin_dir_str}:htc/bin:usr/bin\"")),
         "稳定态应幂等，got: {stable}"
     );
 

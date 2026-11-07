@@ -1,10 +1,9 @@
 use crate::config::NetworkConfig;
+use crate::report::{EventSink, ProgressHandle};
 use anyhow::{Context, Result, bail};
-use indicatif::{HumanBytes, ProgressBar};
 use reqwest::Client;
 use std::path::Path;
 use std::time::Duration;
-use util::{detail, warning};
 
 /// Build reqwest Client from NetworkConfig.
 /// User-Agent is required by GitHub API.
@@ -54,7 +53,13 @@ fn build_client(network: &NetworkConfig, gzip: bool) -> Result<Client> {
 /// 服务器返 206 → append 续传、进度条从 have 开始；
 /// 服务器返 200（不支持 Range 或文件已变）→ 从头覆盖下载。
 /// 同版本 tmp_dir 隔离保证只续传同 URL，不会跨版本拼接损坏。
-pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path, pb: &ProgressBar) -> Result<()> {
+pub async fn download_with_progress(
+    client: &Client,
+    url: &str,
+    dest_path: &Path,
+    pb: &dyn ProgressHandle,
+    sink: &dyn EventSink,
+) -> Result<()> {
     // 断点续传：检查已下载部分文件大小
     let have: u64 = match tokio::fs::metadata(dest_path).await {
         Ok(m) => m.len(),
@@ -90,9 +95,7 @@ pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path
     // 续传：append 打开（保留已有内容）；从头：create 覆盖
     let file = if resume {
         if have > 0 {
-            pb.suspend(|| {
-                detail!("Resuming download: {} already downloaded", HumanBytes(have));
-            });
+            sink.detail(format!("Resuming download: {} already downloaded", human_bytes(have)));
         }
         tokio::fs::OpenOptions::new()
             .append(true)
@@ -101,9 +104,7 @@ pub async fn download_with_progress(client: &Client, url: &str, dest_path: &Path
             .context("Failed to open partial file for resume")?
     } else {
         if have > 0 {
-            pb.suspend(|| {
-                detail!("Server doesn't support resume, restarting download");
-            });
+            sink.detail("Server doesn't support resume, restarting download".to_string());
         }
         tokio::fs::File::create(dest_path)
             .await
@@ -135,7 +136,8 @@ pub async fn download_with_retry(
     client: &Client,
     url: &str,
     dest_path: &Path,
-    pb: &ProgressBar,
+    pb: &dyn ProgressHandle,
+    sink: &dyn EventSink,
     max_retries: u32,
 ) -> Result<()> {
     for attempt in 0..max_retries {
@@ -143,17 +145,36 @@ pub async fn download_with_retry(
             pb.set_message(format!("Retry #{} downloading...", attempt));
         }
 
-        match download_with_progress(client, url, dest_path, pb).await {
+        match download_with_progress(client, url, dest_path, pb, sink).await {
             Ok(_) => return Ok(()),
             Err(e) if attempt < max_retries - 1 => {
                 // 保留部分文件供下次重试断点续传（不 remove_file）
-                pb.suspend(|| {
-                    warning!("Download attempt #{} failed: {}. Retrying (will resume)...", attempt + 1, e);
-                });
+                sink.warning(format!(
+                    "Download attempt #{} failed: {}. Retrying (will resume)...",
+                    attempt + 1,
+                    e
+                ));
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
             Err(e) => bail!("Download failed after {} attempts: {}", max_retries, e),
         }
     }
     Ok(())
+}
+
+/// 等价复刻 indicatif::HumanBytes（1024 进制：<1KiB 打整数 B，其余两位小数 + KiB/MiB/...），
+/// sdkcore 去掉 indicatif 依赖后保持该提示字节不变
+fn human_bytes(n: u64) -> String {
+    const UNITS: [&str; 6] = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+    let mut v = n as f64;
+    if v < 1024.0 {
+        return format!("{v:.0} B");
+    }
+    for unit in UNITS {
+        v /= 1024.0;
+        if v < 1024.0 || unit == UNITS[UNITS.len() - 1] {
+            return format!("{v:.2} {unit}");
+        }
+    }
+    unreachable!()
 }

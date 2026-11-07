@@ -185,9 +185,23 @@ mod tests {
         assert_eq!(e.full_version, "1.4.2");
         assert_eq!(e.feature_version.as_deref(), Some("1"));
         assert_eq!(e.release_tag.as_deref(), Some("bun-v1.4.2"));
-        // Windows 评测机：plain 版本胜 baseline
-        let url = e.download_url.clone().unwrap_or_default();
-        assert!(url.ends_with("plain.zip") || url.ends_with("musl.zip"), "got {}", url);
+        // 直链 = asset_selector 对当前平台的选择（挑选逻辑已由其单测注入平台覆盖，此处验证接线）
+        let assets = [
+            AssetCandidate {
+                name: "bun-windows-x64-baseline.zip",
+                download_url: "https://x/baseline.zip",
+            },
+            AssetCandidate {
+                name: "bun-windows-x64.zip",
+                download_url: "https://x/plain.zip",
+            },
+            AssetCandidate {
+                name: "bun-linux-x64-musl.zip",
+                download_url: "https://x/musl.zip",
+            },
+        ];
+        let expected = pick_asset(&assets, "bun").map(|c| c.download_url.to_string());
+        assert_eq!(e.download_url, expected, "got {:?}", e.download_url);
     }
 
     #[test]

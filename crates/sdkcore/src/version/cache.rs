@@ -1,6 +1,7 @@
 // 版本数据缓存 + 网络获取(无 SDK 语义,纯传输层)
 
 use crate::config::NetworkConfig;
+use crate::report::EventSink;
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use std::collections::HashMap;
@@ -9,7 +10,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use util::consts::SDKM_CACHE_DIR;
 use util::path::get_sdkm_home;
-use util::warning;
 
 use super::truncate;
 
@@ -65,6 +65,7 @@ const MAX_RETRIES: u32 = 3;
 ///       → 主源(重试 3 次)→ 备源(重试 3 次)
 ///       → 写入缓存 → 返回。
 ///       主备均失败 → 返回过期缓存作为降级兜底 → bail。
+#[allow(clippy::too_many_arguments)] // 传输层管线参数天然多（client/source/cache/label/ttl/network/sink），打包反而模糊
 pub async fn fetch_version_data(
     client: &Client,
     source: &VersionSource,
@@ -73,6 +74,7 @@ pub async fn fetch_version_data(
     headers: Option<HashMap<String, String>>,
     cache_ttl_secs: u64,
     network: &NetworkConfig,
+    sink: &dyn EventSink,
 ) -> Result<String> {
     // 缓存优先:新鲜则立即返回,不发起网络请求
     if let Some(cached) = load_from_cache_if_fresh(cache_key, cache_ttl_secs) {
@@ -96,7 +98,7 @@ pub async fn fetch_version_data(
     let primary_headers = with_github_token_if_api(headers, &primary_url, network);
 
     // 缓存过期或缺失 → 走 API
-    let primary_result = try_url_with_retry(client, &primary_url, primary_headers, sdk_label, "primary").await;
+    let primary_result = try_url_with_retry(client, &primary_url, primary_headers, sdk_label, "primary", sink).await;
 
     if let Ok(body) = primary_result {
         let _ = save_to_cache(cache_key, &body);
@@ -114,23 +116,23 @@ pub async fn fetch_version_data(
     };
     let primary_err_str = strip_prefix(primary_err, sdk_label);
     if let Some(secondary_url) = &secondary_url {
-        warning!(
+        sink.warning(format!(
             "[{}] primary source failed ({}), trying secondary source...",
             sdk_label,
             truncate(&primary_err_str, 160)
-        );
+        ));
         let secondary_result =
-            try_url_with_retry(client, secondary_url, secondary_headers, sdk_label, "secondary").await;
+            try_url_with_retry(client, secondary_url, secondary_headers, sdk_label, "secondary", sink).await;
 
         if let Ok(body) = secondary_result {
             let _ = save_to_cache(cache_key, &body);
             return Ok(body);
         }
-        warning!(
+        sink.warning(format!(
             "[{}] secondary source also failed ({}), falling back to stale cache if any",
             sdk_label,
             truncate(&strip_prefix(secondary_result.unwrap_err(), sdk_label), 160)
-        );
+        ));
     } else {
         // 无备源配置时把主源错误带上，避免只剩笼统的 no cache 提示
         return Err(anyhow::anyhow!("[{}] {}", sdk_label, primary_err_str));
@@ -138,10 +140,9 @@ pub async fn fetch_version_data(
 
     // 主备均失败 → 返回过期缓存作为降级兜底
     if let Some(cached) = load_from_cache_stale(cache_key) {
-        warning!(
-            "[{}] both primary and secondary sources failed, using stale local cache (may be outdated)",
-            sdk_label
-        );
+        sink.warning(format!(
+            "[{sdk_label}] both primary and secondary sources failed, using stale local cache (may be outdated)"
+        ));
         return Ok(cached);
     }
 
@@ -179,6 +180,7 @@ async fn try_url_with_retry(
     headers: Option<HashMap<String, String>>,
     sdk_label: &str,
     source_label: &str,
+    sink: &dyn EventSink,
 ) -> Result<String> {
     for attempt in 0..MAX_RETRIES {
         let mut req = client.get(url);
@@ -214,7 +216,7 @@ async fn try_url_with_retry(
                 if status.is_server_error() {
                     if attempt < MAX_RETRIES - 1 {
                         let delay = Duration::from_secs((attempt + 1) as u64);
-                        warning!(
+                        sink.warning(format!(
                             "[{}] {} source server error (HTTP {}), retrying in {}s... (attempt {}/{})",
                             sdk_label,
                             source_label,
@@ -222,7 +224,7 @@ async fn try_url_with_retry(
                             delay.as_secs(),
                             attempt + 1,
                             MAX_RETRIES
-                        );
+                        ));
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -247,7 +249,7 @@ async fn try_url_with_retry(
                 // 网络错误 → 重试
                 if attempt < MAX_RETRIES - 1 {
                     let delay = Duration::from_secs((attempt + 1) as u64);
-                    warning!(
+                    sink.warning(format!(
                         "[{}] {} source network error, retrying in {}s... (attempt {}/{}): {}",
                         sdk_label,
                         source_label,
@@ -255,7 +257,7 @@ async fn try_url_with_retry(
                         attempt + 1,
                         MAX_RETRIES,
                         truncate(&e.to_string(), 100)
-                    );
+                    ));
                     tokio::time::sleep(delay).await;
                     continue;
                 }

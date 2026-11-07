@@ -1,5 +1,5 @@
-use indicatif::{ProgressBar, ProgressDrawTarget};
 use sdkcore::install::downloader::download_with_progress;
+use sdkcore::report::{EventSink, NullSink, ProgressKind};
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
@@ -31,10 +31,12 @@ fn download_writes_full_body() {
     for (i, body) in cases.into_iter().enumerate() {
         let url = serve(body.clone());
         let dest = env::temp_dir().join(format!("sdkm_dl_test_{}.bin", i));
-        let pb = ProgressBar::new(0);
-        pb.set_draw_target(ProgressDrawTarget::hidden());
+        // NullSink 吞事件 + 空进度句柄（原 hidden ProgressBar 的等价替代）
+        let sink = NullSink;
+        let pb = sink.progress(ProgressKind::Download, "test".to_string());
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(download_with_progress(&client, &url, &dest, &pb)).unwrap();
+        rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
+            .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), body);
         let _ = fs::remove_file(&dest);
     }
@@ -84,10 +86,12 @@ fn download_resumes_partial() {
     let client = reqwest::Client::new();
     let dest = env::temp_dir().join("sdkm_dl_resume.bin");
     fs::write(&dest, &body[..100_000]).unwrap(); // 预写前 100KB
-    let pb = ProgressBar::new(0);
-    pb.set_draw_target(ProgressDrawTarget::hidden());
+    // NullSink 吞事件 + 空进度句柄（原 hidden ProgressBar 的等价替代）
+    let sink = NullSink;
+    let pb = sink.progress(ProgressKind::Download, "test".to_string());
     let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(download_with_progress(&client, &url, &dest, &pb)).unwrap();
+    rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
+        .unwrap();
     assert_eq!(fs::read(&dest).unwrap(), body);
     let _ = fs::remove_file(&dest);
 }
@@ -100,10 +104,12 @@ fn download_restarts_when_no_range_support() {
     let client = reqwest::Client::new();
     let dest = env::temp_dir().join("sdkm_dl_norange.bin");
     fs::write(&dest, b"STALE PARTIAL CONTENT").unwrap(); // 预写垃圾
-    let pb = ProgressBar::new(0);
-    pb.set_draw_target(ProgressDrawTarget::hidden());
+    // NullSink 吞事件 + 空进度句柄（原 hidden ProgressBar 的等价替代）
+    let sink = NullSink;
+    let pb = sink.progress(ProgressKind::Download, "test".to_string());
     let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(download_with_progress(&client, &url, &dest, &pb)).unwrap();
+    rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
+        .unwrap();
     assert_eq!(fs::read(&dest).unwrap(), body);
     let _ = fs::remove_file(&dest);
 }
