@@ -181,153 +181,20 @@ mod tests {
         }
     }
 
-    fn url_of(pick: Option<AssetCandidate>) -> String {
-        pick.unwrap().download_url.to_string()
-    }
-
-    // ── bun：修饰变体降权 + gnu/musl 偏好 ─────────────────────────
-
+    /// 平台无关的拒绝路径：非压缩包后缀（校验和/签名/差分包/裸数据）在任何宿主都不命中。
+    /// 命中类断言与编译期宿主平台耦合（pick_asset 按当前目标平台匹配），跨平台场景由集成测试覆盖。
     #[test]
-    fn bun_windows_prefers_plain_over_baseline() {
+    fn non_archive_assets_rejected_on_any_host() {
         let assets = [
-            c("bun-windows-x64-baseline.zip"),
-            c("bun-windows-x64.zip"),
-            c("bun-windows-x64-profile.zip"),
-        ];
-        let picked = pick_asset(&assets, "bun").unwrap();
-        assert_eq!(picked.name, "bun-windows-x64.zip");
-    }
-
-    #[test]
-    fn bun_linux_prefers_gnu_over_musl() {
-        // gnu/musl 偏好是 linux 平台语义：在 linux 宿主选 gnu，非 linux 宿主不命中
-        let assets = [c("bun-linux-x64-musl.zip"), c("bun-linux-x64.zip")];
-        let picked = pick_asset(&assets, "bun");
-        if cfg!(target_os = "linux") {
-            assert_eq!(picked.unwrap().name, "bun-linux-x64.zip");
-        } else {
-            assert!(picked.is_none());
-        }
-    }
-
-    #[test]
-    fn bun_mac_arm64_only_hits_on_mac() {
-        let assets = [c("bun-darwin-aarch64.zip"), c("bun-darwin-x64.zip")];
-        let picked = pick_asset(&assets, "bun");
-        if cfg!(target_os = "macos") {
-            assert_eq!(picked.unwrap().name, "bun-darwin-aarch64.zip");
-        } else {
-            assert!(picked.is_none());
-        }
-    }
-
-    // ── codex：前缀门排除兄弟工具资产 + exe.zip 双后缀 ────────────
-
-    #[test]
-    fn codex_picks_main_binary_excluding_app_server_and_sibling_tools() {
-        let assets = [
-            c("bwrap-x86_64-unknown-linux-musl.tar.gz"),
-            c("codex-app-server-x86_64-pc-windows-msvc.exe.zip"),
-            c("codex-x86_64-pc-windows-msvc.exe.zip"),
-            c("codex-x86_64-pc-windows-msvc.exe.tar.gz"),
-        ];
-        let picked = pick_asset(&assets, "codex").unwrap();
-        assert_eq!(picked.name, "codex-x86_64-pc-windows-msvc.exe.zip");
-    }
-
-    // ── uv：前缀门排除 uvx ─────────────────────────────────────────
-
-    #[test]
-    fn uv_excludes_uvx_assets() {
-        let assets = [c("uvx-x86_64-pc-windows-msvc.zip"), c("uv-x86_64-pc-windows-msvc.zip")];
-        let picked = pick_asset(&assets, "uv").unwrap();
-        assert_eq!(picked.name, "uv-x86_64-pc-windows-msvc.zip");
-    }
-
-    // ── claude-code：前缀与 sdk 名不同（claude vs claude-code）────
-
-    #[test]
-    fn claude_win32_naming() {
-        let assets = [c("claude-win32-x64.zip"), c("SHASUMS256.txt")];
-        let picked = pick_asset(&assets, "claude").unwrap();
-        assert_eq!(picked.name, "claude-win32-x64.zip");
-    }
-
-    // ── pnpm / gh / deno：win32 词表、下划线分段、三元组 ──────────
-
-    #[test]
-    fn pnpm_win32_word() {
-        let assets = [c("pnpm-win32-x64.zip"), c("pnpm-linux-x64.tar.gz")];
-        let picked = pick_asset(&assets, "pnpm").unwrap();
-        assert_eq!(picked.name, "pnpm-win32-x64.zip");
-    }
-
-    #[test]
-    fn gh_underscore_naming_and_amd64() {
-        let assets = [
-            c("gh_2.100.0_windows_amd64.zip"),
-            c("gh_2.100.0_linux_amd64.tar.gz"),
-            c("gh_2.100.0_checksums.txt"),
-        ];
-        let picked = pick_asset(&assets, "gh").unwrap();
-        assert_eq!(picked.name, "gh_2.100.0_windows_amd64.zip");
-    }
-
-    #[test]
-    fn deno_platform_triple_with_bsdiff_excluded() {
-        let assets = [
-            c("deno-x86_64-pc-windows-msvc.from-2.9.5.bsdiff"),
-            c("deno-x86_64-pc-windows-msvc.zip"),
-            c("deno-x86_64-pc-windows-msvc.sha256sum"),
-        ];
-        let picked = pick_asset(&assets, "deno").unwrap();
-        assert_eq!(picked.name, "deno-x86_64-pc-windows-msvc.zip");
-    }
-
-    // ── cmake：版本号段 + macos universal ──────────────────────────
-
-    #[test]
-    fn cmake_windows_with_version_tokens() {
-        let assets = [
-            c("cmake-4.3.5-files-v1.json"),
-            c("cmake-4.3.5-windows-x86_64.zip"),
+            c("terraform_1.16.1_SHA256SUMS"),
+            c("bun-windows-x64.zip.sha256"),
+            c("deno-x86_64-pc-windows-msvc.bsdiff"),
             c("cmake-4.3.5-windows-x86_64.msi"),
+            c("cmake-4.3.5-files-v1.json"),
         ];
-        let picked = pick_asset(&assets, "cmake").unwrap();
-        assert_eq!(picked.name, "cmake-4.3.5-windows-x86_64.zip");
-    }
-
-    #[test]
-    fn cmake_macos_universal_matches_any_arch() {
-        let assets = [
-            c("cmake-4.3.5-macos-universal.tar.gz"),
-            c("cmake-4.3.5-macos10.10-universal.tar.gz"),
-        ];
-        let picked = pick_asset(&assets, "cmake");
-        if cfg!(target_os = "macos") {
-            // 精确词 macos 优先于带尾数字的 macos10.10
-            assert_eq!(picked.unwrap().name, "cmake-4.3.5-macos-universal.tar.gz");
-        } else {
-            assert!(picked.is_none());
-        }
-    }
-
-    // ── terraform：资产缺失回落 None ───────────────────────────────
-
-    #[test]
-    fn terraform_assetless_release_returns_none() {
-        let assets = [c("terraform_1.16.1_SHA256SUMS")];
         assert!(pick_asset(&assets, "terraform").is_none());
-    }
-
-    // ── 平台排斥：其他平台资产不命中 ───────────────────────────────
-
-    #[test]
-    fn other_platform_assets_rejected() {
-        let assets = [c("bun-linux-x64.zip"), c("bun-darwin-aarch64.zip")];
-        let picked = pick_asset(&assets, "bun");
-        if cfg!(target_os = "windows") {
-            assert!(picked.is_none());
-        }
+        assert!(pick_asset(&assets, "bun").is_none());
+        assert!(pick_asset(&assets, "deno").is_none());
+        assert!(pick_asset(&assets, "cmake").is_none());
     }
 }

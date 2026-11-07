@@ -106,23 +106,20 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-06）
+## 当前开发进度（2026-11-07）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 核心/前端解耦重构已收尾（feature/core-decouple 分支，五阶段全部完成）
+### GH Releases 引擎 CI 测试修复（feature/core-decouple 分支）
 
-> 唯一权威文档 `D:\Desktop\sdkm资料\文档\cli重构.md`（含全部实施记录与偏差）；金样工具 `D:\Desktop\sdkm资料\golden\golden.ps1`（14 场景字节级对比，基线 `baseline3`）。架构铁律已沉淀到本文件"工作区架构"段；GUI 接入约定见 `docs/gui-integration.md`。
+`9109099` 落地的 GH Releases 引擎（asset_selector + github_releases，内置 SDK 扩到 14 个）单测写死了 Windows 宿主期望，PR CI 的 ubuntu/macos runner 挂 10 个测试（Windows 资产 `unwrap()` None、端到端 `got `（空））——Windows 开发机盲区的测试版：本地全绿、CI 三系统全红。**运行时代码零改动**，仅修测试：
 
-**Phase 1-3**（`1af78d7` list 渲染解耦 / `bed71de` 事件契约落地 / `aa35140` 确认上移调用端）：详见 cli重构.md 各 Phase 实施记录。
+- `asset_selector.rs`：测试模块从 15 个精简到 1 个平台无关拒绝路径测试（校验和/签名/bsdiff/.msi 等非压缩包后缀任何宿主不命中）；命中类断言与编译期宿主耦合，删掉后由集成测试 `core_install_flow::core_flow_github_releases_direct_link` 兜底（每 runner 起本地 server 真实挑中本平台资产走下载→解压→安装全链路）
+- `github_releases.rs`：端到端断言从写死 "Windows 评测机选 plain" 改为与 `pick_asset` 当前平台结果对齐（平台无关且保留 prerelease 过滤/tag 剥前缀/排序链路覆盖）
 
-**Phase 4 `fe4c2be`**：输出扫尾（switch/uninstall/use_cmd/self_uninstall/config 写侧/symlink/shell_env/inject 全 sink 化）+ **EnvOperation 结构化**（写方法返回 `Vec<EnvAction>`，`report_env_actions` 转事件；MockEnv 机械适配返回类型）+ version/cache.rs 网络重试 warning 走 sink 参数 + **doctor 数据化**（`collect_doctor_report → DoctorReport`，cli 渲染分流）+ **init 拆分**（`check_init_env → InitCheck` 确认上移 + `init_sdkm(sink, force) → InitSummary`，装饰归 cli）+ **util 边界**（terminal.rs 渲染半区+宏迁 `cli::terminal`/`cli::macros`，`util::diagnostics` 收诊断数据，util 删 crossterm/unicode-width，cli 删 tokio）+ resolve 同名统一（use_cmd 改调 `resolve_installed_version`）。沙箱对比（WSL aa35140 基线 vs Phase 4，9 场景）抓出 2 个迁移 bug 已修：`remove_symlink` 返回 bool（幂等静默语义保真）、uninstall 嵌入 switch 文案参数顺序。
+验证：WSL linux x64 真实宿主实测命中/降权/拒绝 5 类场景全过（临时测试按规矩验证后已删）；workspace 全量绿。
 
-**Phase 5（本提交）**：CLI 金样精简入库（根 `tests/cli_golden.rs` 11 场景：version/current 三来源/ls 空与缺失/config/未注册错误分流/hook 全文/env+use --shell 纯净性/use pin 端到端；去 ANSI 文本断言 + 路径归一化 + 环境污染屏障——防宿主 temp 残留 .sdkm.toml 混入三层解析）+ 独立 `.github/workflows/ci.yml`（push 非 master + PR 触发，ubuntu x86/arm + macos + windows 四 runner 跑 fmt/clippy/test；clippy 暂不 -D warnings——仓库尚有 20+ 预存在警告待基线清零）+ CLAUDE.md 架构段/进度段统一更新 + `docs/gui-integration.md`。
-
-**已知遗留（非阻塞，记录在案）**：ls 版本列表未显式排序（read_dir 枚举序透传，Windows 名序与 ext4 哈希序不同——排序语义需用户拍板后修）；`sdkcore/tests/env.rs` 直接操作真实注册表（违反沙箱测试规矩的既有测试，CI runner 一次性环境 + add/remove 自清理故不阻塞）；clippy 预存在警告 20+（collapsible_if 等，多在未改动文件）。
-
-**重构期间验证基线**：金样 14 场景 + 沙箱对比 9 场景字节级一致（Windows 金样、WSL 沙箱）；114 workspace 测试全绿；WSL 全量编译通过（unix.rs 真实编译）；macOS 由 CI 发版兜底。双平台部署二进制：Windows `D:\develop\sdk\.sdkm\sdkm.exe` + WSL `~/.sdkm/sdkm`（均 .bak 备份）。**待用户 TTY 冒烟**：init 四态（金样盲区）、install 真实下载富模板、hook 重开终端。
+**已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。**教训**：单测断言依赖编译期 `cfg!` 宿主常量时，要么 cfg! 分流要么交集成测试，不能裸写单一平台期望。
 
 ## 已知问题与注意事项
 
