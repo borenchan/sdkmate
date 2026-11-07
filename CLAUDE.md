@@ -122,6 +122,8 @@ bin_dir = "bin"
 
 验证：WSL linux x64 + Windows 双平台 workspace 全量绿、fmt 过。**教训**：测试 mock 数据与断言不能假定宿主平台（假载荷、路径分隔符替换都是 Windows 盲区变体）；多测试共享串行锁时，一个真失败会以毒锁级联放大，看 CI 失败清单先找非锁行号的那一个。
 
+**CI 矩阵精简（同批）**：4 runner × push/PR 双触发（同 commit 跑 8 job）→ 三大 OS 各一 latest（ubuntu/macos/windows，3 job），只留 push 触发（非 master）；ARM64/musl/macOS Intel 编译验证由 release.yml 发版七产物矩阵兜底。macos-14 label 在本仓库持续分配失败（`'macos-14-arm64-us-default' is not supported`，0 step 即取消，runner 池问题非代码问题），换 macos-latest 规避。
+
 **已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。
 
 ## 已知问题与注意事项

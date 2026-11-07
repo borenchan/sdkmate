@@ -1,15 +1,12 @@
 name: CI
 
-# 质量门禁：fmt / clippy / 全量测试，三系统 runner（对齐 release 矩阵的 gnu/macos/windows 逻辑目标；
-# ARM64 gnu 与 musl 由 release.yml 发版构建兜底，测试跑三大系统已覆盖平台敏感路径）
-# Linux 需 cmake（aws-lc-rs 构建依赖），对齐 CLAUDE.md 运行环境说明。
+# 质量门禁：fmt / clippy / 全量测试。基础验证矩阵：三大 OS 各一（latest）；
+# ARM64 / musl / macOS Intel 等完整目标由 release.yml 发版七产物矩阵兜底（发版必真编译）。
+# 只留 push 触发（非 master）：PR 与 push 是同一 commit，双触发纯重复跑两遍。
 on:
   push:
     branches-ignore:
       - master # master 的质量验证由 release.yml 的发版链承载，避免重复跑
-  pull_request:
-    branches:
-      - master
 
 jobs:
   check:
@@ -18,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
