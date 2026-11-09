@@ -52,45 +52,56 @@ jobs:
     needs: tag
     if: needs.tag.outputs.tag_created == 'true'
     runs-on: ${{ matrix.os }}
+    # Linux 跑 ubuntu:22.04 容器锁 glibc 2.35（runner 镜像会退役，容器镜像长期有官方维护）；
+    # macOS/Windows 条目无 container 字段 → 表达式展开为空串 = 不进容器，跑 VM
+    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux gnu：glibc 2.35（ubuntu-22.04 编译），兼容 Ubuntu 22.04+/Debian 12+/Fedora 37+
-          - os: ubuntu-22.04
+          # Linux gnu：容器 ubuntu:22.04 锁 glibc 2.35，兼容 Ubuntu 22.04+/Debian 12+/Fedora 37+；
+          # runner 用 24.04（22.04 runner 已退役），产物 glibc 由容器决定与 runner 无关
+          - os: ubuntu-24.04
+            container: ubuntu:22.04
             target: x86_64-unknown-linux-gnu
             artifact_name: sdkm
             asset_name: sdkm-linux-x86_64-gnu
             archive_format: tar.gz
+            apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev
           # Linux musl：全静态，无 glibc 依赖，任意 Linux 通吃（Alpine/CentOS 7/容器）
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
+            container: ubuntu:22.04
             target: x86_64-unknown-linux-musl
             artifact_name: sdkm
             asset_name: sdkm-linux-x86_64-musl
             archive_format: tar.gz
-            apt_packages: musl-tools cmake perl
-          # Linux ARM64 gnu：原生 arm64 runner（与 x86 gnu 同为 22.04 基线，glibc 2.35）
-          - os: ubuntu-22.04-arm
+            apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev musl-tools
+          # Linux ARM64 gnu：原生 arm64 runner + 同款 22.04 容器（与 x64 gnu 同 glibc 2.35 基线）
+          - os: ubuntu-24.04-arm
+            container: ubuntu:22.04
             target: aarch64-unknown-linux-gnu
             artifact_name: sdkm
             asset_name: sdkm-linux-aarch64-gnu
             archive_format: tar.gz
+            apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev
           # Linux ARM64 musl：全静态，树莓派/ARM 服务器/Alpine 通吃
-          - os: ubuntu-22.04-arm
+          - os: ubuntu-24.04-arm
+            container: ubuntu:22.04
             target: aarch64-unknown-linux-musl
             artifact_name: sdkm
             asset_name: sdkm-linux-aarch64-musl
             archive_format: tar.gz
-            apt_packages: musl-tools cmake perl
-          # macOS ARM（M1+）：deployment target 11.0 覆盖 Big Sur+，避免绑 runner SDK 版本
-          - os: macos-14
+            apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev musl-tools
+          # macOS ARM（M1+）：macos-14 池已被 GitHub 下线（'not supported' 0 step 取消），换 macos-15；
+          # deployment target 11.0 覆盖 Big Sur+，避免绑 runner SDK 版本
+          - os: macos-15
             target: aarch64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkm-macos-aarch64
             archive_format: tar.gz
             macos_deployment_target: "11.0"
-          # macOS Intel：在 ARM runner(macos-14) 上交叉编译 x86_64，避开 macos-13 Intel runner 长排队
-          - os: macos-14
+          # macOS Intel：在 ARM runner(macos-15) 上交叉编译 x86_64，避开 Intel runner 长排队
+          - os: macos-15
             target: x86_64-apple-darwin
             artifact_name: sdkm
             asset_name: sdkm-macos-x86_64
@@ -104,13 +115,15 @@ jobs:
             archive_format: zip
 
     steps:
+      # 装依赖必须先于 checkout：ubuntu:22.04 裸容器无 git（checkout 需要），
+      # 且容器内为 root 无 sudo；macOS/Windows 无 apt_packages 直接跳过
+      - name: Install build deps (Linux containers)
+        if: matrix.apt_packages
+        run: apt-get update && apt-get install -y ${{ matrix.apt_packages }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install native build deps (Linux musl)
-        if: matrix.apt_packages
-        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt_packages }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -120,7 +133,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # key 含 OS 版本：避免 24.04 编的 aws-lc-sys 产物被 22.04 命中（__isoc23_ 缓存污染）
+          # key 含 OS：区分 runner/容器组合变化（如旧 22.04 VM 缓存）避免 aws-lc-sys 产物串环境命中
           key: ${{ matrix.target }}-${{ matrix.os }}
 
       - name: Build
