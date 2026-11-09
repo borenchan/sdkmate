@@ -106,26 +106,23 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-07）
+## 当前开发进度（2026-11-09）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### GH Releases 引擎 CI 测试修复（feature/core-decouple 分支，两轮）
+### workspace 依赖清理（删除三处冗余声明）
 
-`9109099` 落地的 GH Releases 引擎（asset_selector + github_releases，内置 SDK 扩到 14 个）的测试写死 Windows 宿主期望，PR CI 的 ubuntu/macos runner 大面积挂——Windows 开发机盲区的测试版：本地全绿、CI 三系统全红。**运行时代码零改动**，仅修测试，分两层：
+全 workspace 依赖审查：逐个 grep 源码核对每条 `[dependencies]` 声明的实际使用，删除三处零使用/冗余：
 
-**单测层（`f73b370`）**：asset_selector 测试模块 15→1（仅留平台无关拒绝路径；命中类断言与编译期宿主耦合，删掉后由集成测试兜底）；github_releases 端到端断言改为与 `pick_asset` 当前平台结果对齐。
+- **util 的 `clap`**：源码零引用（仅 shell.rs 注释提过"clap 解析在 cli 层"），删除
+- **sdkcore 的 `[dev-dependencies]`（reqwest/tokio）整段**：与主依赖完全重复。原注释"tests/ 是独立 crate，需直接声明测试用依赖"是误解——Cargo 中集成测试编译时**自动链接该 crate 的主依赖**，tests/ 直接用 `[dependencies]` 里的 reqwest/tokio 即可，整段纯冗余
+- **cli 的 `tokio`**：重构后零引用（本清理删；remote core-decouple 重构在同一批改动中已从 cli 删除 tokio 并加入 indicatif，fast-forward 后此项与远程自动合流，最终 diff 不含 cli）
 
-**集成测试层（本提交）**：WSL 复现出两处 mock 数据的 Windows 盲区——
-- `core_install_flow.rs`：标准 B 的 `.tar.gz` 路由误回 zip 字节流（linux 宿主解压报 invalid gzip header），且资产表只覆盖 windows-x64/linux-x64（ubuntu-arm/macos 宿主不命中且无模板 → install 报错）。修复：新增 `minimal_tar_gz()` 真实 tar.gz 载荷 + `TOOL_ASSETS` 资产表覆盖 CI 四宿主（windows-x64 / linux-gnu x64+arm64 / darwin arm64）；linux/darwin 路由回真实 tar.gz
-- `shell_integration.rs`：`env_script_layered_priority_with_venv` 把 bin 路径 `replace('/', "\\")` 造"Windows 风格路径"塞进 PATH 做稳定态模拟（Windows 上 replace 无操作恰好原生路径全绿；linux 上成反斜杠伪路径必挂），其余 7 个测试全是它 panic 毒锁 `LOCK` 的级联。修复：统一用平台原生路径
-- `current.rs`（macOS 首次真跑 CI 暴露）：期望 origin 路径用未解析的 temp 路径，而 macOS `getcwd()` 解析符号链接（`/var` → `/private/var`），core 从 `current_dir` 向上爬必返回物理路径 → 断言失配；其余 4 个失败为毒锁级联。修复：期望路径取 `env::current_dir()` 本身对齐（**不可用 `fs::canonicalize`——Windows 上返回 `\\?\C:\` 前缀的 verbatim 路径反而失配**）
+其余全部依赖（sdkcore 13 项 + windows 2 项、util 4 项 + winreg、cli 6 项、根 crate cli/clap）逐一确认在用；workspace.dependencies 无孤立条目（clap 仍被 cli+根包用、tokio 仍被 sdkcore 用）；reqwest `json` feature 有 `.json()` 调用支撑（self_update/discovery），保留。
 
-验证：WSL linux x64 + Windows 双平台 workspace 全量绿、fmt 过。**教训**：测试 mock 数据与断言不能假定宿主平台（假载荷、路径分隔符替换、未解析 temp 路径都是 Windows 盲区变体）；多测试共享串行锁时，一个真失败会以毒锁级联放大，看 CI 失败清单先找非锁行号的那一个。
+**验证**：cargo build/--tests 通过（dev-deps 删除后测试目标编译成功，即冗余判断的实证）；`cargo test --workspace` 113 用例全绿；clippy 仅剩重构带入的既有警告（config_helper/region/test_util/discovery/config），无新增。行为零影响，未发版。
 
-**CI 矩阵精简（同批）**：4 runner × push/PR 双触发（同 commit 跑 8 job）→ 三大 OS 各一（3 job），只留 push 触发（非 master）；ARM64/musl/macOS Intel 编译验证由 release.yml 发版七产物矩阵兜底。**固定具体版本不用 latest**（`ubuntu-24.04`/`macos-15`/`windows-2025`）：GitHub 滚动 latest 时 glibc/Xcode/MSVC 跳变会让 CI 无预警变红（MACOSX_DEPLOYMENT_TARGET 教训），镜像退役前有公告届时手动升级；macos-14 label 在本仓库持续分配失败（`'macos-14-arm64-us-default' is not supported`，0 step 即取消，runner 池问题），换 macos-15 规避。
-
-**已知窄边界（记录在案，非阻塞）**：musl 宿主 + 无 libc 后缀默认资产不降权（Alpine musl 版 sdkm 可能选中 gnu 资产）；universal 与原生 arch 平分取先出现（mac 理论上可能选 universal，能跑）；资产不命中回落 download_url 模板兜底。
+**排查备忘**：根 Cargo.toml 的 `[workspace] members` 未列 `"."` 但根包始终是 workspace 成员；`cargo test` 默认只测**当前目录包**（sdkmate 本身 0 tests），全量须 `cargo test --workspace`。
 
 ## 已知问题与注意事项
 
