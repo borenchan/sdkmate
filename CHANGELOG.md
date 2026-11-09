@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.5.6 - 2026-11-09
+
+
+### 🐛 Bug Fixes
+
+- import sys::process — [`5f2230b`](https://github.com/borenchan/sdkmate/commit/5f2230b)
+- keep list_local_sdk_versions silent and move hint to ui — [`0f6dea7`](https://github.com/borenchan/sdkmate/commit/0f6dea7)
+
+### ♻️ Refactor
+
+- finish core output decoupling and move terminal ui to cli — [`fe4c2be`](https://github.com/borenchan/sdkmate/commit/fe4c2be)
+- move confirmations to cli callers — [`aa35140`](https://github.com/borenchan/sdkmate/commit/aa35140)
+- decouple core output via event sink — [`bed71de`](https://github.com/borenchan/sdkmate/commit/bed71de)
+- decouple list rendering from sdkcore — [`1af78d7`](https://github.com/borenchan/sdkmate/commit/1af78d7)
+
+### 📝 Documentation
+
+- update progress for dependency cleanup — [`9071706`](https://github.com/borenchan/sdkmate/commit/9071706)
+- finalize architecture docs for core decoupling — [`80d7a2c`](https://github.com/borenchan/sdkmate/commit/80d7a2c)
+- add refactor task context for session handoff — [`14b9927`](https://github.com/borenchan/sdkmate/commit/14b9927)
+
+### ✅ Tests
+
+- align origin path with physical cwd and pin ci runners — [`83ddc00`](https://github.com/borenchan/sdkmate/commit/83ddc00)
+- fix integration test mocks for non-windows hosts — [`38054dc`](https://github.com/borenchan/sdkmate/commit/38054dc)
+- make sdkcore version tests platform-independent — [`f73b370`](https://github.com/borenchan/sdkmate/commit/f73b370)
+- add cli golden integration tests and ci workflow — [`ae5fb06`](https://github.com/borenchan/sdkmate/commit/ae5fb06)
+
+### 🎨 Style
+
+- fmt — [`fcb6fc7`](https://github.com/borenchan/sdkmate/commit/fcb6fc7)
+- use short names — [`5504dcf`](https://github.com/borenchan/sdkmate/commit/5504dcf)
+- use short names for SdkmConfig in doctor signatures — [`a896666`](https://github.com/borenchan/sdkmate/commit/a896666)
+
+### 👷 CI / Build
+
+- migrate release matrix to macos-15 and containerized ubuntu 22.04 builds — [`410b898`](https://github.com/borenchan/sdkmate/commit/410b898)
+- slim matrix to three latest os runners — [`27787e0`](https://github.com/borenchan/sdkmate/commit/27787e0)
+
+### 🧰 Chore
+
+- release v0.5.6 — [`8d717fc`](https://github.com/borenchan/sdkmate/commit/8d717fc)
+- remove unused and redundant dependencies — [`b5b6fa5`](https://github.com/borenchan/sdkmate/commit/b5b6fa5)
+
+### 📌 Other
+
+- Merge pull request #23 from borenchan/feature/core-decouple — [`d99ccca`](https://github.com/borenchan/sdkmate/commit/d99ccca)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> Boren Chan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.5.5...v0.5.6
+
+
+
 ## v0.5.5 - 2026-11-03
 
 
