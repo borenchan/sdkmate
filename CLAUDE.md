@@ -110,19 +110,13 @@ bin_dir = "bin"
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### workspace 依赖清理（删除三处冗余声明）
+### v0.5.6 发版批次：workspace 依赖清理 + release 矩阵迁移（macos-15 / ubuntu 容器化）
 
-全 workspace 依赖审查：逐个 grep 源码核对每条 `[dependencies]` 声明的实际使用，删除三处零使用/冗余：
+**依赖清理**：全 workspace 逐依赖 grep 核对实际使用，删三处冗余——util 的 `clap`（零引用，仅注释提过"clap 解析在 cli 层"）；cli 的 `tokio`（重构后零引用，与 remote core-decouple 重构同批删除，fast-forward 自动合流，最终 diff 不含 cli）；sdkcore 的 `[dev-dependencies]` 整段（reqwest/tokio 与主依赖重复——Cargo 中集成测试编译时**自动链接主依赖**，原注释"tests/ 是独立 crate 需直接声明"是误解）。reqwest `json` feature 有 `.json()` 调用支撑（self_update/discovery）保留；workspace.dependencies 无孤立条目（clap 仍被 cli+根包用、tokio 仍被 sdkcore 用）。
 
-- **util 的 `clap`**：源码零引用（仅 shell.rs 注释提过"clap 解析在 cli 层"），删除
-- **sdkcore 的 `[dev-dependencies]`（reqwest/tokio）整段**：与主依赖完全重复。原注释"tests/ 是独立 crate，需直接声明测试用依赖"是误解——Cargo 中集成测试编译时**自动链接该 crate 的主依赖**，tests/ 直接用 `[dependencies]` 里的 reqwest/tokio 即可，整段纯冗余
-- **cli 的 `tokio`**：重构后零引用（本清理删；remote core-decouple 重构在同一批改动中已从 cli 删除 tokio 并加入 indicatif，fast-forward 后此项与远程自动合流，最终 diff 不含 cli）
+**CI 矩阵迁移（同批）**：v0.5.6 首次发版两个 macOS job 在 `macos-14` 上 0 step 取消（`'macos-14-arm64-us-default' is not supported`——GitHub 已下线该 ARM 池；此前 ci.yml 遇到过换 macos-15，**release.yml 漏改**，同类迁移要全局搜 runner label）。同步把 Linux 4 job 迁到 `ubuntu-24.04(-arm)` runner + `ubuntu:22.04` **容器**：glibc 2.35 产物兼容目标不变——由容器基座决定，与 runner 解耦，runner 退役免疫（容器镜像 Ubuntu 官方长期维护）。容器三坑：裸 `ubuntu:22.04` 无 git（apt 装 deps 步骤必须**先于 checkout**）、无 sudo（apt 命令去 sudo，容器内是 root）、无预装工具链（gnu job 补 `build-essential cmake perl clang libclang-dev`，aws-lc-rs 需要）。`container: ${{ matrix.container }}` 表达式：mac/win 条目无该字段 → 空串 = 跑 VM。rust-cache key 含 os 自动区分新旧环境缓存（旧 22.04 VM 缓存自然失效）。
 
-其余全部依赖（sdkcore 13 项 + windows 2 项、util 4 项 + winreg、cli 6 项、根 crate cli/clap）逐一确认在用；workspace.dependencies 无孤立条目（clap 仍被 cli+根包用、tokio 仍被 sdkcore 用）；reqwest `json` feature 有 `.json()` 调用支撑（self_update/discovery），保留。
-
-**验证**：cargo build/--tests 通过（dev-deps 删除后测试目标编译成功，即冗余判断的实证）；`cargo test --workspace` 113 用例全绿；clippy 仅剩重构带入的既有警告（config_helper/region/test_util/discovery/config），无新增。行为零影响，未发版。
-
-**排查备忘**：根 Cargo.toml 的 `[workspace] members` 未列 `"."` 但根包始终是 workspace 成员；`cargo test` 默认只测**当前目录包**（sdkmate 本身 0 tests），全量须 `cargo test --workspace`。
+**验证与重发**：依赖清理 113 用例全绿 + clippy 无新增警告；发版按「纯 CI 修复复用版本号」流程——删远端 v0.5.6 tag（release 尚未创建无需删）→ push 修复 commit → 工作流重打 tag 重发，七产物全绿（容器内 aws-lc-sys 编译正常）。
 
 ## 已知问题与注意事项
 
@@ -157,7 +151,7 @@ bin_dir = "bin"
 - **根 `CHANGELOG.md` 由 CI 维护**：发版后 upload-release job 把版本正文 prepend 到根 `CHANGELOG.md` 并 commit 回 master。**本地不要手改**，会被下次发版覆盖；GITHUB_TOKEN push 不触发 workflow 递归
 - **版本号只能递增、不可复用**：已发版本 tag 已存在，再 push 同版本会被跳过。重发同版本需先删 tag+release 再 push；或直接 bump 到下一版本（推荐）
 - **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上七产物二进制（Linux x86 gnu/musl + ARM64 gnu/musl、macOS ARM/Intel、Windows）
-- **七产物矩阵**：`ubuntu-22.04`×{gnu,musl} + `ubuntu-22.04-arm`×{gnu,musl} + `macos-14`/aarch64 + `macos-14` 交叉编译 x86_64-apple-darwin + `windows-latest`。Linux gnu 用 22.04（glibc 2.35）避开 24.04 的 `GLIBC_2.39` 墙；ARM64 走原生 arm runner（`ubuntu-22.04-arm`，避开 QEMU 交叉与 aws-lc-rs 找交叉 gcc 的坑）；musl 全静态通吃老系统/Alpine/树莓派；macOS 必须设 `MACOSX_DEPLOYMENT_TARGET=11.0`（否则 runner SDK 升高会编出老 macOS 跑不了的二进制）；Windows 保持 latest
+- **七产物矩阵**：Linux×4 = `ubuntu-24.04(-arm)` runner + `ubuntu:22.04` **容器**（容器锁 glibc 2.35，产物兼容性由容器基座决定与 runner 解耦——runner 退役只换 runs-on 不动产物；裸容器无 git/sudo，apt 装 deps 先于 checkout 且去 sudo）+ `macos-15`×2（ARM 原生 aarch64 + ARM 上交叉编译 x86_64；macos-14 池已被 GitHub 下线，报 `'macos-14-arm64-us-default' is not supported` 0 step 取消）+ `windows-latest`。ARM64 走原生 arm runner（避开 QEMU 交叉与 aws-lc-rs 找交叉 gcc 的坑）；musl 全静态通吃老系统/Alpine/树莓派；macOS 必须设 `MACOSX_DEPLOYMENT_TARGET=11.0`（否则 runner SDK 升高会编出老 macOS 跑不了的二进制）；Windows 保持 latest。**固定 runner label 的代价是镜像退役要手动跟进**——GitHub 在 Changelog 和 actions/runner-images 仓库提前公告 + brownout 缓冲期，不会无声挂
 - **纯 CI/文档修复复用原版本号删 tag 重发，patch/minor bump 只留给代码变化**
 - **本地 origin 指向 gitee，GitHub remote 叫 `github`**：查 GitHub 状态用 API 或 `git fetch github --tags`
 
