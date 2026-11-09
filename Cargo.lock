@@ -1927,7 +1927,6 @@ name = "util"
 version = "0.5.5"
 dependencies = [
  "anyhow",
- "clap",
  "serde",
  "url",
  "winreg",

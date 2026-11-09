@@ -25,11 +25,6 @@ regex-lite = { workspace = true }
 winreg = { workspace = true}
 windows-sys = { workspace = true}
 
-# 集成测试（tests/）所需：tests/ 是独立 crate，需直接声明测试用依赖（dev-only，不进发布二进制）
-[dev-dependencies]
-reqwest = { workspace = true }
-tokio = { workspace = true }
-
 [lints]
 workspace = true
 

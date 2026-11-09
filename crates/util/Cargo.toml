@@ -10,7 +10,6 @@ description.workspace = true
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
-clap = { workspace = true }
 url = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
