@@ -1,6 +1,6 @@
 //! GUI 事件桥：sdkm_core::report 的 EventSink 实现 → tokio mpsc channel → UI 线程
 //!
-//! 约定（docs/gui-integration.md）：每个后台操作独立构造 Manager+Sink，第一版操作
+//! 约定：每个后台操作独立构造 Manager+Sink，第一版操作
 //! 串行执行（单通道不区分任务）；进度按 kind 场景转发，UI 端选模板渲染。
 //!
 //! tokio::sync 的 channel runtime 无关（官方文档明确）：发送端 unbounded_send 是

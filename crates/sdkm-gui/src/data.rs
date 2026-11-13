@@ -1,4 +1,4 @@
-//! 后台任务层：gui-integration 约定——每操作独立构造 Manager+Sink，在专用线程调用
+//! 后台任务层：GUI 分层约定——每操作独立构造 Manager+Sink，在专用线程调用
 //! （core API 全同步且内部 block_on），只跨线程传事件/结果。
 //!
 //! 操作类任务（切换/卸载/安装）完成后回传 `TaskOutcome::Done`，UI 端据此刷新列表。
@@ -200,7 +200,7 @@ pub struct RemoteItem {
     pub active: bool,
 }
 
-/// 派发后台任务：专用线程 + 独立 Manager/GuiSink（gui-integration 硬约束）
+/// 派发后台任务：专用线程 + 独立 Manager/GuiSink（GUI 分层硬约束）
 ///
 /// 结果统一经 channel 以 `GuiEvent::Task` 回传；core 过程事件/进度由 GuiSink 同道转发。
 pub fn spawn_task(tx: UnboundedSender<GuiEvent>, id: TaskId) {
