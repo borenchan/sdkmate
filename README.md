@@ -62,7 +62,7 @@
 
 ## 🎯 In One Line
 
-> **sdkmate (a.k.a. "Role Model of the Times" 👀)** is a **pure-Rust**, cross-platform SDK version manager with a native desktop app built on [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
+> **sdkmate (a.k.a. "时代楷模" 👀)** is a **pure-Rust**, cross-platform SDK version manager with a native desktop app built on [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
 
 
 ```bash
@@ -99,19 +99,23 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
 <div align="center">
   <table>
     <tr>
-      <td width="25%" align="center">
-        <h3>🟢 Portable · Lightweight</h3>
-        <p>Single binary · zero runtime deps · <strong>~5MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
+      <td width="20%" align="center">
+        <h3>🟢 Portable CLI · Lightweight</h3>
+        <p>CLI single binary · zero runtime deps · <strong>~5MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
+        <h3>🖥️ Native GUI</h3>
+        <p>Built on GPUI · cross-platform desktop app<br>Visual SDK management · same Rust core as the CLI</p>
+      </td>
+      <td width="20%" align="center">
         <h3>⚡ Multi-scope version switching</h3>
         <p>Global · project · temp<br>auto-switch on cd · auto-restore on leave</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
         <h3>🛡️ Transparent · Rollback-safe</h3>
         <p>Every step printed · auto-recover on failure<br>Fuzzy match 21→21.x · suggests closest</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
         <h3>🤖 AI Agent Friendly</h3>
         <p>Bundled skill doc · clear exit codes<br>System-wide + rollback-safe · safe to call</p>
       </td>

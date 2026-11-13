@@ -62,7 +62,7 @@
 
 ## 🎯 一句话简介
 
-> **sdkm（简称：时代楷模👀）** 是一款 **纯 Rust** 编写、提供基于 [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) 构建的原生桌面应用的跨平台 SDK 版本管理器，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
+> **sdkm（简称：时代楷模👀）** 是一款 **纯 Rust** 编写的跨平台 SDK 版本管理器，并内置基于 [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) 构建的原生桌面应用，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
 
 
 ```bash
@@ -99,19 +99,23 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
 <div align="center">
   <table>
     <tr>
-      <td width="25%" align="center">
-        <h3>🟢 纯绿色 · 轻量</h3>
-        <p>单二进制 · 零运行时依赖 · <strong>~5MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
+      <td width="20%" align="center">
+        <h3>🟢 纯绿色 CLI · 轻量</h3>
+        <p>CLI 单二进制 · 零运行时依赖 · <strong>~5MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
+        <h3>🖥️ 原生 GUI</h3>
+        <p>基于 GPUI 构建 · 跨平台桌面应用<br>可视化管理系统 · 与 CLI 共用同一套 Rust 核心</p>
+      </td>
+      <td width="20%" align="center">
         <h3>⚡ 多作用域版本切换</h3>
         <p>全局 · 项目 · 临时三档<br>进目录自动切 · 离开自动还原</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
         <h3>🛡️ 透明可回滚</h3>
         <p>每步打印 · 任一步失败自动恢复<br>模糊匹配 21→21.x · 相近版本建议</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
         <h3>🤖 AI Agent 友好</h3>
         <p>自带 skill 文档 · 退出码语义清晰<br>全局生效 + 失败回滚 · 放心调用</p>
       </td>
