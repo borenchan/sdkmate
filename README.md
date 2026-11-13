@@ -199,11 +199,11 @@ Don't want to memorize commands? sdkm also ships a simple, easy-to-use GUI, buil
 
 <table align="center">
   <tr>
-    <td align="center" width="20%"><a href="./assets/example-images/home_p1.jpg"><img src="./assets/example-images/home_p1.jpg" width="170"/></a><br/><sub><strong>Overview</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/sdkm_p2.jpg"><img src="./assets/example-images/sdkm_p2.jpg" width="170"/></a><br/><sub><strong>SDK Management</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/project_p3.jpg"><img src="./assets/example-images/project_p3.jpg" width="170"/></a><br/><sub><strong>Projects</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/setting_p4.jpg"><img src="./assets/example-images/setting_p4.jpg" width="170"/></a><br/><sub><strong>Settings</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/doctor_p5.jpg"><img src="./assets/example-images/doctor_p5.jpg" width="170"/></a><br/><sub><strong>Diagnostics</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/home_p1.jpg"><img src="./assets/example-images/en/home_p1.jpg" width="170"/></a><br/><sub><strong>Overview</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/sdkm_p2.jpg"><img src="./assets/example-images/en/sdkm_p2.jpg" width="170"/></a><br/><sub><strong>SDK Management</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/project_p3.jpg"><img src="./assets/example-images/en/project_p3.jpg" width="170"/></a><br/><sub><strong>Projects</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/setting_p4.jpg"><img src="./assets/example-images/en/setting_p4.jpg" width="170"/></a><br/><sub><strong>Settings</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/doctor_p5.jpg"><img src="./assets/example-images/en/doctor_p5.jpg" width="170"/></a><br/><sub><strong>Diagnostics</strong></sub></td>
   </tr>
 </table>
 

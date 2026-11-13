@@ -199,11 +199,11 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 <table align="center">
   <tr>
-    <td align="center" width="20%"><a href="./assets/example-images/home_p1.jpg"><img src="./assets/example-images/home_p1.jpg" width="170"/></a><br/><sub><strong>概览</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/sdkm_p2.jpg"><img src="./assets/example-images/sdkm_p2.jpg" width="170"/></a><br/><sub><strong>SDK 管理</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/project_p3.jpg"><img src="./assets/example-images/project_p3.jpg" width="170"/></a><br/><sub><strong>项目管理</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/setting_p4.jpg"><img src="./assets/example-images/setting_p4.jpg" width="170"/></a><br/><sub><strong>设置</strong></sub></td>
-    <td align="center" width="20%"><a href="./assets/example-images/doctor_p5.jpg"><img src="./assets/example-images/doctor_p5.jpg" width="170"/></a><br/><sub><strong>诊断与维护</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/zh/home_p1.jpg"><img src="./assets/example-images/zh/home_p1.jpg" width="170"/></a><br/><sub><strong>概览</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/zh/sdkm_p2.jpg"><img src="./assets/example-images/zh/sdkm_p2.jpg" width="170"/></a><br/><sub><strong>SDK 管理</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/zh/project_p3.jpg"><img src="./assets/example-images/zh/project_p3.jpg" width="170"/></a><br/><sub><strong>项目管理</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/zh/setting_p4.jpg"><img src="./assets/example-images/zh/setting_p4.jpg" width="170"/></a><br/><sub><strong>设置</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/zh/doctor_p5.jpg"><img src="./assets/example-images/zh/doctor_p5.jpg" width="170"/></a><br/><sub><strong>诊断与维护</strong></sub></td>
   </tr>
 </table>
 
