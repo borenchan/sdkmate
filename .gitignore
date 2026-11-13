@@ -8,3 +8,6 @@
 AGENTS.md
 
 /store
+# 子 crate 的本地构建产物/嵌套 lock（workspace 只保留根 Cargo.lock）
+crates/*/target
+crates/*/Cargo.lock
