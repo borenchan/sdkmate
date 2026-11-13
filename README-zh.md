@@ -62,9 +62,8 @@
 
 ## 🎯 一句话简介
 
-> **sdkm（简称：时代楷模👀）** 是一款 **纯 Rust** 编写、带原生 **GPUI 桌面 GUI** 的跨平台 SDK 版本管理器，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
+> **sdkm（简称：时代楷模👀）** 是一款 **纯 Rust** 编写、提供基于 [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) 构建的原生桌面应用的跨平台 SDK 版本管理器，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
 
-既可以作为单二进制 CLI 使用，也可以直接启动桌面 GUI——两者共享同一套 Rust 核心、`config.toml`、store 与版本链接，版本始终对齐。
 
 ```bash
 sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换，一行搞定
@@ -77,8 +76,8 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
   - [🔥 专为全栈工程师设计](#-专为全栈工程师设计)
   - [🤖 让 AI Agent 替你管理 SDK](#-让-ai-agent-替你管理-sdk)
   - [📊 与同类工具对比](#-与同类工具对比)
-- [🖥️ 桌面 GUI](#-桌面-gui)
 - [📦 安装](#-安装)
+- [🖥️ 桌面应用](#-桌面应用)
 - [🚀 快速开始](#-快速开始)
 - [🐚 多作用域版本切换](#-多作用域版本切换)
 - [🎮 命令参考](#-命令参考)
@@ -102,7 +101,7 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
     <tr>
       <td width="25%" align="center">
         <h3>🟢 纯绿色 · 轻量</h3>
-        <p>单二进制 · 零运行时依赖 · <strong>~4MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
+        <p>单二进制 · 零运行时依赖 · <strong>~5MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
       </td>
       <td width="25%" align="center">
         <h3>⚡ 多作用域版本切换</h3>
@@ -166,7 +165,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 | **多作用域切换** | ✅ 全局（符号链接 + 系统 PATH）/ 项目（`.sdkm.toml` + hook）/ 临时（`use --shell`）三档全支持，**SDK 运行时零开销** | ✅ 全局 / 项目（`.mise.toml`）/ shell 三档，默认 shims 中间层[官方说明](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` 仅当前 Shell；需 `sdk default` 才持久，无项目级 pin[使用指南](https://sdkman.io/usage#sdk-use-command) | ⚠️ `.nvmrc` / `.python-version` 项目级 + Shell；全局靠 default，机制不一 |
 | **路径透明度 (which/IDE)** | ✅ `which java` 直接指向真实 SDK 路径 | ⚠️ shims 下 `which node` 指向 shim；官方承认“打断 `which`”，需 `mise which` 才能看到真实路径，[设计说明](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ✅ 路径透明 | ✅ 路径透明（但在 Shell 内部） |
 | **模糊版本匹配** | ✅ `21` → 最新 21.x，并给出候选列表建议 | ✅ 支持模糊版本（如 `node = "26"`）及就近匹配 | ❌ 不支持前缀模糊；需要精确版本或手动选择 | ⚠️ 部分工具支持前缀匹配，实现不一 |
-| **单文件可移植 / 绿色** | ✅ 单二进制仅**4MB**， 配置目录，可放在 U 盘或任意路径使用 | ⚠️ **100MB+**,需要 shims 目录（`~/.local/share/mise/shims` 或 `%LOCALAPPDATA%\mise\shims`），[安装说明](https://mise.jdx.dev/installing-mise.html#installation) | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + Shell 钩子，依赖 Shell 环境 |
+| **单文件可移植 / 绿色** | ✅ 单二进制仅**5MB**， 配置目录，可放在 U 盘或任意路径使用 | ⚠️ **100MB+**,需要 shims 目录（`~/.local/share/mise/shims` 或 `%LOCALAPPDATA%\mise\shims`），[安装说明](https://mise.jdx.dev/installing-mise.html#installation) | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + Shell 钩子，依赖 Shell 环境 |
 | **操作可回滚** | ✅ 快照自动恢复（项目特性） | ⚠️ 依赖外部手段（如自己备份配置） | ❌ 不提供自动回滚机制 | ❌ 不提供自动回滚机制 |
 | **实现语言 / 内存安全** | ⚡ Rust 所有权 + 编译期检查 | ⚡ Rust 所有权 + 编译期检查 | 🐌 Bash / Shell 脚本 | 🐌 Shell / Bash 脚本 |
 | **AI agent / 自动化友好** | ✅ 退出码语义清晰；切换后子进程自动继承新环境；行为可预测 | ⚠️ 需理解 shims / PATH 模式差异；非交互环境需选择 shims 或 `mise exec`，[使用建议](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ⚠️ Shell 函数，跨进程不自动生效 | ⚠️ 切换仅当前 Shell，跨进程不可见；需额外脚本适配 |
@@ -179,35 +178,6 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 ---
 
-## 🖥️ 桌面 GUI
-
-同一套 Rust 核心同时提供原生 **GPUI** 桌面 GUI。下载 Desktop 包（`sdkm-desktop-*`）即可同时获得 `sdkm` 和 `sdkm-gui`；GUI 与 CLI 共享 config、store 与版本链接，版本始终对齐。
-
-<p align="center">
-  <img src="./assets/example-images/home_p1.jpg" alt="概览" width="880"/>
-  <br/><sub><strong>概览</strong> — 统计卡片、SDK 列表、存储占用与环境摘要</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/example-images/sdkm_p2.jpg" alt="SDK 管理" width="880"/>
-  <br/><sub><strong>SDK 管理</strong> — 搜索、分页、本地/远程版本、安装与切换</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/example-images/project_p3.jpg" alt="项目管理" width="880"/>
-  <br/><sub><strong>项目管理</strong> — 基于 `.sdkm.toml` 的项目级版本约束</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/example-images/setting_p4.jpg" alt="设置" width="880"/>
-  <br/><sub><strong>设置</strong> — 语言、主题、密度、网络与 SDK 源配置</sub>
-</p>
-
-<p align="center">
-  <img src="./assets/example-images/doctor_p5.jpg" alt="诊断与维护" width="880"/>
-  <br/><sub><strong>诊断与维护</strong> — 环境检测、Shell hook、更新与修复</sub>
-</p>
-
 ## 📦 安装
 
 前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包：
@@ -215,9 +185,27 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 - **纯 CLI** — `sdkm-<os>-<arch>[-gnu|-musl]`
 - **Desktop（CLI + GUI）** — `sdkm-desktop-<os>-<arch>[-gnu]`，同时包含 `sdkm` 与 `sdkm-gui`
 
-解压到任意目录即可（保留 `.sdkm/` 目录结构），进入 `.sdkm/` 目录即可开始使用。首次启动 GUI 时若缺少 `config.toml`，会提供一键初始化引导。
+解压到任意目录即可（保留 `.sdkm/` 目录结构），进入 `.sdkm/` 目录即可开始使用。首次启动 GUI 时会提供一键初始化引导。
 
 > **⚠️ Windows 用户**：`init`/`switch` 需以管理员权限启动终端运行（写入系统环境变量 `HKEY_LOCAL_MACHINE` + 创建符号链接）。
+
+---
+
+## 🖥️ 桌面应用
+
+不想记命令？sdkm 还提供了一套简单易用的 GUI 页面，基于 [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) 构建，与 CLI 共用同一套 Rust 核心。下载 Desktop 包（`sdkm-desktop-*`）即可同时获得 `sdkm` 和 `sdkm-gui`。
+
+<p align="center"><sub>点击任意截图可查看大图。</sub></p>
+
+<table align="center">
+  <tr>
+    <td align="center" width="20%"><a href="./assets/example-images/home_p1.jpg"><img src="./assets/example-images/home_p1.jpg" width="170"/></a><br/><sub><strong>概览</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/sdkm_p2.jpg"><img src="./assets/example-images/sdkm_p2.jpg" width="170"/></a><br/><sub><strong>SDK 管理</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/project_p3.jpg"><img src="./assets/example-images/project_p3.jpg" width="170"/></a><br/><sub><strong>项目管理</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/setting_p4.jpg"><img src="./assets/example-images/setting_p4.jpg" width="170"/></a><br/><sub><strong>设置</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/doctor_p5.jpg"><img src="./assets/example-images/doctor_p5.jpg" width="170"/></a><br/><sub><strong>诊断与维护</strong></sub></td>
+  </tr>
+</table>
 
 ---
 
@@ -323,7 +311,7 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 | **HTTP 客户端** | reqwest | 跨平台 HTTP 请求 |
 | **终端输出** | crossterm + indicatif | 彩色终端输出 + 进度条 |
 | **配置解析** | toml (serde) | 人性化配置文件格式 |
-| **桌面 GUI** | GPUI (gpui-kit) | 原生、GPU 加速的桌面 UI |
+| **桌面应用** | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (gpui-kit) | 原生、GPU 加速的桌面 UI |
 
 ---
 
