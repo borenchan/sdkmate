@@ -12,34 +12,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo build                          # 调试构建
 cargo build --release                # 发布构建（产出 sdkm 二进制）
 cargo test                           # 运行所有测试（workspace 级别）
-cargo test -p <crate>                # 运行指定 crate 的测试（cli / sdkcore / util）
+cargo test -p <crate>                # 运行指定 crate 的测试（sdkm-cli / sdkm-core / sdkm-util）
 cargo fmt                            # 格式化代码
-cargo clippy --all-targets --all-features  # 代码检查
+cargo clippy --workspace --all-targets --all-features  # 代码检查（含 GUI）
 ```
 
 ## 工作区架构
 
-三成员 Cargo workspace + 根二进制包：
+四成员 Cargo **virtual workspace**（根目录无包；`default-members = ["crates/sdkm-cli"]`，裸 `cargo build` 只构建 CLI，不连带 GUI）：
 
 ```
-sdkmate (root) → 产出 sdkm 二进制，入口在 main.rs；tests/cli_golden.rs（CLI 集成金样）
-  crates/cli    → CLI 前端：clap 命令定义 + handler 实现 + terminal_sink（事件适配器）
+crates/sdkm-cli    → CLI 前端 + sdkm 二进制入口：src/main.rs（[[bin]] sdkm，autobins=false）
+                  build.rs（Windows exe 图标）；tests/cli_golden.rs（CLI 集成金样）
+                  clap 命令定义 + handler 实现 + terminal_sink（事件适配器）
                   + terminal.rs/macros.rs（终端渲染原语与输出宏）
-  crates/sdkcore → 核心业务（纯数据 API）：config、init、install、list、switch、version、
+  crates/sdkm-core → 核心业务（纯数据 API）：config、init、install、list、switch、version、
                    env 操作、符号链接；report.rs（事件契约）
-  crates/util   → 共享工具：SDK 类型、配置辅助、路径、shell backend、诊断数据（diagnostics）
+  crates/sdkm-util   → 共享工具：SDK 类型、配置辅助、路径、shell backend、诊断数据（diagnostics）
 ```
 
-**依赖关系**：`cli → sdkcore, util`；`sdkcore → util`；`util` 无内部依赖。所有 crate 继承 workspace 元数据，均为 `publish = false`。
+**依赖关系**：`sdkm-cli → sdkm-core, sdkm-util`；`sdkm-core → sdkm-util`；`sdkm-util` 无内部依赖；`sdkm-gui → sdkm-core, sdkm-util`。所有 crate 继承 workspace 元数据，均为 `publish = false`。
 
 **分层铁律（GUI 铺路，2026-11-06 落地）**：
-- **sdkcore 零打印、零 stdin、零终端渲染依赖**——过程消息经 `sdkcore::report`（`CoreEvent` / `EventSink` / `ProgressKind` 7 场景 / `ProgressHandle` Drop 兜底 / `NullSink`）通知前端；命令结果走结构化返回值；最终失败走 `Result::Err`（core 不对同一失败再发 Error 事件）。文案归 core（事件说什么），样式归前端（TerminalSink 怎么渲染）
-- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus；同步 API 内部 block_on——GUI 必须在专用后台线程调用（约定见 `docs/gui-integration.md`）
-- **确认交互归调用端**：core 零 stdin；`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target`/`check_init_env` 产出决策数据，cli prompt / GUI 弹窗确认后调执行 API；执行段仍自查关键状态（不信任预检查结果）
+- **sdkm-core 零打印、零 stdin、零终端渲染依赖**——过程消息经 `sdkm_core::report`（`CoreEvent` / `EventSink` / `ProgressKind` 7 场景 / `ProgressHandle` Drop 兜底 / `NullSink`）通知前端；命令结果走结构化返回值；最终失败走 `Result::Err`（core 不对同一失败再发 Error 事件）。文案归 core（事件说什么），样式归前端（TerminalSink 怎么渲染）
+- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（sdkm-cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus；同步 API 内部 block_on——GUI 必须在专用后台线程调用（见 `crates/sdkm-gui/src/data.rs`）
+- **确认交互归调用端**：core 零 stdin；`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target`/`check_init_env` 产出决策数据，sdkm-cli prompt / GUI 弹窗确认后调执行 API；执行段仍自查关键状态（不信任预检查结果）
 - **EnvOperation 不感知 UI**：写方法返回 `Vec<EnvAction>` 结构化动作，业务层经 `report_env_actions` 转事件
-- **util 不含终端渲染**：颜色/光标/表格/prompt/输出宏归 cli（`cli::terminal` + `cli::macros`）；util 只留通用原语（`util::diagnostics` 收 os_version/platform_info/build_bug_report_url）。`cargo tree -p sdkcore -p util` 验证 GUI 依赖链零 crossterm/unicode-width/indicatif
+- **util 不含终端渲染**：颜色/光标/表格/prompt/输出宏归 sdkm-cli（`sdkm_cli::terminal` + `sdkm_cli::macros`）；sdkm-util 只留通用原语（`sdkm_util::diagnostics` 收 os_version/platform_info/build_bug_report_url）。`cargo tree -p sdkm-core -p sdkm-util` 验证 GUI 依赖链零 crossterm/unicode-width/indicatif
 
-**sdkcore 内部**：`version/` 是版本解析公共模块（install/switch/list 共用），下载 URL 构建留在 `install/download_url`（install 专属）。各模块职责见源码文件，不在此赘述。
+**sdkm-core 内部**：`version/` 是版本解析公共模块（install/switch/list 共用），下载 URL 构建留在 `install/download_url`（install 专属）。各模块职责见源码文件，不在此赘述。
 
 ## 核心架构模式
 
@@ -82,7 +83,7 @@ bin_dir = "bin"
 ### 错误处理与输出
 - 全项目使用 `anyhow::Result`（启用 backtrace 特性）；`anyhow::bail!` 和 `.context()` 处理错误
 - 无自定义错误类型，不使用 thiserror（`BugReport` 标记类型除外——用于 CLI 层检测不可由用户解决的错误）
-- **输出分层**：sdkcore 零打印，过程消息经 `SdkManager.sink`（`sdkcore::report` 事件契约）发前端；cli 直接输出用 `crate::{info!, success!, warning!, error!, detail!}` 宏（定义在 `cli/src/macros.rs`，渲染在 `cli/src/terminal.rs`，crossterm 彩色，不是 `log` crate）
+- **输出分层**：sdkm-core 零打印，过程消息经 `SdkManager.sink`（`sdkm_core::report` 事件契约）发前端；cli 直接输出用 `crate::{info!, success!, warning!, error!, detail!}` 宏（定义在 `cli/src/macros.rs`，渲染在 `cli/src/terminal.rs`，crossterm 彩色，不是 `log` crate）
 - CLI 错误：用 `error!` 宏打印；debug 构建额外显示 backtrace；检测 `BugReport` 标记时提示 GitHub issue URL；失败时 `process::exit(1)`
 
 ## CLI 命令结构
@@ -102,35 +103,45 @@ bin_dir = "bin"
 | `sdkm self uninstall` | — | cli/self_cmd::SelfUninstallHandler |
 | `sdkm self update`（`--check`/`--rollback`） | `u` | cli/self_cmd::SelfUpdateHandler |
 
-所有命令均已实现。每个命令在 `crates/cli/src/impls/` 中有 `CommandHandler` trait 实现，委托给 `crates/sdkcore/src/manager/` 中的 `SdkManager` 方法。
+所有命令均已实现。每个命令在 `crates/sdkm-cli/src/impls/` 中有 `CommandHandler` trait 实现，委托给 `crates/sdkm-core/src/manager/` 中的 `SdkManager` 方法。
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-09）
+## 当前开发进度（2026-11-12）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### v0.5.6 发版批次：workspace 依赖清理 + release 矩阵迁移（macos-15 / ubuntu 容器化）
+### feature/gui 批次：首启引导 / 诊断修复 / 结构精简
 
-**依赖清理**：全 workspace 逐依赖 grep 核对实际使用，删三处冗余——util 的 `clap`（零引用，仅注释提过"clap 解析在 cli 层"）；cli 的 `tokio`（重构后零引用，与 remote core-decouple 重构同批删除，fast-forward 自动合流，最终 diff 不含 cli）；sdkcore 的 `[dev-dependencies]` 整段（reqwest/tokio 与主依赖重复——Cargo 中集成测试编译时**自动链接主依赖**，原注释"tests/ 是独立 crate 需直接声明"是误解）。reqwest `json` feature 有 `.json()` 调用支撑（self_update/discovery）保留；workspace.dependencies 无孤立条目（clap 仍被 cli+根包用、tokio 仍被 sdkcore 用）。
-
-**CI 矩阵迁移（同批）**：v0.5.6 首次发版两个 macOS job 在 `macos-14` 上 0 step 取消（`'macos-14-arm64-us-default' is not supported`——GitHub 已下线该 ARM 池；此前 ci.yml 遇到过换 macos-15，**release.yml 漏改**，同类迁移要全局搜 runner label）。同步把 Linux 4 job 迁到 `ubuntu-24.04(-arm)` runner + `ubuntu:22.04` **容器**：glibc 2.35 产物兼容目标不变——由容器基座决定，与 runner 解耦，runner 退役免疫（容器镜像 Ubuntu 官方长期维护）。容器三坑：裸 `ubuntu:22.04` 无 git（apt 装 deps 步骤必须**先于 checkout**）、无 sudo（apt 命令去 sudo，容器内是 root）、无预装工具链（gnu job 补 `build-essential cmake perl clang libclang-dev`，aws-lc-rs 需要）。`container: ${{ matrix.container }}` 表达式：mac/win 条目无该字段 → 空串 = 跑 VM。rust-cache key 含 os 自动区分新旧环境缓存（旧 22.04 VM 缓存自然失效）。
-
-**验证与重发**：依赖清理 113 用例全绿 + clippy 无新增警告；发版按「纯 CI 修复复用版本号」流程——删远端 v0.5.6 tag（release 尚未创建无需删）→ push 修复 commit → 工作流重打 tag 重发，七产物全绿（容器内 aws-lc-sys 编译正常）。
+- **首启引导**：GUI 启动检测 `config.toml` 缺失 → 隐藏侧边栏显示初始化卡；一键 `InitRun` 调 `init_sdkm(force=false)`，成功后进入概览并刷新；失败在卡片持久显示错误
+- **首启 init 根因修复**：`data::build_outcome` 原先在 match 前无条件 `SdkManager::new()`，首次无 config 时直接报 “Failed to read sdkm config”，init 根本没执行；改为 InitRun/Reinit 先分流、不构造 Manager（同时消除 Error 事件 + InitResult 双提示）
+- **Windows 权限**：非管理员显示警告 + 「以管理员身份重启」（`ShellExecuteW runas`）；`platform::is_elevated` 检测；init 不再用误导性的安装进度弹窗，改为按钮 loading + 卡片内提示
+- **诊断修复**：环境异常时环境卡显示「修复环境」（非 force init）；重新检查按钮加 Spinner 且防重复点击；Shell 卡检测中显示 Spinner；高级操作原「重新初始化」改名「重置环境配置」（force init，明确会重置 config.toml）
+- **路径与溢出**：概览系统信息只保留 OS/架构/版本/安装目录（home），配置/存储路径移到诊断环境卡（路径 + 末尾状态图标）；所有卡片的长路径截断不溢出（system_info/kv_row/status_line/settings/projects/shell profiles）
+- **表格弹性**：SDK 表格列改为 2:1:1:1 弹性比例 + 最小宽度，窗口全屏/放大时列自动铺满，不再固定左侧留白
+- **界面密度**：标准/紧凑真正生效——侧边栏宽度、页面/卡片内边距、表格行高、统计卡内边距、导航项间距；切换即时刷新并持久化
+- **诊断高级操作**：三张操作卡固定最小宽度 + `flex_wrap`，窄窗口自动折行，不再溢出父容器/屏幕
+- **概览状态**：移除系统信息底部硬编码「系统运行正常」；初始化状态卡按真实检查（config.toml + store 存在）显示 正常/未初始化，并给出对应副文案；系统信息补「运行权限」（管理员/普通用户）
+- **项目管理**：无项目提示改为「未检测到 sdkm 托管的项目，请手动选择项目目录指定版本」；空态标题「未检测到 sdkm 版本文件」；搜索框独占一行且占位符「搜索 SDK 名称...」；快速操作改为「复制 use 示例」，复制 cd + 真实 `sdkm use` 行（无 pin 用占位示例）
+- **目录选择**：Windows PowerShell FolderBrowserDialog 加 `CREATE_NO_WINDOW` + `-WindowStyle Hidden`，不再闪控制台窗口
+- **结构（上一批保留）**：virtual workspace + `default-members = ["crates/sdkm-cli"]`；`sdkm` 入口/build.rs/金样测试在 CLI crate；裸 `cargo build` 不构建 GUI；release 合并为单一 7-target matrix，desktop 由 `desktop: true` 条目额外产出
+- **依赖**：winreg 统一 0.56，去掉 util 冗余 serde derive feature；其余重复来自 gpui 生态
+- **图标**：换用 `assets/sdkm-gui-icons-final` 最终版（去除外层白边），覆盖 `02-app-icon-simplified.png`，重新生成 128/256 与多尺寸 `sdkm.ico`；只保留 02 源图 + 128/256 + ico，删除 01/03/04/05 与旧缩略图，引用路径不变
+- **验证**：`cargo test --workspace` 通过；未初始化沙箱实机截图（引导页、无侧边栏）；构造 store 缺失沙箱截图（异常 pill + 修复按钮 + 重置环境配置）；release 构建后进行正常启动验证
 
 ## 已知问题与注意事项
 
-- **使用处禁止跨模块全路径，一律顶部 use 短名**（如 `util::builtin::find_seed(...)` 写体内 → 改 `use util::builtin::find_seed;`）。rustfmt 只管 use 语句、管不了使用处写法，无自动化工具；clippy `absolute_paths` 的 `max-segments=3`（为放过 `tokio::fs` 等第三方 3 段惯用写法，实测降 2 噪音比 4:1）恰好抓不到项目内 3 段路径——**review diff 时人工扫 `util::`/`crate::` 开头的体内全路径**（宏内 `$crate::` 除外，那是正确写法）。CLI help 的内置 SDK 名单固定写 "java, node, python, go, maven, ... (see docs)" 省略号形式，不随名单扩容联动修改
+- **使用处禁止跨模块全路径，一律顶部 use 短名**（如 `sdkm_util::builtin::find_seed(...)` 写体内 → 改 `use sdkm_util::builtin::find_seed;`）。rustfmt 只管 use 语句、管不了使用处写法，无自动化工具；clippy `absolute_paths` 的 `max-segments=3`（为放过 `tokio::fs` 等第三方 3 段惯用写法，实测降 2 噪音比 4:1）恰好抓不到项目内 3 段路径——**review diff 时人工扫 `sdkm_util::`/`crate::` 开头的体内全路径**（宏内 `$crate::` 除外，那是正确写法）。CLI help 的内置 SDK 名单固定写 "java, node, python, go, maven, ... (see docs)" 省略号形式，不随名单扩容联动修改
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
 - Rust 完全缺失内置源配置条目
 - **Windows 需管理员运行**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`，符号链接创建需 `SeCreateSymbolicLinkPrivilege`（管理员或开发者模式），`init`/`switch` 需管理员权限
 - Unix 环境变量操作使用 `unsafe { env::set_var() }`，在 Rust 2024 edition 中属于 UB（功能生效，彻底修复需 shim 模式重构或用户手动 source）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有限制，主源 uv metadata 无此问题）
-- Rust 工具链通过 `rust-toolchain.toml` 固定为 1.92.0（edition 2024）
+- Rust 工具链通过 `rust-toolchain.toml` 固定为 1.98（edition 2024；gpui-kit 0.9 依赖 slice_as_array，需 stable 1.97+）
 - **zip 仅启用 `deflate` 特性**（体积优化）：若日后解压非 deflate 压缩或密码 zip 会失败，按需在 `Cargo.toml` 加回对应 feature（`bzip2`/`lzma`/`zstd`/`deflate64`/`aes-crypto`）
 - **reqwest 0.13.4 + rustls**：`default-features = false, features = ["json","gzip","default-tls"]`。`default-tls = rustls`（aws-lc-rs + rustls-platform-verifier 走系统 CA bundle），不依赖系统 OpenSSL——Linux 编译只需 `cmake`，运行时需 `ca-certificates`。禁 `http2`/`charset`/`query`/`form`
 - **BugReport 标记只用于真正不可由用户修复的错误**：`install_sdk` 入口用 `?` 传播，真正的 bug（解压/校验失败、内置配置缺失）在 `install_sdk_async` 内部用 `try_bug!`/`bail_bug!` 精确标记，CLI 层 `needs_bug_report` 靠 `downcast_ref` 检测。用户取消是普通 `bail!`。switch 的 `try_step!` 不标 BugReport——步骤失败（symlink 创建 os error 1314、env 写入 os error 5）多属权限/环境问题，用户可自行解决（管理员运行），返回普通错误。**init 第 4 步 symlink_dir 不可写属用户环境问题，用 `bail!` 不用 `try_bug!`**
-- **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`。改 `unix.rs` 后**必须**验证类型——Windows 上临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use` 避免冲突），跑 `cargo check -p sdkcore` 强制编译暴露错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行（aws-lc-rs build.rs 找不到 `x86_64-linux-gnu-gcc`）；或直接 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用）**——`split()` 的 item 是 `&str`，闭包参数是 `&&str`，必须用 `|&p|` 解构才能跟 `&str` 比较；`&String` 用 `.as_str()` 转 `&str`。**涉及跨平台代码提交前必须保证双平台编译通过**（v0.5.1 教训：region.rs unix 分支漏 `-> bool`，tag 构建全挂，删 tag 重发补救）；单文件级验证法 = 临时剥 `#[cfg(unix)]` 属性跑 `cargo check`，完事必须恢复属性并重编译确认（sed 批量剥极易漏恢复）
+- **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`。改 `unix.rs` 后**必须**验证类型——Windows 上临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use` 避免冲突），跑 `cargo check -p sdkm-core` 强制编译暴露错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行（aws-lc-rs build.rs 找不到 `x86_64-linux-gnu-gcc`）；或直接 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用）**——`split()` 的 item 是 `&str`，闭包参数是 `&&str`，必须用 `|&p|` 解构才能跟 `&str` 比较；`&String` 用 `.as_str()` 转 `&str`。**涉及跨平台代码提交前必须保证双平台编译通过**（v0.5.1 教训：region.rs unix 分支漏 `-> bool`，tag 构建全挂，删 tag 重发补救）；单文件级验证法 = 临时剥 `#[cfg(unix)]` 属性跑 `cargo check`，完事必须恢复属性并重编译确认（sed 批量剥极易漏恢复）
 - **SDKM_HOME 环境变量可覆盖 home**：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME`，未设回退 `current_exe().parent()`，行为兼容。主要解锁 in-process 集成测试——`SdkManager::new()` 等路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入），注入后测试可全部指向临时目录。`tests/uninstall.rs` 等用：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录
 - **改完代码先 review 再交付**（编译通过 ≠ 代码干净）：每次改完、build/test/通知用户/提交前，对本次 diff 逐文件自审——(1) 逻辑/边界 bug（空集、None、并发、`panic=abort` 下后台线程无 unwrap）；(2) 因改动变孤儿的 import/变量/函数一并清；(3) 风格违规（标准库别用 `std::fs::` 全路径，优先 `use` 短名，歧义才加包名）；(4) 冗余/可简化处。复核通过再 build/test/交付
 - **env/unix.rs 的 RebuildLine 与 PerDirCommand 是两条独立代码路径**：改 PATH 持久化行为时（插入位置、去重、删除），bash/zsh 走 RebuildLine 分支、fish 走 PerDirCommand 分支，**修一处必须检查另一处是否同型遗漏**——bash Bug 2（PATH 行错位到 hook 后）修了 RebuildLine、漏了 PerDirCommand，fish 用户 WSL 实测才暴露（v0.4.3 补修）
