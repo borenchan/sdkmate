@@ -47,71 +47,96 @@ jobs:
           fi
 
   # ── 2. 跨平台构建（仅在新 tag 创建时跑）─────────────────────────
+  # 单个 matrix 同时产出 CLI 包和（可选）Desktop 组合包：
+  # 每个 target 只编译一次 CLI；desktop=true 的 target 再编译 GUI 并额外打包，
+  # 避免旧方案中 build + build-desktop 两个 job 对同一 target 重复编译 CLI。
   build:
     name: Build (${{ matrix.asset_name }})
     needs: tag
     if: needs.tag.outputs.tag_created == 'true'
     runs-on: ${{ matrix.os }}
-    # Linux 跑 ubuntu:22.04 容器锁 glibc 2.35（runner 镜像会退役，容器镜像长期有官方维护）；
-    # macOS/Windows 条目无 container 字段 → 表达式展开为空串 = 不进容器，跑 VM
+    # Linux 跑 ubuntu:22.04 容器锁 glibc 2.35；macOS/Windows 条目无 container 字段
     container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux gnu：容器 ubuntu:22.04 锁 glibc 2.35，兼容 Ubuntu 22.04+/Debian 12+/Fedora 37+；
-          # runner 用 24.04（22.04 runner 已退役），产物 glibc 由容器决定与 runner 无关
+          # Linux gnu：容器 ubuntu:22.04 锁 glibc 2.35；desktop=true 额外编译 GUI
           - os: ubuntu-24.04
             container: ubuntu:22.04
             target: x86_64-unknown-linux-gnu
-            artifact_name: sdkm
+            bin_cli: sdkm
+            bin_gui: sdkm-gui
             asset_name: sdkm-linux-x86_64-gnu
+            desktop: true
+            desktop_asset_name: sdkm-desktop-linux-x86_64-gnu
             archive_format: tar.gz
-            apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev
-          # Linux musl：全静态，无 glibc 依赖，任意 Linux 通吃（Alpine/CentOS 7/容器）
+            apt_packages: >-
+              git curl ca-certificates build-essential cmake perl clang libclang-dev
+              pkg-config libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+              libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+              libfontconfig1-dev libfreetype6-dev libglib2.0-dev libasound2-dev libvulkan-dev
+          # Linux musl：全静态；GUI 依赖 X11/Wayland，不提供 desktop 包
           - os: ubuntu-24.04
             container: ubuntu:22.04
             target: x86_64-unknown-linux-musl
-            artifact_name: sdkm
+            bin_cli: sdkm
             asset_name: sdkm-linux-x86_64-musl
+            desktop: false
             archive_format: tar.gz
             apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev musl-tools
-          # Linux ARM64 gnu：原生 arm64 runner + 同款 22.04 容器（与 x64 gnu 同 glibc 2.35 基线）
+          # Linux ARM64 gnu：原生 arm64 runner + 同款 22.04 容器
           - os: ubuntu-24.04-arm
             container: ubuntu:22.04
             target: aarch64-unknown-linux-gnu
-            artifact_name: sdkm
+            bin_cli: sdkm
+            bin_gui: sdkm-gui
             asset_name: sdkm-linux-aarch64-gnu
+            desktop: true
+            desktop_asset_name: sdkm-desktop-linux-aarch64-gnu
             archive_format: tar.gz
-            apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev
-          # Linux ARM64 musl：全静态，树莓派/ARM 服务器/Alpine 通吃
+            apt_packages: >-
+              git curl ca-certificates build-essential cmake perl clang libclang-dev
+              pkg-config libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+              libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+              libfontconfig1-dev libfreetype6-dev libglib2.0-dev libasound2-dev libvulkan-dev
+          # Linux ARM64 musl：树莓派/ARM 服务器/Alpine 通吃
           - os: ubuntu-24.04-arm
             container: ubuntu:22.04
             target: aarch64-unknown-linux-musl
-            artifact_name: sdkm
+            bin_cli: sdkm
             asset_name: sdkm-linux-aarch64-musl
+            desktop: false
             archive_format: tar.gz
             apt_packages: git curl ca-certificates build-essential cmake perl clang libclang-dev musl-tools
-          # macOS ARM（M1+）：macos-14 池已被 GitHub 下线（'not supported' 0 step 取消），换 macos-15；
-          # deployment target 11.0 覆盖 Big Sur+，避免绑 runner SDK 版本
+          # macOS ARM（M1+）：deployment target 11.0 覆盖 Big Sur+
           - os: macos-15
             target: aarch64-apple-darwin
-            artifact_name: sdkm
+            bin_cli: sdkm
+            bin_gui: sdkm-gui
             asset_name: sdkm-macos-aarch64
+            desktop: true
+            desktop_asset_name: sdkm-desktop-macos-aarch64
             archive_format: tar.gz
             macos_deployment_target: "11.0"
-          # macOS Intel：在 ARM runner(macos-15) 上交叉编译 x86_64，避开 Intel runner 长排队
+          # macOS Intel：在 ARM runner 上交叉编译 x86_64
           - os: macos-15
             target: x86_64-apple-darwin
-            artifact_name: sdkm
+            bin_cli: sdkm
+            bin_gui: sdkm-gui
             asset_name: sdkm-macos-x86_64
+            desktop: true
+            desktop_asset_name: sdkm-desktop-macos-x86_64
             archive_format: tar.gz
             macos_deployment_target: "11.0"
-          # Windows：向后兼容性好，保持 latest
+          # Windows：desktop=true，GUI 与 CLI 同目录打包
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: sdkm.exe
+            bin_cli: sdkm.exe
+            bin_gui: sdkm-gui.exe
             asset_name: sdkm-windows-x86_64
+            desktop: true
+            desktop_asset_name: sdkm-desktop-windows-x86_64
             archive_format: zip
 
     steps:
@@ -127,36 +152,61 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          # 显式 1.92.0 与 rust-toolchain.toml 一致：targets 才会装到 1.92.0（非默认 target 如 musl 才找得到）
-          toolchain: 1.92.0
+          # 显式 1.98 与 rust-toolchain.toml 一致（GUI 依赖 stable 1.97+）
+          toolchain: 1.98
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # key 含 OS：区分 runner/容器组合变化（如旧 22.04 VM 缓存）避免 aws-lc-sys 产物串环境命中
+          # 单 job 单 target 一份缓存，CLI/GUI 共享，避免旧方案两个 cache key 不共享
           key: ${{ matrix.target }}-${{ matrix.os }}
 
-      - name: Build
+      - name: Build CLI
         env:
-          # macOS：固定最低部署版本，避免编出的二进制绑 runner SDK 版本（老 macOS 跑不了，同 glibc 坑）
+          # macOS：固定最低部署版本，避免编出的二进制绑 runner SDK 版本
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target }}
-        run: cargo build --release --target ${{ matrix.target }} --locked
+        run: cargo build --release --target ${{ matrix.target }} --locked -p sdkm-cli --bin sdkm
 
-      - name: Strip binary (Linux/macOS)
+      - name: Build GUI
+        if: matrix.desktop
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target }}
+        run: cargo build --release --target ${{ matrix.target }} --locked -p sdkm-gui
+
+      - name: Strip binaries (Linux/macOS)
         if: matrix.os != 'windows-latest'
-        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.bin_cli }}
+          if [ "${{ matrix.desktop }}" = "true" ]; then
+            strip target/${{ matrix.target }}/release/${{ matrix.bin_gui }}
+          fi
 
-      - name: Package
+      - name: Package CLI
         shell: bash
         run: |
           # 压缩包内用 .sdkm/ 目录包裹二进制：解压后得 .sdkm/sdkm，
           # sdkm 的 home = 可执行文件父目录（.sdkm），init 直接在里头建 store/ 即可工作
           mkdir -p dist .sdkm
-          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" .sdkm/
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin_cli }}" .sdkm/
           if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
             tar -czf "dist/${{ matrix.asset_name }}.tar.gz" .sdkm
           else
             7z a -tzip "dist/${{ matrix.asset_name }}.zip" .sdkm
+          fi
+
+      - name: Package desktop bundle
+        if: matrix.desktop
+        shell: bash
+        run: |
+          # CLI 包已在上一步生成；这里把 GUI 与说明文件加入同一个 .sdkm 目录再打包，
+          # 保证 desktop 版两个二进制共享 config/store/links
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin_gui }}" .sdkm/
+          if [ -f README.md ]; then cp README.md .sdkm/; fi
+          if [ -f LICENSE ]; then cp LICENSE .sdkm/; fi
+          if [ "${{ matrix.archive_format }}" = "tar.gz" ]; then
+            tar -czf "dist/${{ matrix.desktop_asset_name }}.tar.gz" .sdkm
+          else
+            7z a -tzip "dist/${{ matrix.desktop_asset_name }}.zip" .sdkm
           fi
 
       - uses: actions/upload-artifact@v4
