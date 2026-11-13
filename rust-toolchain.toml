@@ -1,7 +1,8 @@
 # rust-toolchain.toml
 [toolchain]
 # 推荐使用稳定版的具体版本号（而非仅 "stable"），避免自动升级引入兼容性问题
-channel = "1.92.0"
+# 1.98：gpui-kit 0.9（GUI 前端）依赖 slice_as_array（stable 1.97），1.92 无法编译
+channel = "1.98"
 
 # 强制安装必备组件（格式化、代码检查），避免手动安装
 components = [

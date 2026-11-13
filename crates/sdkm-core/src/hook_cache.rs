@@ -1,0 +1,244 @@
+//! shell hook 缓存：`sdkm env` 高频路径的「零磁盘解析」加速层。
+//!
+//! 缓存文件 `<sdkm_home>/.cache/hook_cache.json`，结构
+//! `{ "<PWD 绝对路径>": { config_path, mtime_nanos, env_script, ... } }`。
+//! 新鲜度判据 = 命中的 `.sdkm.toml` 的 mtime（纳秒，防同秒编辑盲区）+ shell +
+//! schema 版本 + 会话指纹（`SDKM_ACTIVE_*` 变量集合——中途 `use --shell` 改会话
+//! 变量必须触发重算）+ 全局指纹（symlink_dir + active SDK 集合——switch/uninstall
+//! 改 `current_version` 必须触发重算，否则吐旧脚本、新 bin 不生效）：
+//! 全部不变 → 直接吐缓存里的完整 env_script；任一变了 → 重新解析并回写。
+//! 损坏自愈：解析失败删缓存文件当空表。全程 best-effort，读写失败静默
+//! 降级到实时解析（缓存纯优化，不影响正确性）。
+
+use sdkm_util::consts::SDKM_SESSION_ENV_PREFIX;
+use sdkm_util::path::get_hook_cache_path;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::Path;
+use std::time::UNIX_EPOCH;
+
+use crate::config::SdkmConfig;
+
+/// 缓存 schema 版本：脚本模板/生成逻辑/新鲜度判据变化时 bump，旧缓存条目整体失效（自动重建）
+pub const CACHE_SCHEMA_VERSION: u128 = 7;
+
+/// 单条 hook 缓存：命中的配置文件路径 + 采样时 mtime（纳秒）+ 三层解析结果
+#[derive(Serialize, Deserialize, Default)]
+pub struct HookEntry {
+    /// 命中的 `.sdkm.toml` 绝对路径（无项目配置时空串 = 锚定「无配置」状态）
+    pub config_path: String,
+    /// 纳秒 mtime（同秒连续编辑也能感知变化——热更新验收点）
+    pub mtime_nanos: u128,
+    /// 会话+项目层应注入条目（top 段，重排时顶最前；贵的结果进缓存，PATH 行实时拼装）
+    #[serde(default)]
+    pub top_entries: Vec<String>,
+    /// 全局层应注入条目（重排时贴启动快照边界，外部前插保持在它前面）
+    #[serde(default)]
+    pub global_entries: Vec<String>,
+    /// 静态 env 行（unset + export；base 自愈与 PATH/INJECTED 行由 assemble 实时生成）
+    #[serde(default)]
+    pub env_lines: String,
+    /// 生成此条目时的 schema 版本（不匹配 = 旧格式，当 miss 重建）
+    #[serde(default)]
+    pub schema_version: u128,
+    /// 生成此条目的 shell 判别序号（`Shell as u8`）。命中时 shell 不符当 miss——
+    /// 防「同一 PWD 跨 --shell 拿到上一 shell 脚本」的串扰（key 仍只含 PWD，不破坏 prune）
+    #[serde(default)]
+    pub shell: u8,
+    /// 生成此条目时的会话指纹（所有 `SDKM_ACTIVE_*` 变量按名排序拼接）。命中时与
+    /// 当前进程指纹不符当 miss——中途 `use --shell` 改会话变量后必须重算，
+    /// 否则缓存吐旧脚本压过会话层（会话 > 项目的优先级文档会被缓存打破）
+    #[serde(default)]
+    pub session_fingerprint: String,
+    /// 生成此条目时的全局指纹（symlink_dir + 各 SDK current_version 集合）。命中时与
+    /// 当前指纹不符当 miss——switch/uninstall 改 `current_version` 后必须重算，
+    /// 否则缓存吐旧脚本，全局层 PATH 不含新 bin（switch 后按回车不生效）
+    #[serde(default)]
+    pub global_fingerprint: String,
+}
+
+/// 缓存表：PWD 绝对路径字符串 → hook 条目（transparent 序列化为裸 JSON object）
+#[derive(Serialize, Deserialize, Default)]
+#[serde(transparent)]
+struct HookMap(HashMap<String, HookEntry>);
+
+/// 缓存中记录过的项目目录（`.sdkm.toml` 仍存在），按配置 mtime 降序
+#[derive(Debug, Clone)]
+pub struct CachedProject {
+    /// 命中缓存时的 PWD（项目目录）
+    pub dir: String,
+    pub config_path: String,
+    pub mtime_nanos: u128,
+}
+
+/// 读取 hook 缓存中出现过的项目目录（供 GUI 默认打开最近项目）
+pub fn cached_projects() -> Vec<CachedProject> {
+    let cache = HookCache::load();
+    let mut items: Vec<CachedProject> = cache
+        .map
+        .0
+        .iter()
+        .filter(|(dir, e)| {
+            !e.config_path.is_empty() && Path::new(&e.config_path).is_file() && Path::new(dir.as_str()).is_dir()
+        })
+        .map(|(dir, e)| CachedProject {
+            dir: dir.clone(),
+            config_path: e.config_path.clone(),
+            mtime_nanos: e.mtime_nanos,
+        })
+        .collect();
+    items.sort_by(|a, b| b.mtime_nanos.cmp(&a.mtime_nanos));
+    items
+}
+
+pub struct HookCache {
+    map: HookMap,
+    dirty: bool,
+}
+
+impl HookCache {
+    /// 加载缓存：路径错 → 空；文件损坏 → 删文件当空（自愈，防反复撞同一坏文件）
+    pub fn load() -> Self {
+        let path = match get_hook_cache_path() {
+            Ok(p) => p,
+            Err(_) => return Self::empty(),
+        };
+        let data = fs::read(&path).unwrap_or_default();
+        match serde_json::from_slice::<HookMap>(&data) {
+            Ok(map) => HookCache { map, dirty: false },
+            Err(_) => {
+                // 损坏：删文件自愈（size_cache 只当空表，这里按任务书 2.5 显式删）
+                let _ = fs::remove_file(&path);
+                Self::empty()
+            }
+        }
+    }
+
+    fn empty() -> Self {
+        HookCache {
+            map: HookMap::default(),
+            dirty: false,
+        }
+    }
+
+    /// 查缓存是否命中：PWD 有记录、shell 相符、schema 版本一致、会话指纹一致、
+    /// 全局指纹一致、且其锚定的配置文件 mtime 未变
+    ///
+    /// `global_fp` 由调用方传入（同一次进程调用内 config 不会变，复用同一份指纹，
+    /// 避免判据 + put 采样各读一次盘）。命中返回条目引用（取 top_entries/
+    /// global_entries/env_lines 实时拼装）；未命中/无记录/shell 不符/schema
+    /// 不符/指纹不符/mtime 变了 → None（触发实时解析）。
+    pub fn resolve(&self, pwd: &Path, shell: u8, global_fp: &str) -> Option<&HookEntry> {
+        let key = pwd.to_string_lossy();
+        let entry = self.map.0.get(key.as_ref())?;
+        if entry.shell != shell {
+            return None;
+        }
+        if entry.schema_version != CACHE_SCHEMA_VERSION {
+            return None;
+        }
+        if entry.session_fingerprint != current_session_fingerprint() {
+            return None;
+        }
+        if entry.global_fingerprint != global_fp {
+            return None;
+        }
+        if entry.config_path.is_empty() {
+            return Some(entry);
+        }
+        let current = current_mtime_nanos(Path::new(&entry.config_path))?;
+        if entry.mtime_nanos == current {
+            Some(entry)
+        } else {
+            None
+        }
+    }
+
+    /// 插入/更新一条缓存（dirty=true，save 时落盘）
+    pub fn put(&mut self, pwd: &Path, entry: HookEntry) {
+        let key = pwd.to_string_lossy().into_owned();
+        self.map.0.insert(key, entry);
+        self.dirty = true;
+    }
+
+    /// 清理指向不存在目录的孤儿条目（目录被删后残留的失效 key，惰性自愈）
+    pub fn prune(&mut self) {
+        let before = self.map.0.len();
+        self.map.0.retain(|k, _| Path::new(k).exists());
+        if self.map.0.len() != before {
+            self.dirty = true;
+        }
+    }
+
+    /// dirty 时原子写（tmp+rename），失败静默
+    pub fn save(&self) {
+        if !self.dirty {
+            return;
+        }
+        let path = match get_hook_cache_path() {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let tmp = path.with_extension("json.tmp");
+        let Ok(json) = serde_json::to_vec(&self.map) else {
+            return;
+        };
+        if fs::write(&tmp, &json).is_err() {
+            return;
+        }
+        let _ = fs::rename(&tmp, &path);
+    }
+}
+
+/// 文件 mtime（纳秒，距 UNIX_EPOCH）；取不到返 None → 当 cache miss（实时解析）
+fn current_mtime_nanos(path: &Path) -> Option<u128> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    let mtime = meta.modified().ok()?;
+    mtime.duration_since(UNIX_EPOCH).ok().map(|d| d.as_nanos())
+}
+
+/// 当前进程所有 `SDKM_ACTIVE_*` 会话变量拼成的指纹（按变量名排序，`name=value` 分号连接）
+///
+/// 无会话变量 → 空串。用作缓存新鲜度判据：会话变量 set/改/unset 任一变化都会
+/// 改变指纹 → 缓存 miss → 重算。注意指纹判据只保证「变了必重算」，不要求跨版本
+/// 稳定（旧条目由 schema bump 兜底整体失效）。
+pub fn current_session_fingerprint() -> String {
+    let mut pairs: Vec<String> = env::vars()
+        .filter(|(k, _)| k.starts_with(SDKM_SESSION_ENV_PREFIX))
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect();
+    pairs.sort();
+    pairs.join(";")
+}
+
+/// 全局层指纹：`symlink_dir|<name>=<version>;...`（active SDK 按名排序拼接，无 active → `symlink_dir|`）
+///
+/// 影响 env 脚本全局层 PATH 输出的 config 状态都在里面：symlink_dir（决定 bin 路径前缀）、
+/// 各 SDK 的 current_version（决定哪些 bin 条目、先后由名字排序保证确定性）。switch/uninstall
+/// 改任一 SDK 的 current_version → 指纹变 → 缓存 miss 重算。
+///
+/// config 解析失败 → 空串（指纹判据失效，靠 schema/mtime 兜底——缓存纯优化，静默降级）。
+pub fn global_fingerprint() -> String {
+    let config = match SdkmConfig::read_from_disk() {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+    let symlink_dir = config.resolved_symlink_dir().unwrap_or_default();
+    let mut pairs: Vec<String> = config
+        .sdks
+        .iter()
+        .filter_map(|s| s.current_version.as_ref().map(|v| format!("{}={}", s.name, v)))
+        .collect();
+    pairs.sort();
+    format!("{}|{}", symlink_dir, pairs.join(";"))
+}
+
+/// 供外部获取指定文件的纳秒 mtime（生成缓存条目时锚定用）
+pub fn file_mtime_nanos(path: &Path) -> Option<u128> {
+    current_mtime_nanos(path)
+}

@@ -1,0 +1,21 @@
+[package]
+name = "sdkm-util"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+anyhow = { workspace = true }
+url = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+# 读取用户 Documents 重定向（User Shell Folders\Personal），定位 PowerShell profile；
+# os_version 读注册表 Windows NT CurrentVersion
+winreg = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,38 @@
+use crate::CommandHandler;
+use crate::terminal_sink::manager;
+use clap::Parser;
+use sdkm_util::shell::{detect_shell, parse_shell};
+use std::env;
+
+/// `sdkm env [shell]`：输出当前目录应 eval 的环境变量设置脚本（hook 高频调用）
+///
+/// **stdout 只吐脚本**（会被 shell eval），禁用 info!/warning! 等 stdout 宏；
+/// 诊断（未装降级提示等）在 sdkcore 侧已走 stderr。
+#[derive(Debug, Parser)]
+pub struct EnvHandler {
+    /// Target shell (bash/zsh/fish/powershell); omit to auto-detect
+    #[arg(
+        long = "shell",
+        value_name = "shell",
+        help = "Target shell: bash, zsh, fish, powershell (omit to auto-detect)"
+    )]
+    shell: Option<String>,
+}
+
+impl CommandHandler for EnvHandler {
+    fn run(&self) -> anyhow::Result<()> {
+        let shell = match &self.shell {
+            Some(s) => parse_shell(s)?,
+            None => detect_shell(),
+        };
+        let pwd = env::current_dir()?;
+        // config 缺失/损坏 → 静默吐空脚本：env 被 hook 每次提示符高频调用，
+        // 此处报错会让未 init/损坏的场每次开 shell 都被喷 🦀（诊断留给用户主动命令）
+        let Ok(manager) = manager() else {
+            return Ok(());
+        };
+        // 纯脚本输出（缓存命中零解析；无项目配置输出幂等 PATH 重建 + unset 行）
+        print!("{}", manager.generate_env_script_cached(shell, &pwd));
+        Ok(())
+    }
+}
