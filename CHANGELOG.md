@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.5.7 - 2026-11-13
+
+
+### ✨ Features
+
+- add sdkm desktop GUI — [`5caea6f`](https://github.com/borenchan/sdkmate/commit/5caea6f)
+
+### ♻️ Refactor
+
+- rename crates to sdkm-* — [`840fbfe`](https://github.com/borenchan/sdkmate/commit/840fbfe)
+
+### 📝 Documentation
+
+- rework readme header, add donate section — [`0b617ac`](https://github.com/borenchan/sdkmate/commit/0b617ac)
+- highlight native GUI — [`7ab14f0`](https://github.com/borenchan/sdkmate/commit/7ab14f0)
+- localize GUI screenshots — [`8495be4`](https://github.com/borenchan/sdkmate/commit/8495be4)
+- polish README copy — [`9b722c1`](https://github.com/borenchan/sdkmate/commit/9b722c1)
+- remove stale references — [`8bc44d2`](https://github.com/borenchan/sdkmate/commit/8bc44d2)
+- add desktop GUI showcase — [`09c1efa`](https://github.com/borenchan/sdkmate/commit/09c1efa)
+- update project notes — [`3ceb3bc`](https://github.com/borenchan/sdkmate/commit/3ceb3bc)
+- update progress and release matrix notes — [`6610531`](https://github.com/borenchan/sdkmate/commit/6610531)
+
+### 👷 CI / Build
+
+- add bilingual release notes via google translate — [`b9d8d1d`](https://github.com/borenchan/sdkmate/commit/b9d8d1d)
+- build CLI and desktop packages — [`7a544f9`](https://github.com/borenchan/sdkmate/commit/7a544f9)
+
+### 🧰 Chore
+
+- release v0.5.7 — [`9ce3c54`](https://github.com/borenchan/sdkmate/commit/9ce3c54)
+- remove nested build artifacts — [`cc1eea9`](https://github.com/borenchan/sdkmate/commit/cc1eea9)
+
+### 📌 Other
+
+- Merge pull request #24 from borenchan/feature/gui — [`ee27733`](https://github.com/borenchan/sdkmate/commit/ee27733)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> Boren Chan</a>
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.5.6...v0.5.7
+
+
+
 ## v0.5.6 - 2026-11-09
 
 
