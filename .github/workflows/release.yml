@@ -238,6 +238,25 @@ jobs:
           echo "===== generated changelog ====="
           cat changelog.md
 
+      # 中文版 changelog：谷歌翻译免费端点（无需 key），只翻 commit 描述、
+      # 分组标题走固定映射；失败/被限流则不产出 changelog.zh.md，发版兜底纯英文
+      - name: Translate changelog to Chinese
+        run: python3 .github/scripts/translate_changelog_zh.py changelog.md changelog.zh.md
+
+      # 拼双语 body：英文正文 + 折叠的简体中文版；无中文版则直接用英文
+      - name: Compose release body
+        run: |
+          if [ -s changelog.zh.md ]; then
+            {
+              cat changelog.md
+              printf '\n---\n\n<details>\n<summary>🇨🇳 简体中文</summary>\n\n'
+              cat changelog.zh.md
+              printf '\n</details>\n'
+            } > release_body.md
+          else
+            cp changelog.md release_body.md
+          fi
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -258,7 +277,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.tag.outputs.version }}
-          body_path: changelog.md
+          body_path: release_body.md
           files: |
             dist/*.tar.gz
             dist/*.zip
