@@ -35,7 +35,9 @@
     <img src="https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square" alt="License">
   </p>
 
-  <h2>⚡ A cross-platform SDK version manager built for full-stack developers</h2>
+  <p>
+    <strong>sdkmate (a.k.a. "时代楷模" 👀)</strong> is a <strong>pure-Rust</strong>, cross-platform SDK version manager with a native desktop app built on <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a>, for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — <strong>faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman</strong>.
+  </p>
   <p>
     <strong>English</strong> ·
     <a href="./README-zh.md">简体中文</a>
@@ -56,39 +58,11 @@
   <img src="./assets/sdkm-demo.gif" alt="sdkm terminal demo" width="780"/>
 
   <p><sub>▲ <strong>sdkm</strong> in action: install · fuzzy match · version switch · interactive TUI · project version management</sub></p>
+
+  <a href="./assets/example-images/en/home_p1.jpg"><img src="./assets/example-images/en/home_p1.jpg" alt="sdkm desktop app - overview" width="780"/></a>
+
+  <p><sub>▲ <strong>sdkm-gui</strong>: native desktop app — visual SDK management, projects, settings and diagnostics on the same Rust core</sub></p>
 </div>
-
----
-
-## 🎯 In One Line
-
-> **sdkmate (a.k.a. "时代楷模" 👀)** is a **pure-Rust**, cross-platform SDK version manager with a native desktop app built on [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui), for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
-
-
-```bash
-sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. One line, done.
-```
-
-<details>
-<summary><strong>📑 Table of Contents</strong></summary>
-
-- [✨ Core Advantages](#-core-advantages)
-  - [🔥 Designed for full-stack developers](#-designed-for-full-stack-developers)
-  - [🤖 Let an AI Agent manage your SDKs](#-let-an-ai-agent-manage-your-sdks)
-  - [📊 Comparison with similar tools](#-comparison-with-similar-tools)
-- [📦 Installation](#-installation)
-- [🖥️ Desktop App](#-desktop-app)
-- [🚀 Quick Start](#-quick-start)
-- [🐚 Multi-scope version switching](#-multi-scope-version-switching)
-- [🎮 Command Reference](#-command-reference)
-- [🧰 Supported SDKs](#-supported-sdks)
-- [🔩 Tech Stack](#-tech-stack)
-- [🔧 Development](#-development)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [⭐ Star History](#-star-history)
-
-</details>
 
 ---
 
@@ -390,6 +364,17 @@ This project is open-sourced under the [Apache-2.0](./LICENSE) license.
 Made with ❤️ by the sdkm team
 
 </div>
+
+---
+
+## ☕ Buy Me a Coffee
+
+If sdkm has ever helped you, feel free to buy me a coffee — your support keeps this project going.
+
+<p align="center">
+  <img src="./assets/donate/wechat.jpg" alt="WeChat Pay QR" width="240"/>
+  <img src="./assets/donate/aipay.png" alt="Alipay QR" width="240"/>
+</p>
 
 ---
 

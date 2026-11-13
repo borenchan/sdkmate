@@ -35,7 +35,9 @@
     <img src="https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square" alt="License">
   </p>
 
-  <h2>⚡ 专为全栈工程师打造的跨平台 SDK 版本管理器</h2>
+  <p>
+    <strong>sdkm（简称：时代楷模👀）</strong> 是一款 <strong>纯 Rust</strong> 编写的跨平台 SDK 版本管理器，并内置基于 <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a> 构建的原生桌面应用，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，<strong>比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心</strong>。
+  </p>
   <p>
     <a href="./README.md">English</a> ·
     <strong>中文</strong>
@@ -56,39 +58,11 @@
   <img src="./assets/sdkm-demo.gif" alt="sdkm 终端演示动图" width="780"/>
 
   <p><sub>▲ <strong>sdkm</strong> 实操演示：安装 · 模糊匹配 · 版本切换 · 交互式 TUI · 项目版本管理</sub></p>
+
+  <a href="./assets/example-images/zh/home_p1.jpg"><img src="./assets/example-images/zh/home_p1.jpg" alt="sdkm 桌面应用 - 概览" width="780"/></a>
+
+  <p><sub>▲ <strong>sdkm-gui</strong>：原生桌面应用，可视化 SDK 管理、项目管理、设置与诊断，与 CLI 共用同一套 Rust 核心</sub></p>
 </div>
-
----
-
-## 🎯 一句话简介
-
-> **sdkm（简称：时代楷模👀）** 是一款 **纯 Rust** 编写的跨平台 SDK 版本管理器，并内置基于 [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) 构建的原生桌面应用，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
-
-
-```bash
-sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换，一行搞定
-```
-
-<details>
-<summary><strong>📑 目录</strong></summary>
-
-- [✨ 核心优势](#-核心优势)
-  - [🔥 专为全栈工程师设计](#-专为全栈工程师设计)
-  - [🤖 让 AI Agent 替你管理 SDK](#-让-ai-agent-替你管理-sdk)
-  - [📊 与同类工具对比](#-与同类工具对比)
-- [📦 安装](#-安装)
-- [🖥️ 桌面应用](#-桌面应用)
-- [🚀 快速开始](#-快速开始)
-- [🐚 多作用域版本切换](#-多作用域版本切换)
-- [🎮 命令参考](#-命令参考)
-- [🧰 支持的 SDK](#-支持的-sdk)
-- [🔩 技术栈](#-技术栈)
-- [🔧 开发指南](#-开发指南)
-- [🤝 贡献指南](#-贡献指南)
-- [📄 许可证](#-许可证)
-- [⭐ Star History](#-star-history)
-
-</details>
 
 ---
 
@@ -390,6 +364,17 @@ cargo clippy --all-targets --all-features              # 代码检查
 Made with ❤️ by the sdkm team
 
 </div>
+
+---
+
+## ☕ 请我喝杯咖啡
+
+如果 sdkm 曾经帮助过你，欢迎请我喝杯咖啡，支持我把它继续做下去。
+
+<p align="center">
+  <img src="./assets/donate/wechat.jpg" alt="微信收款码" width="240"/>
+  <img src="./assets/donate/aipay.png" alt="支付宝收款码" width="240"/>
+</p>
 
 ---
 

@@ -107,27 +107,18 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-12）
+## 当前开发进度（2026-11-13）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### feature/gui 批次：首启引导 / 诊断修复 / 结构精简
+### docs/CI 批次：README 改版 / 捐赠区 / release note 双语
 
-- **首启引导**：GUI 启动检测 `config.toml` 缺失 → 隐藏侧边栏显示初始化卡；一键 `InitRun` 调 `init_sdkm(force=false)`，成功后进入概览并刷新；失败在卡片持久显示错误
-- **首启 init 根因修复**：`data::build_outcome` 原先在 match 前无条件 `SdkManager::new()`，首次无 config 时直接报 “Failed to read sdkm config”，init 根本没执行；改为 InitRun/Reinit 先分流、不构造 Manager（同时消除 Error 事件 + InitResult 双提示）
-- **Windows 权限**：非管理员显示警告 + 「以管理员身份重启」（`ShellExecuteW runas`）；`platform::is_elevated` 检测；init 不再用误导性的安装进度弹窗，改为按钮 loading + 卡片内提示
-- **诊断修复**：环境异常时环境卡显示「修复环境」（非 force init）；重新检查按钮加 Spinner 且防重复点击；Shell 卡检测中显示 Spinner；高级操作原「重新初始化」改名「重置环境配置」（force init，明确会重置 config.toml）
-- **路径与溢出**：概览系统信息只保留 OS/架构/版本/安装目录（home），配置/存储路径移到诊断环境卡（路径 + 末尾状态图标）；所有卡片的长路径截断不溢出（system_info/kv_row/status_line/settings/projects/shell profiles）
-- **表格弹性**：SDK 表格列改为 2:1:1:1 弹性比例 + 最小宽度，窗口全屏/放大时列自动铺满，不再固定左侧留白
-- **界面密度**：标准/紧凑真正生效——侧边栏宽度、页面/卡片内边距、表格行高、统计卡内边距、导航项间距；切换即时刷新并持久化
-- **诊断高级操作**：三张操作卡固定最小宽度 + `flex_wrap`，窄窗口自动折行，不再溢出父容器/屏幕
-- **概览状态**：移除系统信息底部硬编码「系统运行正常」；初始化状态卡按真实检查（config.toml + store 存在）显示 正常/未初始化，并给出对应副文案；系统信息补「运行权限」（管理员/普通用户）
-- **项目管理**：无项目提示改为「未检测到 sdkm 托管的项目，请手动选择项目目录指定版本」；空态标题「未检测到 sdkm 版本文件」；搜索框独占一行且占位符「搜索 SDK 名称...」；快速操作改为「复制 use 示例」，复制 cd + 真实 `sdkm use` 行（无 pin 用占位示例）
-- **目录选择**：Windows PowerShell FolderBrowserDialog 加 `CREATE_NO_WINDOW` + `-WindowStyle Hidden`，不再闪控制台窗口
-- **结构（上一批保留）**：virtual workspace + `default-members = ["crates/sdkm-cli"]`；`sdkm` 入口/build.rs/金样测试在 CLI crate；裸 `cargo build` 不构建 GUI；release 合并为单一 7-target matrix，desktop 由 `desktop: true` 条目额外产出
-- **依赖**：winreg 统一 0.56，去掉 util 冗余 serde derive feature；其余重复来自 gpui 生态
-- **图标**：换用 `assets/sdkm-gui-icons-final` 最终版（去除外层白边），覆盖 `02-app-icon-simplified.png`，重新生成 128/256 与多尺寸 `sdkm.ico`；只保留 02 源图 + 128/256 + ico，删除 01/03/04/05 与旧缩略图，引用路径不变
-- **验证**：`cargo test --workspace` 通过；未初始化沙箱实机截图（引导页、无侧边栏）；构造 store 缺失沙箱截图（异常 pill + 修复按钮 + 重置环境配置）；release 构建后进行正常启动验证
+- **README 标题区改版**（中英双语同步）：原 h2 副标语换成「一句话简介」正文（GPUI 链接转 `<a>`），删除「一句话简介/In One Line」章节（含单行示例命令）与目录 `<details>` 块
+- **README 新增 GUI 首页大图**：GIF 下方按语言对应插入 `assets/example-images/{en,zh}/home_p1.jpg`（width=780，外包 `<a>` 可点开原图），配 GIF 同款 `<sub>` 小字说明
+- **README 捐赠区**：Star History 上方插入「☕ 请我喝杯咖啡 / Buy Me a Coffee」段落 + 微信/支付宝收款码（`assets/donate/wechat.jpg`、`aipay.png`，width=240 居中）
+- **release note 中英双语**：新增 `.github/scripts/translate_changelog_zh.py`，走谷歌翻译免费网页端点（`translate_a/t?client=gtx`，无需 key）；分组标题走 12 条固定映射不进机翻，只逐条翻译 commit 描述，`` `代码` ``/专名（sdkm/GPUI/crates 等）用 `⟦n⟧` 占位符保护， Contributors 区与 Full Changelog 链接不翻；限流/失败 exit 0 不产出文件，发版兜底纯英文。workflow upload-release 加 Translate/Compose 两步，body 拼成英文正文 + `<details>🇨🇳 简体中文</details>` 折叠区；根 `CHANGELOG.md` 保持纯英文
+- **验证**：真实谷歌端点实测 v0.5.5..v0.5.6 区间 35 条 commit（占位符回填/标题映射/链接完好）；mock 验证批量分批与两种响应形态解析；端点不通兜底路径验证；workflow YAML 解析校验通过
+- **选型记录（2026-11-13）**：release note 翻译通道调研——dbx 项目用 DeepSeek（要付费 key，用户否决）；GitHub Models 已于 2026-07-30 退役；谷歌/微软官方翻译 API 均需注册绑卡；最终选谷歌免费网页端点 + 失败兜底，完全零成本
 
 ## 已知问题与注意事项
 
@@ -159,6 +150,7 @@ bin_dir = "bin"
 
 ### 要点
 - **changelog 自动生成**：来自「上个 tag..HEAD」的 conventional commits，按 `feat`/`fix`/`refactor`/`docs`/`ci` 等前缀分类（`.github/scripts/gen_changelog.sh`）。保持约定式 commit message
+- **release body 中英双语**：upload-release 里 `translate_changelog_zh.py` 走谷歌翻译免费网页端点（`client=gtx`，无需 key）只翻 commit 描述，分组标题查固定映射表，反引号/专名占位符保护；翻译失败/限流自动兜底纯英文，不阻塞发版。根 `CHANGELOG.md` 仍纯英文
 - **根 `CHANGELOG.md` 由 CI 维护**：发版后 upload-release job 把版本正文 prepend 到根 `CHANGELOG.md` 并 commit 回 master。**本地不要手改**，会被下次发版覆盖；GITHUB_TOKEN push 不触发 workflow 递归
 - **版本号只能递增、不可复用**：已发版本 tag 已存在，再 push 同版本会被跳过。重发同版本需先删 tag+release 再 push；或直接 bump 到下一版本（推荐）
 - **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上七产物二进制（Linux x86 gnu/musl + ARM64 gnu/musl、macOS ARM/Intel、Windows）
