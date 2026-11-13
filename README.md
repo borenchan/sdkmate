@@ -30,7 +30,7 @@
 
   <!-- Badges: tech stack -->
   <p>
-    <img src="https://img.shields.io/badge/Rust-1.92.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
+    <img src="https://img.shields.io/badge/Rust-1.98.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg?style=flat-square&logo=linux&logoColor=white" alt="Platform">
     <img src="https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square" alt="License">
   </p>
@@ -62,7 +62,9 @@
 
 ## 🎯 In One Line
 
-> **sdkmate (a.k.a. "Role Model of the Times" 👀)** is a cross-platform SDK version manager built for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
+> **sdkmate (a.k.a. "Role Model of the Times" 👀)** is a **pure-Rust**, cross-platform SDK version manager with a native **GPUI desktop GUI**, built for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
+
+Use it as a single-binary CLI or launch the desktop GUI — both share the same Rust core, `config.toml`, store and version links.
 
 ```bash
 sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. One line, done.
@@ -75,6 +77,7 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
   - [🔥 Designed for full-stack developers](#-designed-for-full-stack-developers)
   - [🤖 Let an AI Agent manage your SDKs](#-let-an-ai-agent-manage-your-sdks)
   - [📊 Comparison with similar tools](#-comparison-with-similar-tools)
+- [🖥️ Desktop GUI](#-desktop-gui)
 - [📦 Installation](#-installation)
 - [🚀 Quick Start](#-quick-start)
 - [🐚 Multi-scope version switching](#-multi-scope-version-switching)
@@ -176,9 +179,43 @@ what python do I have      → sdkm list
 
 ---
 
+## 🖥️ Desktop GUI
+
+The same Rust core ships with a native **GPUI** desktop GUI. Pick the Desktop archive (`sdkm-desktop-*`) to get both `sdkm` and `sdkm-gui`; the GUI and CLI share config, store and version links, so versions stay aligned.
+
+<p align="center">
+  <img src="./assets/example-images/home_p1.jpg" alt="Overview" width="880"/>
+  <br/><sub><strong>Overview</strong> — stats, SDK list, storage usage and environment summary</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/sdkm_p2.jpg" alt="SDK Management" width="880"/>
+  <br/><sub><strong>SDK Management</strong> — search, pagination, local/remote versions, install and switch</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/project_p3.jpg" alt="Project Management" width="880"/>
+  <br/><sub><strong>Project Management</strong> — project-level version pins backed by `.sdkm.toml`</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/setting_p4.jpg" alt="Settings" width="880"/>
+  <br/><sub><strong>Settings</strong> — language, theme, density, network and SDK sources</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/doctor_p5.jpg" alt="Diagnostics & Maintenance" width="880"/>
+  <br/><sub><strong>Diagnostics & Maintenance</strong> — environment checks, shell hook, updates and repair</sub>
+</p>
+
 ## 📦 Installation
 
-Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page, extract it anywhere (preserve the `.sdkm/` directory structure), then cd into `.sdkm/` to get started.
+Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page:
+
+- **CLI only** — `sdkm-<os>-<arch>[-gnu|-musl]`
+- **Desktop (CLI + GUI)** — `sdkm-desktop-<os>-<arch>[-gnu]`, containing both `sdkm` and `sdkm-gui`
+
+Extract anywhere (preserve the `.sdkm/` directory structure), then cd into `.sdkm/` to get started. On first launch the GUI offers a one-click initialization if `config.toml` is missing.
 
 > **⚠️ Windows users**: run `init`/`switch` in an administrator terminal (writes system env vars `HKEY_LOCAL_MACHINE` + creates symbolic links).
 
@@ -280,12 +317,13 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 
 | Component | Tech | Description |
 |:---|:---|:---|
-| **Language** | Rust 1.92.0 | Performance meets safety |
+| **Language** | Rust 1.98 | Performance meets safety |
 | **CLI parsing** | clap | Elegant argument handling |
 | **Async runtime** | tokio | High-performance async IO |
 | **HTTP client** | reqwest | Cross-platform HTTP |
 | **Terminal output** | crossterm + indicatif | Colored output + progress bars |
 | **Config parsing** | toml (serde) | Human-friendly config format |
+| **Desktop GUI** | GPUI (gpui-kit) | Native, GPU-accelerated desktop UI |
 
 ---
 
@@ -293,7 +331,7 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 
 ### Requirements
 
-- Rust 1.92.0 (edition 2024)
+- Rust 1.98 (edition 2024)
 - Cargo
 
 ### Local development

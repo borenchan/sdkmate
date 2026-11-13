@@ -30,7 +30,7 @@
 
   <!-- 徽章：技术栈 -->
   <p>
-    <img src="https://img.shields.io/badge/Rust-1.92.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
+    <img src="https://img.shields.io/badge/Rust-1.98.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg?style=flat-square&logo=linux&logoColor=white" alt="Platform">
     <img src="https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square" alt="License">
   </p>
@@ -62,7 +62,9 @@
 
 ## 🎯 一句话简介
 
-> **sdkm（简称：时代楷模👀）** 是一款专为全栈工程师打造的跨平台 SDK 版本管理器，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
+> **sdkm（简称：时代楷模👀）** 是一款 **纯 Rust** 编写、带原生 **GPUI 桌面 GUI** 的跨平台 SDK 版本管理器，专为全栈工程师打造，一键安装与切换 Java、Node.js、Python、Maven、Go、uv、bun、claude-code、cmake ... 等 40+ 开发工具，**比 sdkman/nvm/jenv/pyenv 更快、更安全、更省心**。
+
+既可以作为单二进制 CLI 使用，也可以直接启动桌面 GUI——两者共享同一套 Rust 核心、`config.toml`、store 与版本链接，版本始终对齐。
 
 ```bash
 sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换，一行搞定
@@ -75,6 +77,7 @@ sdkm init && sdkm install java 21   # 初始化 + 安装 Java 21 并自动切换
   - [🔥 专为全栈工程师设计](#-专为全栈工程师设计)
   - [🤖 让 AI Agent 替你管理 SDK](#-让-ai-agent-替你管理-sdk)
   - [📊 与同类工具对比](#-与同类工具对比)
+- [🖥️ 桌面 GUI](#-桌面-gui)
 - [📦 安装](#-安装)
 - [🚀 快速开始](#-快速开始)
 - [🐚 多作用域版本切换](#-多作用域版本切换)
@@ -176,9 +179,43 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 ---
 
+## 🖥️ 桌面 GUI
+
+同一套 Rust 核心同时提供原生 **GPUI** 桌面 GUI。下载 Desktop 包（`sdkm-desktop-*`）即可同时获得 `sdkm` 和 `sdkm-gui`；GUI 与 CLI 共享 config、store 与版本链接，版本始终对齐。
+
+<p align="center">
+  <img src="./assets/example-images/home_p1.jpg" alt="概览" width="880"/>
+  <br/><sub><strong>概览</strong> — 统计卡片、SDK 列表、存储占用与环境摘要</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/sdkm_p2.jpg" alt="SDK 管理" width="880"/>
+  <br/><sub><strong>SDK 管理</strong> — 搜索、分页、本地/远程版本、安装与切换</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/project_p3.jpg" alt="项目管理" width="880"/>
+  <br/><sub><strong>项目管理</strong> — 基于 `.sdkm.toml` 的项目级版本约束</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/setting_p4.jpg" alt="设置" width="880"/>
+  <br/><sub><strong>设置</strong> — 语言、主题、密度、网络与 SDK 源配置</sub>
+</p>
+
+<p align="center">
+  <img src="./assets/example-images/doctor_p5.jpg" alt="诊断与维护" width="880"/>
+  <br/><sub><strong>诊断与维护</strong> — 环境检测、Shell hook、更新与修复</sub>
+</p>
+
 ## 📦 安装
 
-前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包，解压到任意目录即可（保留 `.sdkm/` 目录结构），进入 `.sdkm/` 目录即可开始使用。
+前往 [Releases](https://github.com/borenchan/sdkmate/releases) 页面下载对应平台的压缩包：
+
+- **纯 CLI** — `sdkm-<os>-<arch>[-gnu|-musl]`
+- **Desktop（CLI + GUI）** — `sdkm-desktop-<os>-<arch>[-gnu]`，同时包含 `sdkm` 与 `sdkm-gui`
+
+解压到任意目录即可（保留 `.sdkm/` 目录结构），进入 `.sdkm/` 目录即可开始使用。首次启动 GUI 时若缺少 `config.toml`，会提供一键初始化引导。
 
 > **⚠️ Windows 用户**：`init`/`switch` 需以管理员权限启动终端运行（写入系统环境变量 `HKEY_LOCAL_MACHINE` + 创建符号链接）。
 
@@ -280,12 +317,13 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 
 | 组件 | 技术 | 说明 |
 |:---|:---|:---|
-| **语言** | Rust 1.92.0 | 性能与安全兼得 |
+| **语言** | Rust 1.98 | 性能与安全兼得 |
 | **CLI 解析** | clap | 优雅的命令行参数处理 |
 | **异步运行时** | tokio | 高性能异步 IO |
 | **HTTP 客户端** | reqwest | 跨平台 HTTP 请求 |
 | **终端输出** | crossterm + indicatif | 彩色终端输出 + 进度条 |
 | **配置解析** | toml (serde) | 人性化配置文件格式 |
+| **桌面 GUI** | GPUI (gpui-kit) | 原生、GPU 加速的桌面 UI |
 
 ---
 
@@ -293,7 +331,7 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 
 ### 环境要求
 
-- Rust 1.92.0（edition 2024）
+- Rust 1.98（edition 2024）
 - Cargo
 
 ### 本地开发
