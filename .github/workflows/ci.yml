@@ -23,13 +23,16 @@ jobs:
 
       - name: Install native build deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake
+        run: sudo apt-get update && sudo apt-get install -y cmake pkg-config libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libfontconfig1-dev libfreetype6-dev libglib2.0-dev libasound2-dev libvulkan-dev
 
       - name: Install native build deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake
 
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # 与 rust-toolchain.toml / release.yml 保持一致（GUI 需 stable 1.97+）
+          toolchain: 1.98
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -42,7 +45,7 @@ jobs:
       # clippy 仅展示不阻塞：仓库尚有 20+ 预存在警告（collapsible_if 等，多为既有代码结构），
       # 待基线清零后再收紧为 -D warnings
       - name: Clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features
 
       - name: Test
         run: cargo test --workspace -j 2

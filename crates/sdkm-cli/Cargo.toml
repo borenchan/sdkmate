@@ -1,0 +1,31 @@
+[package]
+name = "sdkm-cli"
+# 显式定义 sdkm bin，关闭按包名自动推导的 sdkm-cli bin
+autobins = false
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+
+[dependencies]
+sdkm-core = { workspace = true }
+sdkm-util = { workspace = true }
+clap = { workspace = true }
+crossterm = { workspace = true }
+indicatif = { workspace = true }
+anyhow = { workspace = true}
+unicode-width = { workspace = true }
+
+# CLI 入口（原根目录 main.rs）
+[[bin]]
+name = "sdkm"
+path = "src/main.rs"
+
+# Windows 可执行文件图标（与 GUI 同一品牌 ICO）
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[lints]
+workspace = true

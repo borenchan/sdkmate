@@ -1,0 +1,12 @@
+use sdkm_core::env::{EnvOperation, OsEnvOperation};
+
+#[test]
+#[cfg(target_os = "windows")]
+fn test_windows_env() {
+    let window = OsEnvOperation {};
+    let sdk_path = "D:\\tmp\\link_test";
+    let string = window.get_path().unwrap();
+    println!("Path:{}", string);
+    window.add_sdk_path(sdk_path).unwrap();
+    window.remove_sdk_path(sdk_path).unwrap();
+}

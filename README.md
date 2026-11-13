@@ -30,12 +30,14 @@
 
   <!-- Badges: tech stack -->
   <p>
-    <img src="https://img.shields.io/badge/Rust-1.92.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
+    <img src="https://img.shields.io/badge/Rust-1.98.0-orange.svg?style=flat-square&logo=rust&logoColor=white" alt="Rust">
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg?style=flat-square&logo=linux&logoColor=white" alt="Platform">
     <img src="https://img.shields.io/badge/License-Apache--2.0-green.svg?style=flat-square" alt="License">
   </p>
 
-  <h2>⚡ A cross-platform SDK version manager built for full-stack developers</h2>
+  <p>
+    <strong>sdkmate (a.k.a. "时代楷模" 👀)</strong> is a <strong>pure-Rust</strong>, cross-platform SDK version manager with a native desktop app built on <a href="https://github.com/zed-industries/zed/tree/main/crates/gpui">GPUI</a>, for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — <strong>faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman</strong>.
+  </p>
   <p>
     <strong>English</strong> ·
     <a href="./README-zh.md">简体中文</a>
@@ -56,37 +58,11 @@
   <img src="./assets/sdkm-demo.gif" alt="sdkm terminal demo" width="780"/>
 
   <p><sub>▲ <strong>sdkm</strong> in action: install · fuzzy match · version switch · interactive TUI · project version management</sub></p>
+
+  <a href="./assets/example-images/en/home_p1.jpg"><img src="./assets/example-images/en/home_p1.jpg" alt="sdkm desktop app - overview" width="780"/></a>
+
+  <p><sub>▲ <strong>sdkm-gui</strong>: native desktop app — visual SDK management, projects, settings and diagnostics on the same Rust core</sub></p>
 </div>
-
----
-
-## 🎯 In One Line
-
-> **sdkmate (a.k.a. "Role Model of the Times" 👀)** is a cross-platform SDK version manager built for full-stack developers. Install and switch between Java, Node.js, Python, Maven, Go, uv, bun, claude-code, cmake ... and 40+ dev tools with one command — **faster, safer, and more hassle-free than nvm / jenv / pyenv / sdkman**.
-
-```bash
-sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. One line, done.
-```
-
-<details>
-<summary><strong>📑 Table of Contents</strong></summary>
-
-- [✨ Core Advantages](#-core-advantages)
-  - [🔥 Designed for full-stack developers](#-designed-for-full-stack-developers)
-  - [🤖 Let an AI Agent manage your SDKs](#-let-an-ai-agent-manage-your-sdks)
-  - [📊 Comparison with similar tools](#-comparison-with-similar-tools)
-- [📦 Installation](#-installation)
-- [🚀 Quick Start](#-quick-start)
-- [🐚 Multi-scope version switching](#-multi-scope-version-switching)
-- [🎮 Command Reference](#-command-reference)
-- [🧰 Supported SDKs](#-supported-sdks)
-- [🔩 Tech Stack](#-tech-stack)
-- [🔧 Development](#-development)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [⭐ Star History](#-star-history)
-
-</details>
 
 ---
 
@@ -97,19 +73,23 @@ sdkm init && sdkm install java 21   # init + install Java 21 and auto-switch. On
 <div align="center">
   <table>
     <tr>
-      <td width="25%" align="center">
-        <h3>🟢 Portable · Lightweight</h3>
-        <p>Single binary · zero runtime deps · <strong>~4MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
+      <td width="20%" align="center">
+        <h3>🟢 Portable CLI · Lightweight</h3>
+        <p>CLI single binary · zero runtime deps · <strong>~5MB</strong><br>Copy to USB and run — drop existing SDKs in to manage</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
+        <h3>🖥️ Native GUI</h3>
+        <p>Built on GPUI · cross-platform desktop app<br>Visual SDK management · same Rust core as the CLI</p>
+      </td>
+      <td width="20%" align="center">
         <h3>⚡ Multi-scope version switching</h3>
         <p>Global · project · temp<br>auto-switch on cd · auto-restore on leave</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
         <h3>🛡️ Transparent · Rollback-safe</h3>
         <p>Every step printed · auto-recover on failure<br>Fuzzy match 21→21.x · suggests closest</p>
       </td>
-      <td width="25%" align="center">
+      <td width="20%" align="center">
         <h3>🤖 AI Agent Friendly</h3>
         <p>Bundled skill doc · clear exit codes<br>System-wide + rollback-safe · safe to call</p>
       </td>
@@ -163,7 +143,7 @@ what python do I have      → sdkm list
 | **Three switching scopes** | ✅ global (symlink + system PATH) / project (`.sdkm.toml` + hook) / temp (`use --shell`) — **zero runtime overhead for SDKs** | ✅ global / project (`.mise.toml`) / shell, but default shims layer [docs](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` is shell-only; `sdk default` for persist; no project pin [usage](https://sdkman.io/usage#sdk-use-command) | ⚠️ `.nvmrc` / `.python-version` project + shell; global via default — inconsistent mechanisms |
 | **Path transparency (which/IDE)** | ✅ `which java` points to the real SDK path | ⚠️ with shims `which node` hits the shim; officially admits it "breaks `which`" — `mise which` shows the real path, [design notes](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ✅ transparent | ✅ transparent (inside the shell) |
 | **Fuzzy version match** | ✅ `21` → latest 21.x, with candidate suggestions | ✅ fuzzy versions (e.g. `node = "26"`) and closest match | ❌ no prefix fuzzy; exact versions only | ⚠️ partial prefix support, varies by tool |
-| **Single-file portability** | ✅ single binary, only **4MB** + config dir — runs from a USB stick or any path | ⚠️ **100MB+**, needs a shims dir (`~/.local/share/mise/shims` or `%LOCALAPPDATA%\mise\shims`), [install docs](https://mise.jdx.dev/installing-mise.html#installation) | ❌ scripts + fixed install path | ❌ scripts + shell hooks, shell-dependent |
+| **Single-file portability** | ✅ single binary, only **5MB** + config dir — runs from a USB stick or any path | ⚠️ **100MB+**, needs a shims dir (`~/.local/share/mise/shims` or `%LOCALAPPDATA%\mise\shims`), [install docs](https://mise.jdx.dev/installing-mise.html#installation) | ❌ scripts + fixed install path | ❌ scripts + shell hooks, shell-dependent |
 | **Rollback-safe operations** | ✅ snapshot auto-recovery (project feature) | ⚠️ rely on external means (e.g. back up config yourself) | ❌ no auto-rollback | ❌ no auto-rollback |
 | **Language / memory safety** | ⚡ Rust ownership + compile-time checks | ⚡ Rust ownership + compile-time checks | 🐌 Bash / shell scripts | 🐌 Shell / bash scripts |
 | **AI agent / automation friendly** | ✅ clear exit codes; child processes inherit the new env after switching; predictable behavior | ⚠️ must understand shims / PATH mode differences; non-interactive shells need shims or `mise exec`, [usage notes](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ⚠️ shell function, doesn't cross processes | ⚠️ switch is current-shell only, invisible cross-process; extra scripting needed |
@@ -178,9 +158,32 @@ what python do I have      → sdkm list
 
 ## 📦 Installation
 
-Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page, extract it anywhere (preserve the `.sdkm/` directory structure), then cd into `.sdkm/` to get started.
+Download the archive for your platform from the [Releases](https://github.com/borenchan/sdkmate/releases) page:
+
+- **CLI only** — `sdkm-<os>-<arch>[-gnu|-musl]`
+- **Desktop (CLI + GUI)** — `sdkm-desktop-<os>-<arch>[-gnu]`, containing both `sdkm` and `sdkm-gui`
+
+Extract anywhere (preserve the `.sdkm/` directory structure), then cd into `.sdkm/` to get started. On first launch the GUI offers a one-click initialization.
 
 > **⚠️ Windows users**: run `init`/`switch` in an administrator terminal (writes system env vars `HKEY_LOCAL_MACHINE` + creates symbolic links).
+
+---
+
+## 🖥️ Desktop App
+
+Don't want to memorize commands? sdkm also ships a simple, easy-to-use GUI, built on [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) and powered by the same Rust core. The Desktop archive (`sdkm-desktop-*`) includes both `sdkm` and `sdkm-gui`.
+
+<p align="center"><sub>Click any screenshot to open the full-size image.</sub></p>
+
+<table align="center">
+  <tr>
+    <td align="center" width="20%"><a href="./assets/example-images/en/home_p1.jpg"><img src="./assets/example-images/en/home_p1.jpg" width="170"/></a><br/><sub><strong>Overview</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/sdkm_p2.jpg"><img src="./assets/example-images/en/sdkm_p2.jpg" width="170"/></a><br/><sub><strong>SDK Management</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/project_p3.jpg"><img src="./assets/example-images/en/project_p3.jpg" width="170"/></a><br/><sub><strong>Projects</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/setting_p4.jpg"><img src="./assets/example-images/en/setting_p4.jpg" width="170"/></a><br/><sub><strong>Settings</strong></sub></td>
+    <td align="center" width="20%"><a href="./assets/example-images/en/doctor_p5.jpg"><img src="./assets/example-images/en/doctor_p5.jpg" width="170"/></a><br/><sub><strong>Diagnostics</strong></sub></td>
+  </tr>
+</table>
 
 ---
 
@@ -280,12 +283,13 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 
 | Component | Tech | Description |
 |:---|:---|:---|
-| **Language** | Rust 1.92.0 | Performance meets safety |
+| **Language** | Rust 1.98 | Performance meets safety |
 | **CLI parsing** | clap | Elegant argument handling |
 | **Async runtime** | tokio | High-performance async IO |
 | **HTTP client** | reqwest | Cross-platform HTTP |
 | **Terminal output** | crossterm + indicatif | Colored output + progress bars |
 | **Config parsing** | toml (serde) | Human-friendly config format |
+| **Desktop App** | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (gpui-kit) | Native, GPU-accelerated desktop UI |
 
 ---
 
@@ -293,7 +297,7 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 
 ### Requirements
 
-- Rust 1.92.0 (edition 2024)
+- Rust 1.98 (edition 2024)
 - Cargo
 
 ### Local development
@@ -360,6 +364,17 @@ This project is open-sourced under the [Apache-2.0](./LICENSE) license.
 Made with ❤️ by the sdkm team
 
 </div>
+
+---
+
+## ☕ Buy Me a Coffee
+
+If sdkm has ever helped you, feel free to buy me a coffee — your support keeps this project going.
+
+<p align="center">
+  <img src="./assets/donate/wechat.jpg" alt="WeChat Pay QR" width="240"/>
+  <img src="./assets/donate/aipay.png" alt="Alipay QR" width="240"/>
+</p>
 
 ---
 

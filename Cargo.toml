@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.5.6"
+version = "0.5.7"
 edition = "2024"
 license = "Apache-2.0"
 authors = ["boren1007@qq.com"]
@@ -7,14 +7,17 @@ description = "An SDK version manager for full-stack engineers"
 repository = "https://github.com/borenchan/sdkmate"
 homepage = "https://github.com/borenchan/sdkmate"
 
-# 工作区成员
+# 工作区成员（根为 virtual workspace；默认只构建 CLI，避免日常 cargo build 连带编译 GUI）
 [workspace]
+# edition 2024 对应 resolver 3；virtual workspace 必须显式声明
+resolver = "3"
 members = [
-#    ".",           # 根 crate（包含 main.rs）
-    "crates/sdkcore",
-    "crates/cli",
-    "crates/util",
+    "crates/sdkm-core",
+    "crates/sdkm-cli",
+    "crates/sdkm-util",
+    "crates/sdkm-gui",
 ]
+default-members = ["crates/sdkm-cli"]
 
 # 公共依赖版本管理（统一版本，避免冲突）
 [workspace.dependencies]
@@ -39,6 +42,10 @@ tar = { version = "0.4" }
 
 serde = { version = "1",features = ["derive"]}
 serde_json = { version = "1"}
+# GUI 框架（gpui 生态全家桶：GPUI + base + component + Lucide 图标，单依赖）
+gpui-kit = "0.9"
+# 应用/窗口图标解码（PNG → RgbaImage，供 WindowOptions.icon）
+image = { version = "0.25", default-features = false, features = ["png"] }
 # 终端控制与调色
 crossterm = { version = "0.28.1" }
 # 配置文件解析
@@ -46,7 +53,7 @@ toml = "0.8"
 # 错误处理（带 backtrace）
 anyhow = { version = "1",features = ["backtrace"] }
 # Windows 注册表/消息广播 API
-winreg  = {version = "0.52"}
+winreg  = {version = "0.56"}
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging"
@@ -55,50 +62,13 @@ unicode-width = {version = "0.2"}
 url = { version = "2" }
 regex-lite = { version = "0.1" }
 # 内部 crate 依赖（path-only，无 version 约束；子 crate version.workspace=true 继承，bump 根版本即全工作区升版）
-cli = { path = "crates/cli" }
-sdkcore = { path = "crates/sdkcore" }
-util = { path = "crates/util" }
+sdkm-core = { path = "crates/sdkm-core" }
+sdkm-util = { path = "crates/sdkm-util" }
 
 # 工作区 lint：禁止使用处绝对路径（用 use 导入短名），restriction lint 默认 allow，显式开启
 # rustfmt 管不了使用处全路径（imports_granularity 只管 use 聚合且 nightly-only）；clippy absolute_paths 专管此场景
 [workspace.lints.clippy]
 absolute_paths = "warn"
-
-#根目录 包配置
-[package]
-name = "sdkmate"
-version.workspace = true
-edition.workspace = true
-description.workspace = true
-repository.workspace = true
-authors.workspace = true
-license.workspace = true
-homepage.workspace = true
-
-### 发布到crate.io的相关配置
-publish = false
-# 必要信息
-readme = "README.md"
-keywords = ["sdk", "version-manager", "sdkman","full-stack"]   # 最多 5 个
-categories = ["command-line-utilities"]
-# 明确排除不需要上传的文件
-exclude = [
-    ".github/**",
-    ".gitignore",
-    "*.sh"
-]
-
-# 二进制目标配置
-[[bin]]
-name = "sdkm"
-path = "main.rs"
-
-[dependencies]
-cli = { workspace = true }
-clap = {workspace = true}
-
-[lints]
-workspace = true
 
 # 发布构建体积优化（不影响功能：sdkm 为 IO 密集型 CLI，CPU 计算极少）
 [profile.release]

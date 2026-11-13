@@ -13,7 +13,7 @@
 - finish core output decoupling and move terminal ui to cli — [`fe4c2be`](https://github.com/borenchan/sdkmate/commit/fe4c2be)
 - move confirmations to cli callers — [`aa35140`](https://github.com/borenchan/sdkmate/commit/aa35140)
 - decouple core output via event sink — [`bed71de`](https://github.com/borenchan/sdkmate/commit/bed71de)
-- decouple list rendering from sdkcore — [`1af78d7`](https://github.com/borenchan/sdkmate/commit/1af78d7)
+- decouple list rendering from sdkm-core — [`1af78d7`](https://github.com/borenchan/sdkmate/commit/1af78d7)
 
 ### 📝 Documentation
 
@@ -25,7 +25,7 @@
 
 - align origin path with physical cwd and pin ci runners — [`83ddc00`](https://github.com/borenchan/sdkmate/commit/83ddc00)
 - fix integration test mocks for non-windows hosts — [`38054dc`](https://github.com/borenchan/sdkmate/commit/38054dc)
-- make sdkcore version tests platform-independent — [`f73b370`](https://github.com/borenchan/sdkmate/commit/f73b370)
+- make sdkm-core version tests platform-independent — [`f73b370`](https://github.com/borenchan/sdkmate/commit/f73b370)
 - add cli golden integration tests and ci workflow — [`ae5fb06`](https://github.com/borenchan/sdkmate/commit/ae5fb06)
 
 ### 🎨 Style
@@ -752,7 +752,7 @@
 
 ### ✅ Tests
 
-- reorganize sdkcore tests by module name — [`45ddc11`](https://github.com/borenchan/sdkmate/commit/45ddc11)
+- reorganize sdkm-core tests by module name — [`45ddc11`](https://github.com/borenchan/sdkmate/commit/45ddc11)
 - update test case — [`254b2c6`](https://github.com/borenchan/sdkmate/commit/254b2c6)
 
 ### 👷 CI / Build
