@@ -1,0 +1,36 @@
+[package]
+name = "sdkm-gui"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+publish = false
+
+# 独立 GUI 二进制（gpui-kit 桌面前端，复用 sdkcore 业务层）
+[dependencies]
+gpui-kit = { workspace = true }
+# 事件通道（tokio::sync channel runtime 无关，UI 端在 gpui 执行器上 await）
+tokio = { workspace = true }
+sdkm-core = { workspace = true }
+sdkm-util = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+
+# 非 Windows 用 WindowOptions.icon 解码 PNG；Windows 由 exe 资源 ID 1 提供图标
+[target.'cfg(not(windows))'.dependencies]
+image = { workspace = true }
+
+# 首次初始化：管理员检测 + 以管理员身份重启（IsUserAnAdmin/ShellExecuteW）
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }
+
+[lints]
+workspace = true
+
+# Windows exe/window 图标嵌入（资源 ID 1，gpui 的 load_icon 从这里读）
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
