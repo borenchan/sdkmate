@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
+use crate::runtime::new_runtime;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{
     ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
@@ -26,7 +27,7 @@ impl SdkManager {
     /// 供调用端展示解析结果并获取用户确认后，再经 [`install_sdk`] 执行安装；
     /// 模糊确认在调用端做（core 零 stdin）
     pub fn resolve_install_version(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        let rt = new_runtime()?;
         rt.block_on(self.resolve_install_version_async(sdk, version_input))
     }
 
@@ -111,7 +112,7 @@ impl SdkManager {
     /// 安装已解析的 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）。
     /// 版本解析与模糊确认归调用端（resolve_install_version）；执行段保留已装检测自查
     pub fn install_sdk(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        let rt = new_runtime()?;
         // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
         // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
         rt.block_on(self.install_sdk_async(sdk, resolved, auto_switch))?;

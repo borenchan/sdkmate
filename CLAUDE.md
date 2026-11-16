@@ -107,18 +107,19 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-13）
+## 当前开发进度（2026-11-16）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### docs/CI 批次：README 改版 / 捐赠区 / release note 双语
+### GUI 体积与内存优化（opt-level=s + core 单线程 runtime）
 
-- **README 标题区改版**（中英双语同步）：原 h2 副标语换成「一句话简介」正文（GPUI 链接转 `<a>`），删除「一句话简介/In One Line」章节（含单行示例命令）与目录 `<details>` 块
-- **README 新增 GUI 首页大图**：GIF 下方按语言对应插入 `assets/example-images/{en,zh}/home_p1.jpg`（width=780，外包 `<a>` 可点开原图），配 GIF 同款 `<sub>` 小字说明
-- **README 捐赠区**：Star History 上方插入「☕ 请我喝杯咖啡 / Buy Me a Coffee」段落 + 微信/支付宝收款码（`assets/donate/wechat.jpg`、`aipay.png`，width=240 居中）
-- **release note 中英双语**：新增 `.github/scripts/translate_changelog_zh.py`，走谷歌翻译免费网页端点（`translate_a/t?client=gtx`，无需 key）；分组标题走 12 条固定映射不进机翻，只逐条翻译 commit 描述，`` `代码` ``/专名（sdkm/GPUI/crates 等）用 `⟦n⟧` 占位符保护， Contributors 区与 Full Changelog 链接不翻；限流/失败 exit 0 不产出文件，发版兜底纯英文。workflow upload-release 加 Translate/Compose 两步，body 拼成英文正文 + `<details>🇨🇳 简体中文</details>` 折叠区；根 `CHANGELOG.md` 保持纯英文
-- **验证**：真实谷歌端点实测 v0.5.5..v0.5.6 区间 35 条 commit（占位符回填/标题映射/链接完好）；mock 验证批量分批与两种响应形态解析；端点不通兜底路径验证；workflow YAML 解析校验通过
-- **选型记录（2026-11-13）**：release note 翻译通道调研——dbx 项目用 DeepSeek（要付费 key，用户否决）；GitHub Models 已于 2026-07-30 退役；谷歌/微软官方翻译 API 均需注册绑卡；最终选谷歌免费网页端点 + 失败兜底，完全零成本
+- **体积达标**：`sdkm-gui.exe` 18.93 → **14.26 MiB（−24.7%）**，`sdkm.exe` 5.02 → 3.95 MiB。根因：release profile 原本已是 fat LTO+cgu=1+panic=abort+strip 全开，唯一剩余大杠杆是全局 `opt-level` 3→"s"（代码段占 exe 80%）；`"z"` 能到 12.57 MiB 但关向量化有交互风险未采纳；per-package 冷依赖降级实测只省 35 KB（fat LTO 稀释）不采纳
+- **体积归因方法**（MSVC 无符号表、cargo-bloat 不可用）：`link.exe /MAP` 出符号表 → rustfilt 反修饰 → 按地址差聚合到 crate，误差 <1%。结论：业务代码仅 0.81 MiB，94% 是框架（image 全量编解码 1.63 MiB 被 gpui-pre 硬编码无法关闭）。报告见 `docs/gui-perf-audit.md`
+- **RSS 未达标（40 MB 目标）且有硬地板**：空数据（引导页）Private 就 43.36 MB（DirectWrite/D3D11/accesskit/glyph atlas），加载 SDK 数据后 50.8 MB；空闲帧间隔对 RSS 无影响（gpui 脏标记驱动）。要达标只能砍框架功能，超出边界
+- **core runtime 改造**：5 处 `Runtime::new()`（多线程）收敛为 `runtime.rs::new_runtime()` 单线程（core 异步全顺序 await 无并发，安全）；workspace tokio feature `rt-multi-thread`→`rt`+`sync`。效果：GUI 启动峰值线程 22→11、峰值 Private 71.5→68.9 MB，空闲不变。测试同步改 current-thread（`tests/install.rs`）
+- **`miniz_oxide` 单独保 O3**：解压是纯 CPU 热点，抵消全局 opt-level=s 的吞吐损失
+- **验证**：`cargo test -p sdkm-core -p sdkm-cli` 102 项全绿；`sdkm list --remote` 走新 runtime 正常；冷启动 156→156 ms、空闲 RSS 持平（各项对比数据见报告）
+- **注意**：`panic="abort"` 下 gpui 内部 `catch_unwind` 失效（UI panic 直接终止进程）——现状如此非本次引入，报告已记录
 
 ## 已知问题与注意事项
 

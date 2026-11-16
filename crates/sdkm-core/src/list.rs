@@ -1,9 +1,10 @@
 use crate::install::downloader::build_reqwest_client;
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
+use crate::runtime::new_runtime;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use sdkm_util::path::get_installed_sdks_dir;
 use sdkm_util::sdk::{BuiltinSdk, Sdk};
 use sdkm_util::try_bug;
@@ -280,7 +281,7 @@ impl SdkManager {
 
     /// 同步桥接:拉取远程版本列表数据(供 TUI 选择器使用)
     pub fn fetch_remote_version_list(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
-        let rt = try_bug!(tokio::runtime::Runtime::new().context("Failed to create tokio runtime"));
+        let rt = try_bug!(new_runtime());
         rt.block_on(self.fetch_remote_versions_async(sdk, limit))
     }
 }

@@ -12,6 +12,7 @@ use crate::install::downloader::{build_download_client, download_with_retry};
 use crate::install::extractor::extract_archive;
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
+use crate::runtime::new_runtime;
 use anyhow::{Context, Result, bail};
 use sdkm_util::consts::SDKM_TMP_DIR;
 use sdkm_util::path::get_sdkm_home;
@@ -97,13 +98,13 @@ impl SdkManager {
         if check && rollback {
             bail!("`--check` and `--rollback` are mutually exclusive");
         }
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        let rt = new_runtime()?;
         rt.block_on(self.update_self_async(check, rollback))
     }
 
     /// 查询 GitHub 最新版本号（只读：不下载不替换；供检查更新/GUI 复用）
     pub fn fetch_latest_version(&self) -> Result<String> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        let rt = new_runtime()?;
         rt.block_on(async {
             let release = self.fetch_latest_release().await?;
             Ok(strip_v(&release.tag_name).to_string())
@@ -112,7 +113,7 @@ impl SdkManager {
 
     /// 回退目标：低于当前版本、且包含所需组合包的最新发布版本（只读，供 GUI 确认弹窗展示）
     pub fn fetch_previous_version(&self) -> Result<String> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+        let rt = new_runtime()?;
         rt.block_on(async {
             let release = self.fetch_previous_release().await?;
             Ok(strip_v(&release.tag_name).to_string())

@@ -34,7 +34,7 @@ fn download_writes_full_body() {
         // NullSink 吞事件 + 空进度句柄（原 hidden ProgressBar 的等价替代）
         let sink = NullSink;
         let pb = sink.progress(ProgressKind::Download, "test".to_string());
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
             .unwrap();
         assert_eq!(fs::read(&dest).unwrap(), body);
@@ -89,7 +89,7 @@ fn download_resumes_partial() {
     // NullSink 吞事件 + 空进度句柄（原 hidden ProgressBar 的等价替代）
     let sink = NullSink;
     let pb = sink.progress(ProgressKind::Download, "test".to_string());
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
         .unwrap();
     assert_eq!(fs::read(&dest).unwrap(), body);
@@ -107,7 +107,7 @@ fn download_restarts_when_no_range_support() {
     // NullSink 吞事件 + 空进度句柄（原 hidden ProgressBar 的等价替代）
     let sink = NullSink;
     let pb = sink.progress(ProgressKind::Download, "test".to_string());
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
         .unwrap();
     assert_eq!(fs::read(&dest).unwrap(), body);
