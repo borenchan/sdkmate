@@ -1,14 +1,18 @@
-//! 后台任务层：GUI 分层约定——每操作独立构造 Manager+Sink，在专用线程调用
-//! （core API 全同步且内部 block_on），只跨线程传事件/结果。
+//! 后台任务层：GUI 分层约定——每操作独立构造 Manager+Sink，在进程级共享 runtime 上执行
+//! （core 只出 async API，runtime 归前端持有），只跨线程传事件/结果。
 //!
+//! 本地重段（全盘体积扫描/卸载删除）经 spawn_blocking 放到阻塞线程池，不占用 runtime worker。
 //! 操作类任务（切换/卸载/安装）完成后回传 `TaskOutcome::Done`，UI 端据此刷新列表。
 
 use crate::sink::{GuiEvent, GuiSink};
 use sdkm_core::manager::SdkManager;
 use sdkm_core::self_update::SelfUpdateOutcome;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::spawn_blocking;
 
 /// 任务标识（UI 端按它分发结果到对应页面状态）
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,309 +204,59 @@ pub struct RemoteItem {
     pub active: bool,
 }
 
-/// 派发后台任务：专用线程 + 独立 Manager/GuiSink（GUI 分层硬约束）
+/// GUI 进程级共享 runtime：所有后台任务的执行环境。
+/// 常驻 runtime 是连接复用（core 内 client 缓存）与即时取消的前提；
+/// worker=2 足够——任务多为网络等待，本地重段走 spawn_blocking。
+fn runtime() -> &'static Runtime {
+    static RT: OnceLock<Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("failed to build tokio runtime")
+    })
+}
+
+/// 派发后台任务：共享 runtime + 独立 Manager/GuiSink（GUI 分层硬约束）
 ///
 /// 结果统一经 channel 以 `GuiEvent::Task` 回传；core 过程事件/进度由 GuiSink 同道转发。
 pub fn spawn_task(tx: UnboundedSender<GuiEvent>, id: TaskId) {
-    spawn_task_inner(tx, id, None);
+    let _ = spawn_task_inner(tx, id, None);
 }
 
 /// 可取消任务（安装等长任务；GUI 关闭进度弹窗时置位）
-pub fn spawn_task_with_cancel(tx: UnboundedSender<GuiEvent>, id: TaskId, cancel: Arc<AtomicBool>) {
-    spawn_task_inner(tx, id, Some(cancel));
+/// 返回 JoinHandle：UI 关闭进度弹窗时 abort，让网络段在下一个 await 点立即终止
+pub fn spawn_task_with_cancel(
+    tx: UnboundedSender<GuiEvent>,
+    id: TaskId,
+    cancel: Arc<AtomicBool>,
+) -> tokio::task::JoinHandle<()> {
+    spawn_task_inner(tx, id, Some(cancel))
 }
 
-fn spawn_task_inner(tx: UnboundedSender<GuiEvent>, id: TaskId, cancel: Option<Arc<AtomicBool>>) {
-    std::thread::spawn(move || {
-        let sink: Arc<dyn sdkm_core::report::EventSink> = Arc::new(GuiSink::with_cancel(tx.clone(), cancel.clone()));
-        let outcome = build_outcome(&sink, &tx, &id, cancel.as_deref());
+fn spawn_task_inner(
+    tx: UnboundedSender<GuiEvent>,
+    id: TaskId,
+    cancel: Option<Arc<AtomicBool>>,
+) -> tokio::task::JoinHandle<()> {
+    let sink: Arc<dyn sdkm_core::report::EventSink> = Arc::new(GuiSink::with_cancel(tx.clone(), cancel.clone()));
+    runtime().spawn(async move {
+        let outcome = build_outcome(&sink, &tx, &id, cancel.as_deref()).await;
         if let Some(outcome) = outcome {
             let _ = tx.send(GuiEvent::Task { id, outcome });
         }
-    });
+    })
 }
 
 /// 按 TaskId 执行任务并产出结果（None = 无 outcome，过程/成败走 Core 事件）
-fn build_outcome(
+async fn build_outcome(
     sink: &Arc<dyn sdkm_core::report::EventSink>,
     tx: &UnboundedSender<GuiEvent>,
     id: &TaskId,
     cancel: Option<&AtomicBool>,
 ) -> Option<TaskOutcome> {
-    let result = (|| -> anyhow::Result<TaskOutcome> {
-        // 初始化/修复不能先构造 SdkManager：首次初始化时 config.toml 还不存在，
-        // SdkManager::new 会直接报“Failed to read sdkm config”。这里先行分流。
-        if matches!(id, TaskId::InitRun | TaskId::Reinit) {
-            let force = matches!(id, TaskId::Reinit);
-            let result = SdkManager::init_sdkm(sink.clone(), force)
-                .map(|_| ())
-                .map_err(|e| format!("{e:#}"));
-            return Ok(TaskOutcome::InitResult(result));
-        }
-
-        let mut manager = SdkManager::new(sink.clone())?;
-        match id.clone() {
-            // ── 概览数据包 ──
-            TaskId::OverviewRefresh => {
-                let data = overview_data(&manager).map_err(|e| format!("{e:#}"));
-                Ok(TaskOutcome::Overview(data))
-            }
-            // ── SDK 列表（与概览页共用数据源）──
-            TaskId::SdkListRefresh => {
-                let list = collect_sdk_rows(&manager).map_err(|e| format!("{e:#}"));
-                Ok(TaskOutcome::SdkList(list))
-            }
-            // ── 远程版本列表 ──
-            TaskId::SdkRemoteList { name } => {
-                let sdk = parse_sdk(&name)?;
-                let res = manager
-                    .fetch_remote_version_list(&sdk, u32::MAX)
-                    .map(|r| {
-                        r.items
-                            .into_iter()
-                            .map(|it| RemoteItem {
-                                installed: matches!(
-                                    it.install_status,
-                                    sdkm_core::list::InstallStatus::Installed | sdkm_core::list::InstallStatus::Active
-                                ),
-                                active: matches!(it.install_status, sdkm_core::list::InstallStatus::Active),
-                                full_version: it.full_version,
-                            })
-                            .collect()
-                    })
-                    .map_err(|e| format!("{e:#}"));
-                let _ = name;
-                Ok(TaskOutcome::RemoteList { result: res })
-            }
-            // ── 操作类：core 执行，成败经事件；完成回 Done ──
-            TaskId::SdkSwitch { name, version } => {
-                let sdk = parse_sdk(&name)?;
-                manager.switch_sdk_to_version(&sdk, &version)?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::SdkUninstall { name, version } => {
-                let sdk = parse_sdk(&name)?;
-                manager.uninstall_sdk(&sdk, &version)?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::ConfigAddSdk {
-                name,
-                version_url,
-                download_url,
-                bin_dir,
-            } => {
-                let sdk_conf = sdkm_core::config::SdkConfig {
-                    name,
-                    version_url,
-                    version_fallback_url: None,
-                    download_url,
-                    download_fallback_url: None,
-                    current_version: None,
-                    bin_dir,
-                    extra_vars: Default::default(),
-                    extra_paths: Vec::new(),
-                    os_style: None,
-                    arch_style: None,
-                };
-                manager.config.add_sdk(sdk_conf, sink.as_ref())?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::ConfigRemoveSdk { name } => {
-                manager.config.remove_sdk(&name, sink.as_ref())?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::ConfigSaveNetwork {
-                proxy,
-                ssl_verify,
-                timeout,
-                ttl,
-                token,
-                mirror,
-            } => {
-                use sdkm_core::config::{ConfigKey, ValidatedValue};
-                let mut set = |key: ConfigKey, v: ValidatedValue| manager.config.set_value(&key, v, sink.as_ref());
-                if let Some(p) = proxy {
-                    set(ConfigKey::NetworkProxy, ValidatedValue::FreeString(p))?;
-                }
-                set(ConfigKey::NetworkSslVerify, ValidatedValue::Bool(ssl_verify))?;
-                set(ConfigKey::NetworkConnectTimeout, ValidatedValue::U32(timeout))?;
-                set(ConfigKey::NetworkCacheTtlSecs, ValidatedValue::U32(ttl))?;
-                if let Some(t) = token {
-                    set(ConfigKey::NetworkGithubToken, ValidatedValue::Token(t))?;
-                }
-                if let Some(m) = mirror {
-                    set(ConfigKey::NetworkGithubDownloadMirror, ValidatedValue::FreeString(m))?;
-                }
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::ProjectAutoLoad => {
-                // 优先 hook 缓存里最近使用过的项目（key = 项目目录）
-                if let Some(p) = sdkm_core::hook_cache::cached_projects().first() {
-                    let cfg = sdkm_core::project_config::read_project_config(std::path::Path::new(&p.config_path));
-                    return Ok(TaskOutcome::ProjectPins {
-                        dir: p.dir.clone(),
-                        path: p.config_path.clone(),
-                        pins: cfg.pins.into_iter().collect(),
-                    });
-                }
-                // 回退：当前工作目录向上找 .sdkm.toml
-                match sdkm_core::project_config::find_project_config()? {
-                    Some((path, cfg)) => {
-                        let dir = path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-                        Ok(TaskOutcome::ProjectPins {
-                            dir,
-                            path: path.to_string_lossy().into_owned(),
-                            pins: cfg.pins.into_iter().collect(),
-                        })
-                    }
-                    None => Ok(TaskOutcome::ProjectAutoMiss),
-                }
-            }
-            TaskId::ProjectLoad { dir } => {
-                let dir_path = std::path::Path::new(&dir);
-                let path = dir_path.join(".sdkm.toml");
-                let cfg = sdkm_core::project_config::read_project_config(&path);
-                let pins = cfg.pins.into_iter().collect::<Vec<_>>();
-                Ok(TaskOutcome::ProjectPins {
-                    dir,
-                    path: path.to_string_lossy().into_owned(),
-                    pins,
-                })
-            }
-            TaskId::ProjectSave { dir, pins } => {
-                let map: std::collections::HashMap<String, String> = pins.into_iter().collect();
-                let cfg = sdkm_core::project_config::pins_from_map(map);
-                sdkm_core::project_config::write_project_config(std::path::Path::new(&dir), &cfg)?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::ConfigLoad => {
-                use sdkm_core::config::ConfigKey;
-                let get = |key| manager.config.get_value(key).unwrap_or_default();
-                Ok(TaskOutcome::ConfigValues {
-                    proxy: get(&ConfigKey::NetworkProxy),
-                    ssl_verify: manager.config.network.ssl_verify,
-                    timeout: manager.config.network.connect_timeout,
-                    ttl: manager.config.network.cache_ttl_secs,
-                    token: manager.config.network.github_token.clone().unwrap_or_default(),
-                    mirror: get(&ConfigKey::NetworkGithubDownloadMirror),
-                    symlink_dir: manager.config.resolved_symlink_dir().unwrap_or_default(),
-                })
-            }
-            TaskId::DiagEnv => Ok(TaskOutcome::EnvStatus(Ok(sdkm_core::doctor::collect_environment_status(
-                &manager.config,
-            )))),
-            TaskId::ShellStatus => {
-                let status = sdkm_core::shell::check_shell_hook().map(|st| ShellStatus {
-                    shell: st.shell.display_name().to_string(),
-                    all_registered: st.all_registered(),
-                    profiles: st
-                        .profiles
-                        .into_iter()
-                        .map(|p| (p.path.display().to_string(), p.registered))
-                        .collect(),
-                });
-                Ok(TaskOutcome::ShellStatus(status.map_err(|e| format!("{e:#}"))))
-            }
-            TaskId::HookInject => {
-                let r = sdkm_core::shell::inject_shell_hook_checked(sink.as_ref())
-                    .map(|_| ())
-                    .map_err(|e| format!("{e:#}"));
-                Ok(TaskOutcome::HookInjected(r))
-            }
-            TaskId::UpdateCheck => {
-                let latest = manager.fetch_latest_version().map_err(|e| format!("{e:#}"));
-                Ok(TaskOutcome::LatestVersion(latest))
-            }
-            TaskId::UpdatePreviousVersion => {
-                let previous = manager.fetch_previous_version().map_err(|e| format!("{e:#}"));
-                Ok(TaskOutcome::PreviousVersion(previous))
-            }
-            TaskId::UpdateRun => {
-                let outcome = manager.update_self(false, false)?;
-                Ok(TaskOutcome::SelfUpdated(outcome))
-            }
-            TaskId::UpdateRollback => {
-                let outcome = manager.update_self(false, true)?;
-                Ok(TaskOutcome::SelfUpdated(outcome))
-            }
-            // 已在构造 Manager 前分流，这里仅保持 match 穷尽
-            TaskId::InitRun | TaskId::Reinit => unreachable!("handled before SdkManager::new"),
-            TaskId::UninstallSelf => {
-                manager.uninstall_self()?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::OpenConfigPath => {
-                if let Ok(cfg) = sdkm_util::path::get_sdkm_config_path()
-                    && cfg.exists()
-                {
-                    open_path(&cfg.to_string_lossy());
-                }
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::OpenFile { path } => {
-                if std::path::Path::new(&path).exists() {
-                    open_path(&path);
-                }
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::PickDirectory { title } => Ok(TaskOutcome::DirectoryPicked(pick_directory(&title))),
-            TaskId::PickSymlinkDir { title } => Ok(TaskOutcome::SymlinkDirPicked(pick_directory(&title))),
-            TaskId::ConfigSaveSymlink { path } => {
-                manager.config.set_value(
-                    &sdkm_core::config::ConfigKey::SymlinkDir,
-                    sdkm_core::config::ValidatedValue::FreeString(path.clone()),
-                    sink.as_ref(),
-                )?;
-                Ok(TaskOutcome::SymlinkSaved(path))
-            }
-            TaskId::SdkSourcesLoad => {
-                let items = manager
-                    .config
-                    .sdks
-                    .iter()
-                    .map(|e| SdkSourceEntry {
-                        name: e.name.clone(),
-                        version_url: e.version_url.clone(),
-                        version_fallback_url: e.version_fallback_url.clone(),
-                        download_url: e.download_url.clone(),
-                        download_fallback_url: e.download_fallback_url.clone(),
-                    })
-                    .collect();
-                Ok(TaskOutcome::SdkSources(items))
-            }
-            TaskId::SdkSourcesSaveFull { entries } => {
-                let updates: Vec<sdkm_core::config::SdkSourceUpdate> = entries
-                    .into_iter()
-                    .map(|e| sdkm_core::config::SdkSourceUpdate {
-                        name: e.name,
-                        version_url: e.version_url,
-                        version_fallback_url: e.version_fallback_url,
-                        download_url: e.download_url,
-                        download_fallback_url: e.download_fallback_url,
-                    })
-                    .collect();
-                manager.config.set_sdk_sources(&updates, sink.as_ref())?;
-                Ok(TaskOutcome::Done)
-            }
-            TaskId::SdkInstallResolve { name, version } => {
-                let sdk = parse_sdk(&name)?;
-                let resolved = manager.resolve_install_version(&sdk, &version)?;
-                Ok(TaskOutcome::ResolvedForInstall {
-                    name,
-                    full_version: resolved.full_version,
-                    fuzzy: resolved.fuzzy_matched,
-                })
-            }
-            TaskId::SdkInstallExec { name, version } => {
-                let sdk = parse_sdk(&name)?;
-                // 确认后的版本重新精确解析再安装（CLI 语义：默认切换全局版本）
-                let resolved = manager.resolve_install_version(&sdk, &version)?;
-                manager.install_sdk(&sdk, &resolved, true)?;
-                Ok(TaskOutcome::Done)
-            }
-        }
-    })();
-
+    let result = build_task_result(sink, id).await;
     match result {
         Ok(outcome) => Some(outcome),
         Err(e) => {
@@ -547,6 +301,296 @@ fn build_outcome(
                     result: Err(format!("{e:#}")),
                 }),
             }
+        }
+    }
+}
+
+/// 任务执行体：构造 Manager 并调用 core（网络段 async 直调；本地重段走阻塞线程池）
+async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &TaskId) -> anyhow::Result<TaskOutcome> {
+    // 初始化/修复不能先构造 SdkManager：首次初始化时 config.toml 还不存在，
+    // SdkManager::new 会直接报“Failed to read sdkm config”。这里先行分流。
+    if matches!(id, TaskId::InitRun | TaskId::Reinit) {
+        let force = matches!(id, TaskId::Reinit);
+        let result = SdkManager::init_sdkm(sink.clone(), force)
+            .map(|_| ())
+            .map_err(|e| format!("{e:#}"));
+        return Ok(TaskOutcome::InitResult(result));
+    }
+
+    let mut manager = SdkManager::new(sink.clone())?;
+    match id.clone() {
+        // ── 概览数据包 ──
+        TaskId::OverviewRefresh => {
+            // 全盘体积扫描（jwalk）是本地重段，放阻塞线程池避免占用 runtime worker
+            let data = spawn_blocking(move || overview_data(&manager))
+                .await
+                .map_err(|e| format!("{e}"))
+                .and_then(|r| r.map_err(|e| format!("{e:#}")));
+            Ok(TaskOutcome::Overview(data))
+        }
+        // ── SDK 列表（与概览页共用数据源）──
+        TaskId::SdkListRefresh => {
+            // store 目录逐版本枚举走阻塞线程池，避免占用 runtime worker
+            let list = spawn_blocking(move || collect_sdk_rows(&manager))
+                .await
+                .map_err(|e| format!("{e}"))
+                .and_then(|r| r.map_err(|e| format!("{e:#}")));
+            Ok(TaskOutcome::SdkList(list))
+        }
+        // ── 远程版本列表 ──
+        TaskId::SdkRemoteList { name } => {
+            let sdk = parse_sdk(&name)?;
+            let res = manager
+                .fetch_remote_versions_async(&sdk, u32::MAX)
+                .await
+                .map(|r| {
+                    r.items
+                        .into_iter()
+                        .map(|it| RemoteItem {
+                            installed: matches!(
+                                it.install_status,
+                                sdkm_core::list::InstallStatus::Installed | sdkm_core::list::InstallStatus::Active
+                            ),
+                            active: matches!(it.install_status, sdkm_core::list::InstallStatus::Active),
+                            full_version: it.full_version,
+                        })
+                        .collect()
+                })
+                .map_err(|e| format!("{e:#}"));
+            let _ = name;
+            Ok(TaskOutcome::RemoteList { result: res })
+        }
+        // ── 操作类：core 执行，成败经事件；完成回 Done ──
+        TaskId::SdkSwitch { name, version } => {
+            let sdk = parse_sdk(&name)?;
+            manager.switch_sdk_to_version(&sdk, &version)?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::SdkUninstall { name, version } => {
+            let sdk = parse_sdk(&name)?;
+            // 删除版本目录（秒级磁盘操作）走阻塞线程池
+            spawn_blocking(move || manager.uninstall_sdk(&sdk, &version))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))??;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ConfigAddSdk {
+            name,
+            version_url,
+            download_url,
+            bin_dir,
+        } => {
+            let sdk_conf = sdkm_core::config::SdkConfig {
+                name,
+                version_url,
+                version_fallback_url: None,
+                download_url,
+                download_fallback_url: None,
+                current_version: None,
+                bin_dir,
+                extra_vars: Default::default(),
+                extra_paths: Vec::new(),
+                os_style: None,
+                arch_style: None,
+            };
+            manager.config.add_sdk(sdk_conf, sink.as_ref())?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ConfigRemoveSdk { name } => {
+            manager.config.remove_sdk(&name, sink.as_ref())?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ConfigSaveNetwork {
+            proxy,
+            ssl_verify,
+            timeout,
+            ttl,
+            token,
+            mirror,
+        } => {
+            use sdkm_core::config::{ConfigKey, ValidatedValue};
+            let mut set = |key: ConfigKey, v: ValidatedValue| manager.config.set_value(&key, v, sink.as_ref());
+            if let Some(p) = proxy {
+                set(ConfigKey::NetworkProxy, ValidatedValue::FreeString(p))?;
+            }
+            set(ConfigKey::NetworkSslVerify, ValidatedValue::Bool(ssl_verify))?;
+            set(ConfigKey::NetworkConnectTimeout, ValidatedValue::U32(timeout))?;
+            set(ConfigKey::NetworkCacheTtlSecs, ValidatedValue::U32(ttl))?;
+            if let Some(t) = token {
+                set(ConfigKey::NetworkGithubToken, ValidatedValue::Token(t))?;
+            }
+            if let Some(m) = mirror {
+                set(ConfigKey::NetworkGithubDownloadMirror, ValidatedValue::FreeString(m))?;
+            }
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ProjectAutoLoad => {
+            // 优先 hook 缓存里最近使用过的项目（key = 项目目录）
+            if let Some(p) = sdkm_core::hook_cache::cached_projects().first() {
+                let cfg = sdkm_core::project_config::read_project_config(std::path::Path::new(&p.config_path));
+                return Ok(TaskOutcome::ProjectPins {
+                    dir: p.dir.clone(),
+                    path: p.config_path.clone(),
+                    pins: cfg.pins.into_iter().collect(),
+                });
+            }
+            // 回退：当前工作目录向上找 .sdkm.toml
+            match sdkm_core::project_config::find_project_config()? {
+                Some((path, cfg)) => {
+                    let dir = path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                    Ok(TaskOutcome::ProjectPins {
+                        dir,
+                        path: path.to_string_lossy().into_owned(),
+                        pins: cfg.pins.into_iter().collect(),
+                    })
+                }
+                None => Ok(TaskOutcome::ProjectAutoMiss),
+            }
+        }
+        TaskId::ProjectLoad { dir } => {
+            let dir_path = std::path::Path::new(&dir);
+            let path = dir_path.join(".sdkm.toml");
+            let cfg = sdkm_core::project_config::read_project_config(&path);
+            let pins = cfg.pins.into_iter().collect::<Vec<_>>();
+            Ok(TaskOutcome::ProjectPins {
+                dir,
+                path: path.to_string_lossy().into_owned(),
+                pins,
+            })
+        }
+        TaskId::ProjectSave { dir, pins } => {
+            let map: std::collections::HashMap<String, String> = pins.into_iter().collect();
+            let cfg = sdkm_core::project_config::pins_from_map(map);
+            sdkm_core::project_config::write_project_config(std::path::Path::new(&dir), &cfg)?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ConfigLoad => {
+            use sdkm_core::config::ConfigKey;
+            let get = |key| manager.config.get_value(key).unwrap_or_default();
+            Ok(TaskOutcome::ConfigValues {
+                proxy: get(&ConfigKey::NetworkProxy),
+                ssl_verify: manager.config.network.ssl_verify,
+                timeout: manager.config.network.connect_timeout,
+                ttl: manager.config.network.cache_ttl_secs,
+                token: manager.config.network.github_token.clone().unwrap_or_default(),
+                mirror: get(&ConfigKey::NetworkGithubDownloadMirror),
+                symlink_dir: manager.config.resolved_symlink_dir().unwrap_or_default(),
+            })
+        }
+        TaskId::DiagEnv => Ok(TaskOutcome::EnvStatus(Ok(sdkm_core::doctor::collect_environment_status(
+            &manager.config,
+        )))),
+        TaskId::ShellStatus => {
+            let status = sdkm_core::shell::check_shell_hook().map(|st| ShellStatus {
+                shell: st.shell.display_name().to_string(),
+                all_registered: st.all_registered(),
+                profiles: st
+                    .profiles
+                    .into_iter()
+                    .map(|p| (p.path.display().to_string(), p.registered))
+                    .collect(),
+            });
+            Ok(TaskOutcome::ShellStatus(status.map_err(|e| format!("{e:#}"))))
+        }
+        TaskId::HookInject => {
+            let r = sdkm_core::shell::inject_shell_hook_checked(sink.as_ref())
+                .map(|_| ())
+                .map_err(|e| format!("{e:#}"));
+            Ok(TaskOutcome::HookInjected(r))
+        }
+        TaskId::UpdateCheck => {
+            let latest = manager.fetch_latest_version_async().await.map_err(|e| format!("{e:#}"));
+            Ok(TaskOutcome::LatestVersion(latest))
+        }
+        TaskId::UpdatePreviousVersion => {
+            let previous = manager.fetch_previous_version_async().await.map_err(|e| format!("{e:#}"));
+            Ok(TaskOutcome::PreviousVersion(previous))
+        }
+        TaskId::UpdateRun => {
+            let outcome = manager.update_self_async(false, false).await?;
+            Ok(TaskOutcome::SelfUpdated(outcome))
+        }
+        TaskId::UpdateRollback => {
+            let outcome = manager.update_self_async(false, true).await?;
+            Ok(TaskOutcome::SelfUpdated(outcome))
+        }
+        // 已在构造 Manager 前分流，这里仅保持 match 穷尽
+        TaskId::InitRun | TaskId::Reinit => unreachable!("handled before SdkManager::new"),
+        TaskId::UninstallSelf => {
+            // 卸载自身要删目录/文件，走阻塞线程池
+            spawn_blocking(move || manager.uninstall_self())
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))??;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::OpenConfigPath => {
+            if let Ok(cfg) = sdkm_util::path::get_sdkm_config_path()
+                && cfg.exists()
+            {
+                open_path(&cfg.to_string_lossy());
+            }
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::OpenFile { path } => {
+            if std::path::Path::new(&path).exists() {
+                open_path(&path);
+            }
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::PickDirectory { title } => Ok(TaskOutcome::DirectoryPicked(pick_directory(&title))),
+        TaskId::PickSymlinkDir { title } => Ok(TaskOutcome::SymlinkDirPicked(pick_directory(&title))),
+        TaskId::ConfigSaveSymlink { path } => {
+            manager.config.set_value(
+                &sdkm_core::config::ConfigKey::SymlinkDir,
+                sdkm_core::config::ValidatedValue::FreeString(path.clone()),
+                sink.as_ref(),
+            )?;
+            Ok(TaskOutcome::SymlinkSaved(path))
+        }
+        TaskId::SdkSourcesLoad => {
+            let items = manager
+                .config
+                .sdks
+                .iter()
+                .map(|e| SdkSourceEntry {
+                    name: e.name.clone(),
+                    version_url: e.version_url.clone(),
+                    version_fallback_url: e.version_fallback_url.clone(),
+                    download_url: e.download_url.clone(),
+                    download_fallback_url: e.download_fallback_url.clone(),
+                })
+                .collect();
+            Ok(TaskOutcome::SdkSources(items))
+        }
+        TaskId::SdkSourcesSaveFull { entries } => {
+            let updates: Vec<sdkm_core::config::SdkSourceUpdate> = entries
+                .into_iter()
+                .map(|e| sdkm_core::config::SdkSourceUpdate {
+                    name: e.name,
+                    version_url: e.version_url,
+                    version_fallback_url: e.version_fallback_url,
+                    download_url: e.download_url,
+                    download_fallback_url: e.download_fallback_url,
+                })
+                .collect();
+            manager.config.set_sdk_sources(&updates, sink.as_ref())?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::SdkInstallResolve { name, version } => {
+            let sdk = parse_sdk(&name)?;
+            let resolved = manager.resolve_install_version_async(&sdk, &version).await?;
+            Ok(TaskOutcome::ResolvedForInstall {
+                name,
+                full_version: resolved.full_version,
+                fuzzy: resolved.fuzzy_matched,
+            })
+        }
+        TaskId::SdkInstallExec { name, version } => {
+            let sdk = parse_sdk(&name)?;
+            // 确认后的版本重新精确解析再安装（CLI 语义：默认切换全局版本）
+            let resolved = manager.resolve_install_version_async(&sdk, &version).await?;
+            manager.install_sdk_async(&sdk, &resolved, true).await?;
+            Ok(TaskOutcome::Done)
         }
     }
 }

@@ -1,13 +1,11 @@
 use crate::install::downloader::build_reqwest_client;
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
-use crate::runtime::new_runtime;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
 use anyhow::{Result, bail};
 use sdkm_util::path::get_installed_sdks_dir;
 use sdkm_util::sdk::{BuiltinSdk, Sdk};
-use sdkm_util::try_bug;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -175,7 +173,8 @@ impl SdkManager {
     ///
     /// 复用 version 模块的 fetch_version_data + parse_version_data 管线。
     /// 缓存优先 + TTL,确保后续调用即时响应。
-    async fn fetch_remote_versions_async(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
+    /// 拉取远程版本列表（磁盘缓存/TTL 在内；runtime 由调用端持有，CLI 的 TUI 选择器同用此口）
+    pub async fn fetch_remote_versions_async(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let client = build_reqwest_client(&self.config.network)?;
         let sdk_name = sdk.to_string();
@@ -277,11 +276,5 @@ impl SdkManager {
             items: result_items,
             total_count,
         })
-    }
-
-    /// 同步桥接:拉取远程版本列表数据(供 TUI 选择器使用)
-    pub fn fetch_remote_version_list(&self, sdk: &Sdk, limit: u32) -> Result<RemoteVersionResult> {
-        let rt = try_bug!(new_runtime());
-        rt.block_on(self.fetch_remote_versions_async(sdk, limit))
     }
 }

@@ -8,8 +8,19 @@
 
 use sdkm_core::report::{CoreEvent, EventSink, ProgressHandle, ProgressKind};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;
+
+/// 进度位置事件节流窗口：下载按 HTTP chunk（8~16KB）逐块上报，200MB ≈ 上万事件，
+/// 全量转发会让 UI 以满帧率整窗重渲染；100ms 一帧足够平滑
+const POS_THROTTLE_MS: u64 = 100;
+
+fn now_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
 
 /// 进度生命周期事件（UI 端按 id 维护活动进度条；进度消费随安装流程接入，字段暂未读取属预期）
 #[allow(dead_code)]
@@ -63,7 +74,8 @@ impl EventSink for GuiSink {
         Box::new(GuiProgress {
             tx: self.tx.clone(),
             id,
-            pos: std::sync::atomic::AtomicU64::new(0),
+            pos: AtomicU64::new(0),
+            last_pos_ms: AtomicU64::new(0),
             cancel: self.cancel.clone(),
         })
     }
@@ -74,13 +86,29 @@ struct GuiProgress {
     tx: UnboundedSender<GuiEvent>,
     id: u64,
     /// 本地累加器：inc 场景（解压计数）在句柄内转绝对值，UI 端只处理绝对位置
-    pos: std::sync::atomic::AtomicU64,
+    pos: AtomicU64,
+    /// 上次位置事件发送时刻（毫秒），节流用
+    last_pos_ms: AtomicU64,
     cancel: Option<Arc<AtomicBool>>,
 }
 
 impl GuiProgress {
     fn send(&self, ev: GuiEvent) {
         let _ = self.tx.send(ev);
+    }
+
+    /// 位置事件按窗口节流（CAS 保证同窗口只有一次发送）；finish 会补发终态
+    fn send_position(&self, pos: u64) {
+        let now = now_ms();
+        let last = self.last_pos_ms.load(Ordering::Relaxed);
+        if now.saturating_sub(last) >= POS_THROTTLE_MS
+            && self
+                .last_pos_ms
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            self.send(GuiEvent::ProgressPosition { id: self.id, pos });
+        }
     }
 }
 
@@ -89,17 +117,22 @@ impl ProgressHandle for GuiProgress {
         self.send(GuiEvent::ProgressLength { id: self.id, total });
     }
     fn set_position(&self, pos: u64) {
-        self.pos.store(pos, std::sync::atomic::Ordering::Relaxed);
-        self.send(GuiEvent::ProgressPosition { id: self.id, pos });
+        self.pos.store(pos, Ordering::Relaxed);
+        self.send_position(pos);
     }
     fn inc(&self, delta: u64) {
-        let pos = self.pos.fetch_add(delta, std::sync::atomic::Ordering::Relaxed) + delta;
-        self.send(GuiEvent::ProgressPosition { id: self.id, pos });
+        let pos = self.pos.fetch_add(delta, Ordering::Relaxed) + delta;
+        self.send_position(pos);
     }
     fn set_message(&self, msg: String) {
         self.send(GuiEvent::ProgressMessage { id: self.id, msg });
     }
     fn finish_with_message(&self, msg: String) {
+        // 补发终态位置，避免节流吞掉最后一个 100%
+        self.send(GuiEvent::ProgressPosition {
+            id: self.id,
+            pos: self.pos.load(Ordering::Relaxed),
+        });
         self.send(GuiEvent::ProgressFinish {
             id: self.id,
             msg: Some(msg),

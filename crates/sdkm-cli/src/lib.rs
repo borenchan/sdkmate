@@ -19,6 +19,7 @@ use std::process::ExitCode;
 
 mod impls;
 mod macros;
+mod runtime;
 mod terminal;
 mod terminal_sink;
 mod tui;

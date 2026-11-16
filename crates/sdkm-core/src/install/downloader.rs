@@ -2,15 +2,47 @@ use crate::config::NetworkConfig;
 use crate::report::{EventSink, ProgressHandle};
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+
+/// 进程级 client 缓存（api / download 各一），按 network 配置指纹失效。
+/// 前提：进程内 runtime 常驻（CLI OnceLock / GUI 共享 runtime）——连接池绑定创建它的
+/// runtime，runtime 销毁则连接必死，因此只在两前端持有常驻 runtime 后启用。
+type CachedClient = OnceLock<Mutex<Option<(u64, Client)>>>;
+static API_CLIENT: CachedClient = OnceLock::new();
+static DOWNLOAD_CLIENT: CachedClient = OnceLock::new();
+
+/// proxy/SSL/超时 变更即视为不同 client；github_token 走请求头不影响传输层，不参与指纹
+fn network_fingerprint(network: &NetworkConfig) -> u64 {
+    let mut h = DefaultHasher::new();
+    network.proxy.hash(&mut h);
+    network.ssl_verify.hash(&mut h);
+    network.connect_timeout.hash(&mut h);
+    h.finish()
+}
+
+fn cached_client(slot: &CachedClient, network: &NetworkConfig, gzip: bool) -> Result<Client> {
+    let mut guard = slot.get_or_init(Default::default).lock().unwrap();
+    let fp = network_fingerprint(network);
+    if let Some((f, c)) = guard.as_ref()
+        && *f == fp
+    {
+        return Ok(c.clone());
+    }
+    let client = build_client(network, gzip)?;
+    *guard = Some((fp, client.clone()));
+    Ok(client)
+}
 
 /// Build reqwest Client from NetworkConfig.
 /// User-Agent is required by GitHub API.
 /// 注意：github_token 不在此全局注入（避免镜像开启时把 token 发给第三方代理），
 /// 由各 GH API 请求点自行添加 Authorization header（github_api_headers 或请求级 header）。
 pub fn build_reqwest_client(network: &NetworkConfig) -> Result<Client> {
-    build_client(network, true)
+    cached_client(&API_CLIENT, network, true)
 }
 
 /// 下载专用 client：禁 gzip。dl.google.com 等服务器对 Accept-Encoding: gzip 会真压缩，
@@ -19,7 +51,7 @@ pub fn build_reqwest_client(network: &NetworkConfig) -> Result<Client> {
 /// 仅"不调用 .gzip(true)"无效，必须显式 .no_gzip()。
 /// 下载物本就是 zip/tar.gz，gzip 传输仅省 ~1.5% 还白耗 CPU；API 类小请求继续用 build_reqwest_client。
 pub fn build_download_client(network: &NetworkConfig) -> Result<Client> {
-    build_client(network, false)
+    cached_client(&DOWNLOAD_CLIENT, network, false)
 }
 
 fn build_client(network: &NetworkConfig, gzip: bool) -> Result<Client> {

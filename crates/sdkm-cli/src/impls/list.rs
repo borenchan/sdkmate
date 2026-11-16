@@ -1,6 +1,7 @@
 use crate::CommandHandler;
 use crate::impls::install::install_with_confirm;
 use crate::impls::uninstall::uninstall_with_confirm;
+use crate::runtime::runtime;
 use crate::terminal::{is_tty, pad_right};
 use crate::terminal_sink::manager;
 use crate::tui::{SdkSelectorAction, SelectorAction, run_local_selector, run_remote_selector, run_sdk_selector};
@@ -92,7 +93,7 @@ impl CommandHandler for ListHandler {
                 let tty = is_tty();
                 let fetch_limit = if tty { u32::MAX } else { self.limit };
                 let RemoteVersionResult { items, total_count } =
-                    manager.fetch_remote_version_list(&sdk, fetch_limit)?;
+                    runtime().block_on(manager.fetch_remote_versions_async(&sdk, fetch_limit))?;
                 if !tty && total_count > items.len() {
                     warning!(
                         "{} has {} remote versions, showing first {} (use --limit to change)",
@@ -159,7 +160,7 @@ impl ListHandler {
                     // 拉取失败（无版本发现源/网络错）→ msg 带回第一层消息区
                     // TUI 拿全量列表（搜索按全量过滤）；--limit 只作用于非 TTY 文本输出
                     let RemoteVersionResult { items, total_count } =
-                        match manager.fetch_remote_version_list(&sdk, u32::MAX) {
+                        match runtime().block_on(manager.fetch_remote_versions_async(&sdk, u32::MAX)) {
                             Ok(r) => r,
                             Err(e) => {
                                 msg = e.to_string();

@@ -117,6 +117,8 @@ pub struct GuiApp {
     pub last_remote: Option<String>,
     /// 进行中安装的取消标志（关闭进度弹窗时置位）
     pub install_cancel: Option<Arc<AtomicBool>>,
+    /// 安装任务的 JoinHandle：关闭进度弹窗时 abort，网络段即时取消
+    pub install_abort: Option<tokio::task::JoinHandle<()>>,
     /// 首次启动：config.toml 缺失，显示初始化引导
     pub needs_init: bool,
     /// 引导页初始化进行中
@@ -165,6 +167,7 @@ impl GuiApp {
             progress: None,
             last_remote: None,
             install_cancel: None,
+            install_abort: None,
             needs_init,
             initializing: false,
             init_error: None,
@@ -273,6 +276,23 @@ impl GuiApp {
         .detach();
 
         app
+    }
+
+    /// SDK 列表数据就绪后的公共后处理（SDK 页默认选中第一个 + 项目 pins 下拉补建）
+    fn on_sdk_rows_ready(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // SDK 管理页默认选中第一个 SDK，右侧详情直接有内容
+        if self.sdk_page.selected.is_none()
+            && let Some(rows) = &self.sdk_rows
+            && !rows.is_empty()
+        {
+            self.sdk_page.selected = Some(0);
+        }
+        // 项目 pins 可能先于 SDK 列表到达：列表就绪后补建下拉
+        if self.projects.dir.is_some() && self.projects.selects.is_empty() {
+            let rows = self.sdk_rows.clone().unwrap_or_default();
+            let none = self.lang.projects.pin_none;
+            self.projects.rebuild(&rows, none, window, cx);
+        }
     }
 
     /// 页面导航（保留各页状态）
@@ -492,8 +512,16 @@ impl GuiApp {
                     .on_close(move |_, _, cx| {
                         // 用户关闭进度弹窗 = 取消安装：置取消标志并立即恢复页面
                         cancel_view.update(cx, |app, cx| {
-                            if let Some(token) = app.install_cancel.take() {
+                            let cancelling = app.install_cancel.take();
+                            if let Some(token) = &cancelling {
                                 token.store(true, Ordering::SeqCst);
+                            }
+                            // 网络段即时取消：abort 让 future 在下一个 await 点终止；
+                            // 解压等阻塞段仍靠上面的标志位在检查点退出
+                            if let Some(handle) = app.install_abort.take() {
+                                handle.abort();
+                            }
+                            if cancelling.is_some() {
                                 app.sdk_page.busy = false;
                                 cx.notify();
                             }
@@ -543,9 +571,9 @@ impl GuiApp {
             TaskId::SdkInstallExec { .. } => {
                 let cancel = Arc::new(AtomicBool::new(false));
                 self.install_cancel = Some(cancel.clone());
+                self.install_abort = Some(crate::data::spawn_task_with_cancel(self.tx.clone(), id, cancel));
                 self.sdk_page.busy = true;
                 self.sdk_page.resolving = false;
-                crate::data::spawn_task_with_cancel(self.tx.clone(), id, cancel);
             }
             TaskId::SdkInstallResolve { .. } => {
                 self.sdk_page.resolving = true;
@@ -601,6 +629,7 @@ impl GuiApp {
                     self.overview.init_ok = data.init_ok;
                     self.overview.sizes = data.sizes.into_iter().collect();
                     self.sdk_rows = Some(data.rows);
+                    self.on_sdk_rows_ready(window, cx);
                 }
                 Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
             },
@@ -610,19 +639,7 @@ impl GuiApp {
             } => match result {
                 Ok(items) => {
                     self.sdk_rows = Some(items);
-                    // SDK 管理页默认选中第一个 SDK，右侧详情直接有内容
-                    if self.sdk_page.selected.is_none()
-                        && let Some(rows) = &self.sdk_rows
-                        && !rows.is_empty()
-                    {
-                        self.sdk_page.selected = Some(0);
-                    }
-                    // 项目 pins 可能先于 SDK 列表到达：列表就绪后补建下拉
-                    if self.projects.dir.is_some() && self.projects.selects.is_empty() {
-                        let rows = self.sdk_rows.clone().unwrap_or_default();
-                        let none = self.lang.projects.pin_none;
-                        self.projects.rebuild(&rows, none, window, cx);
-                    }
+                    self.on_sdk_rows_ready(window, cx);
                 }
                 Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
             },
@@ -795,7 +812,6 @@ impl GuiApp {
                             self.notify_success(self.lang.onboarding.init_done.to_string(), window, cx);
                             self.navigate(Page::Overview, cx);
                             spawn_task(self.tx.clone(), TaskId::OverviewRefresh);
-                            spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
                         } else {
                             self.notify_success(self.lang.diagnostics.repair_done.to_string(), window, cx);
                             self.diagnostics.env = None;
@@ -857,6 +873,7 @@ impl GuiApp {
             } => {
                 // 安装完成/取消：先清取消标志，再关弹窗（避免 on_close 误判为用户取消）
                 self.install_cancel = None;
+                self.install_abort = None;
                 self.sdk_page.resolving = false;
                 self.close_progress_dialog(window, cx);
                 self.sdk_page.busy = false;

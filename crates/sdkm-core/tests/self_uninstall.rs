@@ -9,15 +9,13 @@ use sdkm_core::env::{EnvAction, EnvOperation};
 use sdkm_core::link::symlink::create_symlink;
 use sdkm_core::manager::SdkManager;
 use sdkm_core::report::null_sink;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::rc::Rc;
 use std::sync::{
-    Mutex, MutexGuard,
+    Arc, Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -31,7 +29,7 @@ struct MockState {
 }
 
 struct MockEnv {
-    state: Rc<RefCell<MockState>>,
+    state: Arc<Mutex<MockState>>,
 }
 
 impl EnvOperation for MockEnv {
@@ -45,14 +43,14 @@ impl EnvOperation for MockEnv {
         Ok(String::new())
     }
     fn remove_sdk_path(&self, sdk_path: &str) -> Result<Vec<EnvAction>> {
-        self.state.borrow_mut().removed_paths.push(sdk_path.to_string());
+        self.state.lock().unwrap().removed_paths.push(sdk_path.to_string());
         Ok(Vec::new())
     }
     fn get_env_value(&self, _key: &str) -> Result<Option<String>> {
         Ok(None)
     }
     fn unset_sdk_env(&self, key: &str) -> Result<Vec<EnvAction>> {
-        self.state.borrow_mut().unset_envs.push(key.to_string());
+        self.state.lock().unwrap().unset_envs.push(key.to_string());
         Ok(Vec::new())
     }
     fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
@@ -109,8 +107,8 @@ fn make_sdk(name: &str, current: &str, bin_dir: &str, extra_vars: &[(&str, &str)
     }
 }
 
-fn make_manager(config: SdkmConfig) -> (SdkManager, Rc<RefCell<MockState>>) {
-    let state = Rc::new(RefCell::new(MockState::default()));
+fn make_manager(config: SdkmConfig) -> (SdkManager, Arc<Mutex<MockState>>) {
+    let state = Arc::new(Mutex::new(MockState::default()));
     let manager = SdkManager {
         config,
         env_operation: Box::new(MockEnv { state: state.clone() }),
@@ -154,7 +152,7 @@ fn self_uninstall_cleans_all_and_removes_home() {
     assert!(!java21.exists() && !maven.exists(), "version dirs gone with store");
 
     // 两个激活 SDK 的环境都清理了
-    let s = state.borrow();
+    let s = state.lock().unwrap();
     assert!(s.unset_envs.iter().any(|k| k == "JAVA_HOME"), "should unset JAVA_HOME");
     assert!(s.unset_envs.iter().any(|k| k == "MAVEN_HOME"), "should unset MAVEN_HOME");
     assert!(

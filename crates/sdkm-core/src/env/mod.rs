@@ -45,7 +45,7 @@ pub fn report_env_actions(sink: &dyn EventSink, actions: &[EnvAction]) {
     }
 }
 
-pub trait EnvOperation {
+pub trait EnvOperation: Send + Sync {
     /// set sdk must require some env variables, it's a optional action
     fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<Vec<EnvAction>>;
 

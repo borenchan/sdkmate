@@ -35,7 +35,10 @@ crates/sdkm-cli    → CLI 前端 + sdkm 二进制入口：src/main.rs（[[bin]]
 
 **分层铁律（GUI 铺路，2026-11-06 落地）**：
 - **sdkm-core 零打印、零 stdin、零终端渲染依赖**——过程消息经 `sdkm_core::report`（`CoreEvent` / `EventSink` / `ProgressKind` 7 场景 / `ProgressHandle` Drop 兜底 / `NullSink`）通知前端；命令结果走结构化返回值；最终失败走 `Result::Err`（core 不对同一失败再发 Error 事件）。文案归 core（事件说什么），样式归前端（TerminalSink 怎么渲染）
-- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（sdkm-cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus；同步 API 内部 block_on——GUI 必须在专用后台线程调用（见 `crates/sdkm-gui/src/data.rs`）
+- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（sdkm-cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus
+- **runtime 归前端持有（2026-11-16）**：core 只出 `*_async` API（全部 `pub`，无同步壳）；CLI 用 `crates/sdkm-cli/src/runtime.rs` 的进程级单线程 runtime 在阶段边界 block_on；GUI 用 `crates/sdkm-gui/src/data.rs` 的进程级 2-worker runtime `spawn` 调度。`SdkManager`/`EventSink`/`ProgressHandle`/`EnvOperation` 均 `Send + Sync`
+- **长阻塞段统一走 `sdkm_core::runtime::run_blocking`**（内部 `spawn_blocking`）：解压/目录调整/校验/清理/卸载删除共 8 处；`switch` 因 `&mut self` 且毫秒级保留内联。全项目只有 `runtime.rs` 知道阻塞怎么跑，将来换运行时只改这一个文件
+- **HTTP client 进程级缓存**（`downloader.rs`，`OnceLock` + network 配置指纹）：连接池绑定创建它的 runtime，故必须前端持有常驻 runtime 后才生效
 - **确认交互归调用端**：core 零 stdin；`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target`/`check_init_env` 产出决策数据，sdkm-cli prompt / GUI 弹窗确认后调执行 API；执行段仍自查关键状态（不信任预检查结果）
 - **EnvOperation 不感知 UI**：写方法返回 `Vec<EnvAction>` 结构化动作，业务层经 `report_env_actions` 转事件
 - **util 不含终端渲染**：颜色/光标/表格/prompt/输出宏归 sdkm-cli（`sdkm_cli::terminal` + `sdkm_cli::macros`）；sdkm-util 只留通用原语（`sdkm_util::diagnostics` 收 os_version/platform_info/build_bug_report_url）。`cargo tree -p sdkm-core -p sdkm-util` 验证 GUI 依赖链零 crossterm/unicode-width/indicatif
@@ -111,15 +114,20 @@ bin_dir = "bin"
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### GUI 体积与内存优化（opt-level=s + core 单线程 runtime）
+### 异步改造：runtime 归前端 + GUI 共享线程池（B1/B2/C）
 
-- **体积达标**：`sdkm-gui.exe` 18.93 → **14.26 MiB（−24.7%）**，`sdkm.exe` 5.02 → 3.95 MiB。根因：release profile 原本已是 fat LTO+cgu=1+panic=abort+strip 全开，唯一剩余大杠杆是全局 `opt-level` 3→"s"（代码段占 exe 80%）；`"z"` 能到 12.57 MiB 但关向量化有交互风险未采纳；per-package 冷依赖降级实测只省 35 KB（fat LTO 稀释）不采纳
-- **体积归因方法**（MSVC 无符号表、cargo-bloat 不可用）：`link.exe /MAP` 出符号表 → rustfilt 反修饰 → 按地址差聚合到 crate，误差 <1%。结论：业务代码仅 0.81 MiB，94% 是框架（image 全量编解码 1.63 MiB 被 gpui-pre 硬编码无法关闭）。报告见 `docs/gui-perf-audit.md`
-- **RSS 未达标（40 MB 目标）且有硬地板**：空数据（引导页）Private 就 43.36 MB（DirectWrite/D3D11/accesskit/glyph atlas），加载 SDK 数据后 50.8 MB；空闲帧间隔对 RSS 无影响（gpui 脏标记驱动）。要达标只能砍框架功能，超出边界
-- **core runtime 改造**：5 处 `Runtime::new()`（多线程）收敛为 `runtime.rs::new_runtime()` 单线程（core 异步全顺序 await 无并发，安全）；workspace tokio feature `rt-multi-thread`→`rt`+`sync`。效果：GUI 启动峰值线程 22→11、峰值 Private 71.5→68.9 MB，空闲不变。测试同步改 current-thread（`tests/install.rs`）
-- **`miniz_oxide` 单独保 O3**：解压是纯 CPU 热点，抵消全局 opt-level=s 的吞吐损失
-- **验证**：`cargo test -p sdkm-core -p sdkm-cli` 102 项全绿；`sdkm list --remote` 走新 runtime 正常；冷启动 156→156 ms、空闲 RSS 持平（各项对比数据见报告）
-- **注意**：`panic="abort"` 下 gpui 内部 `catch_unwind` 失效（UI panic 直接终止进程）——现状如此非本次引入，报告已记录
+- **core 只出 async**：`resolve_install_version_async` / `install_sdk_async` / `fetch_remote_versions_async` / `update_self_async` / `fetch_latest|previous_version_async` 全部 `pub`；原 6 个同步壳（每次调用新建 runtime + block_on）**已删除**；`runtime.rs` 只剩 `run_blocking`（`spawn_blocking` 单点封装）
+- **阻塞段治理**：install/self_update 的解压、目录调整、校验、清理、卸载删除共 8 处包 `run_blocking`；`switch` 保留内联（毫秒级 + `&mut self` 无法移入 'static 闭包）
+- **trait 线程边界**：`EnvOperation` / `ProgressHandle` 补 `Send + Sync`；`EventSink` 原有。async future 跨 await 持有 `&SdkManager` 需要 `Sync`，这是编译期强制要求
+- **CLI**：`crates/sdkm-cli/src/runtime.rs` 进程级单线程 runtime（OnceLock 惰性），handler 在阶段边界 block_on，TUI 交互逻辑不变
+- **GUI**：`data.rs` 进程级 2-worker runtime（`tokio` 加回 `rt-multi-thread`，exe 14.26→14.30 MiB）；`spawn_task_inner` 由 `std::thread::spawn` 改 `runtime.spawn`；`build_outcome` 拆为 async，概览/列表扫描与卸载删除走 `spawn_blocking`（不占 worker）
+- **进度节流**：`sink.rs` 位置事件 10Hz（CAS 保证单发送者），finish 补发终态——下载期不再每个 8~16KB chunk 触发整窗 60fps 重绘
+- **取消升级**：关闭进度弹窗 → `JoinHandle::abort()` 网络段即时取消；解压等阻塞段仍靠 `AtomicBool` 检查点（任何运行时共性）
+- **启动去重**：概览任务本身含 SDK 列表，启动/init 后只派发一份（原先两遍全盘列举）；列表就绪后处理提取为 `on_sdk_rows_ready`
+- **HTTP client 复用**：`downloader.rs` 进程级缓存（api/download 各一），按 proxy/ssl_verify/connect_timeout 指纹失效
+- **验证**：`cargo test --workspace` 全绿（`core_install_flow` 覆盖下载→解压→校验→切换）；真实网络 `ls --remote` / `self update --check` 正常；沙箱真实安装 node 20.20.2 成功；GUI 启动与空数据态同改造前一致（11 线程 / 43.3 MB）
+- **线程构成（实测）**：`main` + 2 个 `tokio-rt-worker` + `DManip`/`VSync` + 框架内部；**加载已安装 SDK 后额外 +11~12 个未命名线程**（体积缓存未命中触发 jwalk 并行遍历；旧构建同样存在，非本次引入）。`RAYON_NUM_THREADS` 未能约束，归属待落实
+- **注意**：沙箱 `SDKM_HOME` 测试时，config 里的 `symlink_dir` 是绝对路径会写**真实 links 目录**，必须同时隔离该配置
 
 ## 已知问题与注意事项
 

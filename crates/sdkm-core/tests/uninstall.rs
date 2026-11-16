@@ -8,15 +8,13 @@ use sdkm_core::env::{EnvAction, EnvOperation};
 use sdkm_core::link::symlink::{create_symlink, read_symlink_target};
 use sdkm_core::manager::SdkManager;
 use sdkm_core::report::null_sink;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
-use std::rc::Rc;
 use std::sync::{
-    Mutex, MutexGuard,
+    Arc, Mutex, MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -32,7 +30,7 @@ struct MockState {
 }
 
 struct MockEnv {
-    state: Rc<RefCell<MockState>>,
+    state: Arc<Mutex<MockState>>,
 }
 
 impl EnvOperation for MockEnv {
@@ -46,14 +44,14 @@ impl EnvOperation for MockEnv {
         Ok(String::new()) // 空 PATH → switch 判定 need_add_path=true
     }
     fn remove_sdk_path(&self, sdk_path: &str) -> Result<Vec<EnvAction>> {
-        self.state.borrow_mut().removed_paths.push(sdk_path.to_string());
+        self.state.lock().unwrap().removed_paths.push(sdk_path.to_string());
         Ok(Vec::new())
     }
     fn get_env_value(&self, _key: &str) -> Result<Option<String>> {
         Ok(None)
     }
     fn unset_sdk_env(&self, key: &str) -> Result<Vec<EnvAction>> {
-        self.state.borrow_mut().unset_envs.push(key.to_string());
+        self.state.lock().unwrap().unset_envs.push(key.to_string());
         Ok(Vec::new())
     }
     fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
@@ -114,8 +112,8 @@ fn java_sdk(current: Option<&str>, bin_dir: Option<&str>, extra_vars: &[(&str, &
 }
 
 /// 构造 SdkManager（内存 config + mock env），返回 manager 与共享 mock 状态
-fn make_manager(config: SdkmConfig) -> (SdkManager, Rc<RefCell<MockState>>) {
-    let state = Rc::new(RefCell::new(MockState::default()));
+fn make_manager(config: SdkmConfig) -> (SdkManager, Arc<Mutex<MockState>>) {
+    let state = Arc::new(Mutex::new(MockState::default()));
     let manager = SdkManager {
         config,
         env_operation: Box::new(MockEnv { state: state.clone() }),
@@ -157,7 +155,7 @@ fn uninstall_non_active_keeps_current() {
     assert!(!java17.exists(), "java/17 dir should be removed");
     assert!(java21.exists(), "java/21 dir should remain");
     assert_eq!(disk_current("java"), Some("21".to_string()), "current should stay 21");
-    let s = state.borrow();
+    let s = state.lock().unwrap();
     assert!(s.removed_paths.is_empty(), "non-active uninstall must not touch PATH");
     assert!(s.unset_envs.is_empty(), "non-active uninstall must not touch env");
 }
@@ -211,7 +209,7 @@ fn uninstall_active_only_cleans_env() {
         !env.temp.join("store").join("java").exists(),
         "empty store/java should be cleaned"
     );
-    let s = state.borrow();
+    let s = state.lock().unwrap();
     assert!(s.unset_envs.iter().any(|k| k == "JAVA_HOME"), "should unset JAVA_HOME");
     assert!(
         s.removed_paths

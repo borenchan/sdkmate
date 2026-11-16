@@ -1,4 +1,5 @@
 use crate::CommandHandler;
+use crate::runtime::runtime;
 use crate::terminal::prompt_confirm;
 use crate::terminal_sink::manager;
 use anyhow::bail;
@@ -44,7 +45,7 @@ pub fn install_with_confirm(
     version_input: &str,
     auto_switch: bool,
 ) -> anyhow::Result<()> {
-    let resolved = manager.resolve_install_version(sdk, version_input)?;
+    let resolved = runtime().block_on(manager.resolve_install_version_async(sdk, version_input))?;
     if resolved.fuzzy_matched {
         let confirmed = prompt_confirm(&format!(
             "Resolved '{}' → '{}'. Install this version?",
@@ -54,5 +55,5 @@ pub fn install_with_confirm(
             bail!("Installation cancelled by user");
         }
     }
-    manager.install_sdk(sdk, &resolved, auto_switch)
+    runtime().block_on(manager.install_sdk_async(sdk, &resolved, auto_switch))
 }

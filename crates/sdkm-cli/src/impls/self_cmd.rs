@@ -1,4 +1,5 @@
 use crate::CommandHandler;
+use crate::runtime::runtime;
 use crate::terminal::prompt_confirm;
 use crate::terminal_sink::manager;
 use clap::{Parser, Subcommand};
@@ -88,7 +89,7 @@ impl CommandHandler for SelfUpdateHandler {
             anyhow::bail!("`--check` and `--rollback` are mutually exclusive");
         }
         let manager = manager()?;
-        manager.update_self(self.check, self.rollback)?;
+        runtime().block_on(manager.update_self_async(self.check, self.rollback))?;
         Ok(())
     }
 }
