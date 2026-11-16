@@ -79,7 +79,7 @@ pub trait EventSink: Send + Sync {
 }
 
 /// 进度句柄：core 按数据推进，前端渲染
-pub trait ProgressHandle: Send {
+pub trait ProgressHandle: Send + Sync {
     fn set_length(&self, total: u64);
     fn set_position(&self, pos: u64);
     fn inc(&self, delta: u64);

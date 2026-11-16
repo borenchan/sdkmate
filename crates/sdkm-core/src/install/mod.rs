@@ -8,10 +8,11 @@ use sdkm_util::path::{get_installed_sdks_dir, get_sdkm_home};
 use sdkm_util::sdk::{BuiltinSdk, Sdk};
 use sdkm_util::{bail_bug, try_bug};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
+use crate::runtime::run_blocking;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{
     ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
@@ -23,15 +24,9 @@ use sdkm_util::builtin::find_seed_by_variant;
 
 impl SdkManager {
     /// 解析安装版本（模糊输入 → 精确版本；网络查询/缓存/主备源）。只读零副作用，
-    /// 供调用端展示解析结果并获取用户确认后，再经 [`install_sdk`] 执行安装；
-    /// 模糊确认在调用端做（core 零 stdin）
-    pub fn resolve_install_version(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        rt.block_on(self.resolve_install_version_async(sdk, version_input))
-    }
-
-    /// 异步版本解析（原 install 流程 Phase 1 段整体迁入）
-    async fn resolve_install_version_async(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
+    /// 供调用端展示解析结果并获取用户确认后执行安装；模糊确认在调用端做（core 零 stdin）。
+    /// runtime 由调用端持有（CLI/GUI 常驻 runtime 直调）
+    pub async fn resolve_install_version_async(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
 
@@ -108,28 +103,22 @@ impl SdkManager {
         Ok(resolved)
     }
 
-    /// 安装已解析的 SDK 版本（同步入口，内部创建 tokio runtime 驱动异步流程）。
-    /// 版本解析与模糊确认归调用端（resolve_install_version）；执行段保留已装检测自查
-    pub fn install_sdk(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        // 用 ? 传播错误，不整体 try_bug!——用户取消、网络/版本解析失败等非 bug 错误不应触发 bug report 提示；
-        // 真正的 bug（解压/校验失败等）已在 install_sdk_async 内部用 try_bug!/bail_bug! 精确标记 BugReportError
-        rt.block_on(self.install_sdk_async(sdk, resolved, auto_switch))?;
-        Ok(())
-    }
-
-    /// 异步安装核心流程：通用主备 + 已装检测 + 下载解压验证清理
-    async fn install_sdk_async(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
+    /// 安装已解析的 SDK 版本（通用主备 + 已装检测 + 下载解压验证清理）。
+    /// 版本解析与模糊确认归调用端；执行段保留已装检测自查。
+    /// 错误用 ? 传播（用户取消/网络失败不标 BugReport），真正的 bug 在内部用 try_bug!/bail_bug! 精确标记
+    pub async fn install_sdk_async(&mut self, sdk: &Sdk, resolved: &ResolvedVersion, auto_switch: bool) -> Result<()> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
 
         // 先清理该 sdk 上次中断的残留，避免旧 sdk.zip/extracted 污染本次
         let sdk_tmp_root = get_sdkm_home()?.join(SDKM_TMP_DIR).join(&sdk_name);
-        if sdk_tmp_root.exists()
-            && let Err(e) = fs::remove_dir_all(&sdk_tmp_root)
-        {
-            self.sink
-                .warning(format!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e));
+        if sdk_tmp_root.exists() {
+            // 残留清理可能删大量文件（秒级），走阻塞线程池
+            let dir = sdk_tmp_root.clone();
+            if let Err(e) = run_blocking(move || fs::remove_dir_all(&dir)).await {
+                self.sink
+                    .warning(format!("failed to clean stale tmp at {}: {}", sdk_tmp_root.display(), e));
+            }
         }
 
         let full_version = &resolved.full_version;
@@ -277,12 +266,20 @@ impl SdkManager {
         let extract_pb = self
             .sink
             .progress(extract_kind, format!("Extracting {} {}...", sdk_name, full_version));
-        try_bug!(extract_archive(&actual_archive_path, &tmp_extracted_path, extract_pb.as_ref()));
+        // 解压是 10~30s 纯 CPU+IO 长段，走阻塞线程池；pb 随闭包移入并带回，外层继续收尾
+        let archive = actual_archive_path.clone();
+        let dest = tmp_extracted_path.clone();
+        let (res, extract_pb) = run_blocking(move || {
+            let r = extract_archive(&archive, &dest, extract_pb.as_ref());
+            (r, extract_pb)
+        })
+        .await?;
+        try_bug!(res);
         extract_pb.finish_with_message(format!("✅ Extracted {} {}", sdk_name, full_version));
 
         // ── Phase 7: 验证解压结果 ────────────────────────────────
         if !tmp_extracted_path.exists() {
-            cleanup_temp(&tmp_dir)?;
+            cleanup_temp_blocking(&tmp_dir).await?;
             bail_bug!("Extraction failed: no output directory found");
         }
 
@@ -294,10 +291,12 @@ impl SdkManager {
         let move_pb = self
             .sink
             .progress(ProgressKind::Verify, "Verifying installation...".to_string());
-        try_bug!(normalize_extracted_dir(&tmp_extracted_path, &version_dir));
+        let src = tmp_extracted_path.clone();
+        let dst = version_dir.clone();
+        try_bug!(run_blocking(move || normalize_extracted_dir(&src, &dst)).await?);
         move_pb.finish_with_message(format!("📂 Moved to {}", version_dir.display()));
         if move_pb.is_cancelled() {
-            let _ = fs::remove_dir_all(&version_dir);
+            remove_dir_blocking(version_dir.clone()).await;
             bail!("install cancelled");
         }
 
@@ -305,19 +304,22 @@ impl SdkManager {
         let verify_pb = self
             .sink
             .progress(ProgressKind::Verify, "Verifying installation...".to_string());
-        if let Err(e) = verify_extraction(&version_dir, sdk_conf.bin_dir.as_deref()) {
-            let _ = fs::remove_dir_all(&version_dir);
-            cleanup_temp(&tmp_dir)?;
+        let dir = version_dir.clone();
+        let bin_dir = sdk_conf.bin_dir.clone();
+        let verify = run_blocking(move || verify_extraction(&dir, bin_dir.as_deref())).await;
+        if let Err(e) = verify {
+            remove_dir_blocking(version_dir.clone()).await;
+            cleanup_temp_blocking(&tmp_dir).await?;
             bail_bug!("Installation verification failed: {}. Rolled back.", e);
         }
         verify_pb.finish_with_message(format!("✅ Verified {} {}", sdk_name, full_version));
         if verify_pb.is_cancelled() {
-            let _ = fs::remove_dir_all(&version_dir);
+            remove_dir_blocking(version_dir.clone()).await;
             bail!("install cancelled");
         }
 
         // ── Phase 10: 清理临时文件 ──────────────────────────────
-        cleanup_temp(&tmp_dir)?;
+        cleanup_temp_blocking(&tmp_dir).await?;
         tmp_guard.armed = false;
         self.sink.detail("Temporary files cleaned up.".to_string());
 
@@ -360,6 +362,17 @@ impl Drop for TmpGuard<'_> {
 }
 
 /// 清理临时目录
+/// 临时目录清理可能删大量文件（秒级），走阻塞线程池
+async fn cleanup_temp_blocking(tmp_dir: &Path) -> Result<()> {
+    let dir = tmp_dir.to_path_buf();
+    run_blocking(move || cleanup_temp(&dir)).await?
+}
+
+/// 失败回滚的目录删除，同样走阻塞线程池
+async fn remove_dir_blocking(dir: PathBuf) {
+    let _ = run_blocking(move || fs::remove_dir_all(dir)).await;
+}
+
 fn cleanup_temp(tmp_dir: &PathBuf) -> Result<()> {
     if tmp_dir.exists() {
         fs::remove_dir_all(tmp_dir).context("Failed to clean up temporary directory")?;

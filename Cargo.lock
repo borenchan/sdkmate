@@ -6042,6 +6042,7 @@ dependencies = [
  "indicatif",
  "sdkm-core",
  "sdkm-util",
+ "tokio",
  "unicode-width",
  "winresource",
 ]

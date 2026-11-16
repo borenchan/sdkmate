@@ -35,7 +35,10 @@ crates/sdkm-cli    → CLI 前端 + sdkm 二进制入口：src/main.rs（[[bin]]
 
 **分层铁律（GUI 铺路，2026-11-06 落地）**：
 - **sdkm-core 零打印、零 stdin、零终端渲染依赖**——过程消息经 `sdkm_core::report`（`CoreEvent` / `EventSink` / `ProgressKind` 7 场景 / `ProgressHandle` Drop 兜底 / `NullSink`）通知前端；命令结果走结构化返回值；最终失败走 `Result::Err`（core 不对同一失败再发 Error 事件）。文案归 core（事件说什么），样式归前端（TerminalSink 怎么渲染）
-- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（sdkm-cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus；同步 API 内部 block_on——GUI 必须在专用后台线程调用（见 `crates/sdkm-gui/src/data.rs`）
+- **`SdkManager { config, env_operation, sink: Arc<dyn EventSink> }`**：每操作独立构造 Manager+Sink（sdkm-cli 经 `terminal_sink::manager()`），串行执行，无全局 EventBus
+- **runtime 归前端持有（2026-11-16）**：core 只出 `*_async` API（全部 `pub`，无同步壳）；CLI 用 `crates/sdkm-cli/src/runtime.rs` 的进程级单线程 runtime 在阶段边界 block_on；GUI 用 `crates/sdkm-gui/src/data.rs` 的进程级 2-worker runtime `spawn` 调度。`SdkManager`/`EventSink`/`ProgressHandle`/`EnvOperation` 均 `Send + Sync`
+- **长阻塞段统一走 `sdkm_core::runtime::run_blocking`**（内部 `spawn_blocking`）：解压/目录调整/校验/清理/卸载删除共 8 处；`switch` 因 `&mut self` 且毫秒级保留内联。全项目只有 `runtime.rs` 知道阻塞怎么跑，将来换运行时只改这一个文件
+- **HTTP client 进程级缓存**（`downloader.rs`，`OnceLock` + network 配置指纹）：连接池绑定创建它的 runtime，故必须前端持有常驻 runtime 后才生效
 - **确认交互归调用端**：core 零 stdin；`resolve_install_version`/`resolve_installed_version`/`resolve_uninstall_target`/`check_init_env` 产出决策数据，sdkm-cli prompt / GUI 弹窗确认后调执行 API；执行段仍自查关键状态（不信任预检查结果）
 - **EnvOperation 不感知 UI**：写方法返回 `Vec<EnvAction>` 结构化动作，业务层经 `report_env_actions` 转事件
 - **util 不含终端渲染**：颜色/光标/表格/prompt/输出宏归 sdkm-cli（`sdkm_cli::terminal` + `sdkm_cli::macros`）；sdkm-util 只留通用原语（`sdkm_util::diagnostics` 收 os_version/platform_info/build_bug_report_url）。`cargo tree -p sdkm-core -p sdkm-util` 验证 GUI 依赖链零 crossterm/unicode-width/indicatif
@@ -107,18 +110,24 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-13）
+## 当前开发进度（2026-11-16）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### docs/CI 批次：README 改版 / 捐赠区 / release note 双语
+### 异步改造：runtime 归前端 + GUI 共享线程池（B1/B2/C）
 
-- **README 标题区改版**（中英双语同步）：原 h2 副标语换成「一句话简介」正文（GPUI 链接转 `<a>`），删除「一句话简介/In One Line」章节（含单行示例命令）与目录 `<details>` 块
-- **README 新增 GUI 首页大图**：GIF 下方按语言对应插入 `assets/example-images/{en,zh}/home_p1.jpg`（width=780，外包 `<a>` 可点开原图），配 GIF 同款 `<sub>` 小字说明
-- **README 捐赠区**：Star History 上方插入「☕ 请我喝杯咖啡 / Buy Me a Coffee」段落 + 微信/支付宝收款码（`assets/donate/wechat.jpg`、`aipay.png`，width=240 居中）
-- **release note 中英双语**：新增 `.github/scripts/translate_changelog_zh.py`，走谷歌翻译免费网页端点（`translate_a/t?client=gtx`，无需 key）；分组标题走 12 条固定映射不进机翻，只逐条翻译 commit 描述，`` `代码` ``/专名（sdkm/GPUI/crates 等）用 `⟦n⟧` 占位符保护， Contributors 区与 Full Changelog 链接不翻；限流/失败 exit 0 不产出文件，发版兜底纯英文。workflow upload-release 加 Translate/Compose 两步，body 拼成英文正文 + `<details>🇨🇳 简体中文</details>` 折叠区；根 `CHANGELOG.md` 保持纯英文
-- **验证**：真实谷歌端点实测 v0.5.5..v0.5.6 区间 35 条 commit（占位符回填/标题映射/链接完好）；mock 验证批量分批与两种响应形态解析；端点不通兜底路径验证；workflow YAML 解析校验通过
-- **选型记录（2026-11-13）**：release note 翻译通道调研——dbx 项目用 DeepSeek（要付费 key，用户否决）；GitHub Models 已于 2026-07-30 退役；谷歌/微软官方翻译 API 均需注册绑卡；最终选谷歌免费网页端点 + 失败兜底，完全零成本
+- **core 只出 async**：`resolve_install_version_async` / `install_sdk_async` / `fetch_remote_versions_async` / `update_self_async` / `fetch_latest|previous_version_async` 全部 `pub`；原 6 个同步壳（每次调用新建 runtime + block_on）**已删除**；`runtime.rs` 只剩 `run_blocking`（`spawn_blocking` 单点封装）
+- **阻塞段治理**：install/self_update 的解压、目录调整、校验、清理、卸载删除共 8 处包 `run_blocking`；`switch` 保留内联（毫秒级 + `&mut self` 无法移入 'static 闭包）
+- **trait 线程边界**：`EnvOperation` / `ProgressHandle` 补 `Send + Sync`；`EventSink` 原有。async future 跨 await 持有 `&SdkManager` 需要 `Sync`，这是编译期强制要求
+- **CLI**：`crates/sdkm-cli/src/runtime.rs` 进程级单线程 runtime（OnceLock 惰性），handler 在阶段边界 block_on，TUI 交互逻辑不变
+- **GUI**：`data.rs` 进程级 2-worker runtime（`tokio` 加回 `rt-multi-thread`，exe 14.26→14.30 MiB）；`spawn_task_inner` 由 `std::thread::spawn` 改 `runtime.spawn`；`build_outcome` 拆为 async，概览/列表扫描与卸载删除走 `spawn_blocking`（不占 worker）
+- **进度节流**：`sink.rs` 位置事件 10Hz（CAS 保证单发送者），finish 补发终态——下载期不再每个 8~16KB chunk 触发整窗 60fps 重绘
+- **取消升级**：关闭进度弹窗 → `JoinHandle::abort()` 网络段即时取消；解压等阻塞段仍靠 `AtomicBool` 检查点（任何运行时共性）
+- **启动去重**：概览任务本身含 SDK 列表，启动/init 后只派发一份（原先两遍全盘列举）；列表就绪后处理提取为 `on_sdk_rows_ready`
+- **HTTP client 复用**：`downloader.rs` 进程级缓存（api/download 各一），按 proxy/ssl_verify/connect_timeout 指纹失效
+- **验证**：`cargo test --workspace` 全绿（`core_install_flow` 覆盖下载→解压→校验→切换）；真实网络 `ls --remote` / `self update --check` 正常；沙箱真实安装 node 20.20.2 成功；GUI 启动与空数据态同改造前一致（11 线程 / 43.3 MB）
+- **线程构成（实测）**：`main` + 2 个 `tokio-rt-worker` + `DManip`/`VSync` + 框架内部；**加载已安装 SDK 后额外 +11~12 个未命名线程**（体积缓存未命中触发 jwalk 并行遍历；旧构建同样存在，非本次引入）。`RAYON_NUM_THREADS` 未能约束，归属待落实
+- **注意**：沙箱 `SDKM_HOME` 测试时，config 里的 `symlink_dir` 是绝对路径会写**真实 links 目录**，必须同时隔离该配置
 
 ## 已知问题与注意事项
 

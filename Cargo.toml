@@ -29,7 +29,7 @@ reqwest = { version = "0.13", default-features = false, features = [
     "gzip",
     "default-tls"
 ] }
-tokio = {version = "1", features = ["fs", "io-util", "rt-multi-thread"]}
+tokio = {version = "1", features = ["fs", "io-util", "rt", "sync"]}
 
 # 进度条
 indicatif = { version = "0.17" }
@@ -72,8 +72,12 @@ absolute_paths = "warn"
 
 # 发布构建体积优化（不影响功能：sdkm 为 IO 密集型 CLI，CPU 计算极少）
 [profile.release]
-opt-level = 3        # 保持最高优化等级（性能优先）
+opt-level = "s"      # 体积优先：GUI 代码段占 80%
 lto = true           # 跨 crate 链接时优化，去重内联代码
 codegen-units = 1    # 单代码生成单元，配合 LTO 最大化去重
 panic = "abort"      # 移除 unwind landing pads（项目无 catch_unwind/Drop 终端守卫，无影响）
 strip = "symbols"    # 剥离符号信息（PDB 独立保留供调试）
+
+# 解压是纯 CPU 热点（纯 Rust miniz_oxide），保持 -O3，抵消全局 opt-level=s 带来的吞吐损失
+[profile.release.package.miniz_oxide]
+opt-level = 3

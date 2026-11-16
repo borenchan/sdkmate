@@ -12,6 +12,7 @@ use crate::install::downloader::{build_download_client, download_with_retry};
 use crate::install::extractor::extract_archive;
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
+use crate::runtime::run_blocking;
 use anyhow::{Context, Result, bail};
 use sdkm_util::consts::SDKM_TMP_DIR;
 use sdkm_util::path::get_sdkm_home;
@@ -92,31 +93,16 @@ impl InstalledBinaries {
 }
 
 impl SdkManager {
-    /// 自更新入口（同步，内部 tokio runtime 驱动异步流程，与 install_sdk 范式一致）
-    pub fn update_self(&self, check: bool, rollback: bool) -> Result<SelfUpdateOutcome> {
-        if check && rollback {
-            bail!("`--check` and `--rollback` are mutually exclusive");
-        }
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        rt.block_on(self.update_self_async(check, rollback))
-    }
-
     /// 查询 GitHub 最新版本号（只读：不下载不替换；供检查更新/GUI 复用）
-    pub fn fetch_latest_version(&self) -> Result<String> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        rt.block_on(async {
-            let release = self.fetch_latest_release().await?;
-            Ok(strip_v(&release.tag_name).to_string())
-        })
+    pub async fn fetch_latest_version_async(&self) -> Result<String> {
+        let release = self.fetch_latest_release().await?;
+        Ok(strip_v(&release.tag_name).to_string())
     }
 
     /// 回退目标：低于当前版本、且包含所需组合包的最新发布版本（只读，供 GUI 确认弹窗展示）
-    pub fn fetch_previous_version(&self) -> Result<String> {
-        let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
-        rt.block_on(async {
-            let release = self.fetch_previous_release().await?;
-            Ok(strip_v(&release.tag_name).to_string())
-        })
+    pub async fn fetch_previous_version_async(&self) -> Result<String> {
+        let release = self.fetch_previous_release().await?;
+        Ok(strip_v(&release.tag_name).to_string())
     }
 
     /// 拉取 GitHub 最新 release（token 只注入本请求，避免下载时把 token 发给镜像第三方）
@@ -180,7 +166,11 @@ impl SdkManager {
     }
 
     /// 异步自更新核心：查询 → 对齐检查 →（--check 到此为止）下载解压 → 替换验证
-    async fn update_self_async(&self, check: bool, rollback: bool) -> Result<SelfUpdateOutcome> {
+    /// 自更新入口（检查 GitHub release → 下载 → 替换 → 验证；runtime 由调用端持有）
+    pub async fn update_self_async(&self, check: bool, rollback: bool) -> Result<SelfUpdateOutcome> {
+        if check && rollback {
+            bail!("`--check` and `--rollback` are mutually exclusive");
+        }
         let release = if rollback {
             self.fetch_previous_release().await?
         } else {
@@ -241,10 +231,19 @@ impl SdkManager {
         // ── 解压取包内 .sdkm/ 下的二进制 ──
         let extract_dir = work_dir.join("extract");
         if extract_dir.exists() {
-            let _ = fs::remove_dir_all(&extract_dir);
+            let dir = extract_dir.clone();
+            let _ = run_blocking(move || fs::remove_dir_all(dir)).await;
         }
         let ex_pb = self.sink.progress(ProgressKind::SelfUpdateExtract, "Extracting...".to_string());
-        extract_archive(&archive_path, &extract_dir, ex_pb.as_ref())?;
+        // 解压是长阻塞段，走阻塞线程池；pb 随闭包移入并带回，外层继续收尾
+        let archive = archive_path.clone();
+        let dest = extract_dir.clone();
+        let (res, ex_pb) = run_blocking(move || {
+            let r = extract_archive(&archive, &dest, ex_pb.as_ref());
+            (r, ex_pb)
+        })
+        .await?;
+        res?;
         ex_pb.finish_with_message("extraction complete".to_string());
 
         let new_cli = extract_dir.join(".sdkm").join(cli_bin_name());
@@ -269,7 +268,8 @@ impl SdkManager {
 
         // 清理下载/解压临时文件（discard 残留交给下次 clean_leftovers）
         let _ = fs::remove_file(&archive_path);
-        let _ = fs::remove_dir_all(&extract_dir);
+        let dir = extract_dir.clone();
+        let _ = run_blocking(move || fs::remove_dir_all(dir)).await;
 
         if rollback {
             self.sink.success(format!("sdkm rolled back to v{}", target_version));
