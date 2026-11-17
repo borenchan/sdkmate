@@ -19,3 +19,13 @@ body:
       placeholder: 例如 `sdkm xxx`，预期输出 ……
     validations:
       required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 前置确认
+      options:
+        - label: 我已搜索现有 issue 和 Discussions，确认没有重复建议
+          required: true
+        - label: 我愿意自己实现这个功能（评论 `/claim` 认领，等待维护者确认后开始）
+          required: false

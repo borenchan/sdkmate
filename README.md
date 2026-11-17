@@ -327,7 +327,7 @@ cargo clippy --all-targets --all-features              # Lint code
 
 ## 🤝 Contributing
 
-Contributions of any kind are welcome — bug reports, feature ideas, or code.
+Contributions of any kind are welcome — bug reports, feature ideas, or code. Thank you for helping make sdkm better! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the complete workflow and engineering constraints before opening a PR.
 
 ### 📋 PR checklist
 
@@ -338,15 +338,16 @@ Contributions of any kind are welcome — bug reports, feature ideas, or code.
    cargo fmt                                  # Format code
    cargo clippy --all-targets --all-features  # Lint code, zero warnings
    ```
-4. Commit with a clear message: `git commit -m "feat: add xxx"`
+4. Commit with a clear message: `git commit -m "feat(cli): add xxx"`
 5. Push and open a Pull Request: `git push origin feature/your-feature-name`
 
 ### 📖 Conventions
 
 | Type | Convention | Example |
 |:---|:---|:---|
-| Commit message | `type: description` | `feat: add switch command` |
-| Types | feat / fix / docs / refactor / test / chore | — |
+| Commit message | `type(scope): description` (scope optional) | `feat(cli): add switch command` |
+| Types | feat / fix / perf / refactor / docs / test / ci / chore | — |
+| Scopes | code modules only: cli / core / util / gui | `fix(core): ...` |
 | Branch naming | `feature/xxx` / `fix/xxx` / `docs/xxx` | `feature/add-install-command` |
 
 ---

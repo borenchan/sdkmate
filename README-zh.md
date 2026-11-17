@@ -327,7 +327,7 @@ cargo clippy --all-targets --all-features              # 代码检查
 
 ## 🤝 贡献指南
 
-我们欢迎任何形式的贡献！无论是提交 Bug 报告、功能建议，还是直接贡献代码，都非常感谢。
+我们欢迎任何形式的贡献！无论是提交 Bug 报告、功能建议，还是直接贡献代码，都非常感谢。提交 PR 前请先阅读[CONTRIBUTING.md](./CONTRIBUTING.md)，了解完整协作流程与工程约束。
 
 ### 📋 提交 PR 指南
 
@@ -338,15 +338,16 @@ cargo clippy --all-targets --all-features              # 代码检查
    cargo fmt                                  # 格式化代码
    cargo clippy --all-targets --all-features  # 代码检查，零警告为准
    ```
-4. 提交代码，使用清晰的提交信息：`git commit -m "feat: add xxx"`
+4. 提交代码，使用清晰的提交信息：`git commit -m "feat(cli): add xxx"`
 5. 推送分支并创建 Pull Request：`git push origin feature/your-feature-name`
 
 ### 📖 开发约定
 
 | 类型 | 规范 | 示例 |
 |:---|:---|:---|
-| Commit 消息 | `type: description` | `feat: add switch command` |
-| 类型 | feat / fix / docs / refactor / test / chore | — |
+| Commit 消息 | `type(scope): description`（scope 可选） | `feat(cli): add switch command` |
+| 类型 | feat / fix / perf / refactor / docs / test / ci / chore | — |
+| Scope | 仅代码模块：cli / core / util / gui | `fix(core): ...` |
 | 分支命名 | `feature/xxx` / `fix/xxx` / `docs/xxx` | `feature/add-install-command` |
 
 ---

@@ -169,6 +169,7 @@ bin_dir = "bin"
 
 ## 提交规范
 
-- 格式：`type: description`（如 `feat: add switch command`、`fix: resolve xxx issue`）
-- 类型：feat、fix、docs、refactor、test、chore
+- 格式：`type(scope): description`（如 `feat(cli): add switch command`）；scope 可选，与 type 语义不同、不可同名
+- 类型：feat、fix、perf、refactor、docs、test、style、build、ci、chore
+- scope 仅代码模块：cli / core / util / gui；跨 crate 用逗号分隔（`feat(cli,core): ...`）；docs / ci / test / style / build 类不带 scope，发版 `chore: release vX.Y.Z`，依赖升级 `build(deps): bump ...`
 - 分支命名：`feature/xxx`、`fix/xxx`、`docs/xxx`
