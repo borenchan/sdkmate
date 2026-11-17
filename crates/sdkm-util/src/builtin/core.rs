@@ -21,6 +21,7 @@ pub const JAVA: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[("JAVA_HOME", "{sdk_dir}")],
     extra_paths: &[],
+    add_to_path: true,
 };
 
 pub const MAVEN: SdkSeed = SdkSeed {
@@ -38,6 +39,32 @@ pub const MAVEN: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
+};
+
+pub const TOMCAT: SdkSeed = SdkSeed {
+    name: "tomcat",
+    variant: Some(BuiltinSdk::Tomcat),
+    // Apache 归档根索引（列 tomcat-9/10/11 分支目录）；版本列表经多请求逐分支解析
+    version_url: "https://archive.apache.org/dist/tomcat/",
+    version_fallback_url: Some("https://dlcdn.apache.org/tomcat/"),
+    // {feature_version} = 主版本号（9/10/11）；{ext} = zip(win)/tar.gz(unix)
+    // 主源 dlcdn（当前版本 CDN，快；历史版本 404 时不重试，立即回退 archive）
+    download_url: Some(
+        "https://dlcdn.apache.org/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
+    ),
+    download_fallback_url: Some(
+        "https://archive.apache.org/dist/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
+    ),
+    bin_dir: Some("bin"),
+    os_style: OsStyle::Default,
+    arch_style: ArchStyle::Default,
+    primary_executables: &["catalina"],
+    asset_prefix: None,
+    extra_vars: &[("CATALINA_HOME", "{sdk_dir}")],
+    extra_paths: &[],
+    // bin/ 下 startup/version 等脚本名太通用，不入 PATH，仅设 CATALINA_HOME
+    add_to_path: false,
 };
 
 pub const NODE: SdkSeed = SdkSeed {
@@ -56,6 +83,7 @@ pub const NODE: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };
 
 pub const PYTHON: SdkSeed = SdkSeed {
@@ -79,6 +107,7 @@ pub const PYTHON: SdkSeed = SdkSeed {
     extra_vars: &[],
     // Windows 的 pip 在 Scripts 子目录
     extra_paths: if cfg!(target_os = "windows") { &["Scripts"] } else { &[] },
+    add_to_path: true,
 };
 
 pub const GO: SdkSeed = SdkSeed {
@@ -98,6 +127,7 @@ pub const GO: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };
 
 // ── 引擎型（标准 B 直链）─────────────────────────────────────────

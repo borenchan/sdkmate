@@ -79,6 +79,18 @@ fn build_client(network: &NetworkConfig, gzip: bool) -> Result<Client> {
     builder.build().context("Failed to build reqwest client")
 }
 
+/// 确定性 HTTP 失败（4xx 非限流类）：同一 URL 重试无意义，`download_with_retry` 直接放弃让备源接手
+#[derive(Debug)]
+struct NonRetryableHttpError(String);
+
+impl std::fmt::Display for NonRetryableHttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NonRetryableHttpError {}
+
 /// 异步下载文件到指定路径，支持 streaming + 进度条 + 断点续传。
 ///
 /// 续传机制：若 dest_path 已有部分文件，发 `Range: bytes=<have>-` 请求；
@@ -109,7 +121,16 @@ pub async fn download_with_progress(
     // 206 = 服务器支持续传；200 = 不支持 Range 或无部分文件，从头下
     let resume = status == reqwest::StatusCode::PARTIAL_CONTENT;
     if !resume && !status.is_success() {
-        bail!("Download failed: HTTP {} from {}", status, url);
+        let msg = format!("Download failed: HTTP {} from {}", status, url);
+        // 4xx（除限流/超时类）是确定性失败：重试同一 URL 不会变好，直接交给备源
+        // （典型场景：dlcdn 只有当前版本，装历史版本会 404 → 立即回退 archive）
+        if status.is_client_error()
+            && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+            && status != reqwest::StatusCode::REQUEST_TIMEOUT
+        {
+            return Err(anyhow::Error::new(NonRetryableHttpError(msg)));
+        }
+        bail!(msg);
     }
 
     // 206 时 Content-Length 是剩余字节数，总大小 = have + remaining；200 时是总大小
@@ -148,8 +169,14 @@ pub async fn download_with_progress(
     // 进度条对齐：续传从 have 开始，从头从 0
     pb.set_position(if resume { have } else { 0 });
 
-    // 用 reqwest 的 chunk() 逐块读取（无需 StreamExt，省去 futures-util 依赖）
-    while let Some(chunk) = resp.chunk().await.context("Error reading download stream")? {
+    // 用 reqwest 的 chunk() 逐块读取（无需 StreamExt，省去 futures-util 依赖）；
+    // 30s 无数据视为卡死（CDN 半开连接，实测 dlcdn 国内会停在几 MB），中止本次尝试触发重试/备源
+    loop {
+        let chunk = match tokio::time::timeout(Duration::from_secs(30), resp.chunk()).await {
+            Ok(chunk) => chunk.context("Error reading download stream")?,
+            Err(_) => bail!("Download stalled: no data for 30s from {}", url),
+        };
+        let Some(chunk) = chunk else { break };
         if pb.is_cancelled() {
             bail!("install cancelled");
         }
@@ -185,6 +212,8 @@ pub async fn download_with_retry(
 
         match download_with_progress(client, url, dest_path, pb, sink).await {
             Ok(_) => return Ok(()),
+            // 4xx 确定性失败（如 dlcdn 装历史版本 404）：不重试，立即上抛交给备源
+            Err(e) if e.downcast_ref::<NonRetryableHttpError>().is_some() => return Err(e),
             Err(e) if attempt < max_retries - 1 => {
                 // 保留部分文件供下次重试断点续传（不 remove_file）
                 sink.warning(format!(

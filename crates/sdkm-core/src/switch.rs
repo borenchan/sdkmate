@@ -5,7 +5,7 @@ use crate::env::split_path_entries;
 use crate::link::symlink::{create_symlink, read_symlink_target, remove_symlink};
 use crate::manager::SdkManager;
 use crate::report::EventSink;
-use crate::version::fuzzy_match_version_core;
+use crate::version::match_installed_version;
 use anyhow::{Context, Result, bail};
 use sdkm_util::builtin::primary_executables_for;
 use sdkm_util::config_helper::PLACEHOLDER_SDK_DIR;
@@ -83,7 +83,7 @@ impl SdkManager {
             );
         }
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
+        let matched = match_installed_version(sdk, &version_strings, version_input)?;
         Ok(ResolvedLocalVersion {
             version: matched.full_version,
             fuzzy_matched: matched.fuzzy_matched,
@@ -98,7 +98,7 @@ impl SdkManager {
         // 模糊匹配本地已安装版本(与 install 共用核心)——执行段自查：
         // 调用端确认期间状态可能变化（版本被删/新增），不信任预检查结果
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        let matched = fuzzy_match_version_core(&version_strings, sdk_version)?;
+        let matched = match_installed_version(sdk, &version_strings, sdk_version)?;
         let target_version = matched.full_version;
 
         let is_active = versions.iter().any(|v| v.is_active && v.sdk_version == target_version);
@@ -117,10 +117,12 @@ impl SdkManager {
         let sdk_symlink_bin_cow = sdk_symlink_bin_dir.to_string_lossy();
         let path = self.env_operation.get_path()?;
 
-        // ── Phase 1: PATH 冲突检测（只读操作） ──
-        let conflicts = self.detect_path_conflicts(sdk, &path)?;
-        if !conflicts.is_empty() {
-            self.handle_path_conflicts(sdk, &conflicts)?;
+        // ── Phase 1: PATH 冲突检测（只读操作；add_to_path=false 的 SDK 不注入 PATH，跳过） ──
+        if sdk_conf.add_to_path() {
+            let conflicts = self.detect_path_conflicts(sdk, &path)?;
+            if !conflicts.is_empty() {
+                self.handle_path_conflicts(sdk, &conflicts)?;
+            }
         }
 
         // ── Phase 2: 备份旧状态 ──
@@ -155,11 +157,15 @@ impl SdkManager {
             current_version_sdk.sdk_dir.display()
         ));
 
-        // 仅当 bin 目录不在 PATH 中时才添加环境变量和路径
-        let need_add_path = !path.contains(sdk_symlink_bin_cow.as_ref());
+        // 仅当 bin 目录不在 PATH 中时才更新 PATH；add_to_path=false 的 SDK（如 Tomcat）
+        // 不注入 PATH，仅设 extra_vars（CATALINA_HOME）
+        let add_to_path = sdk_conf.add_to_path();
+        // bin_dir 先取出：Step 3e 会可变借用 config，后续提示还要用
+        let sdk_bin_dir = sdk_conf.bin_dir.clone();
+        let need_add_path = add_to_path && !path.contains(sdk_symlink_bin_cow.as_ref());
 
-        // Step 3b: 设置额外环境变量
-        if need_add_path {
+        // Step 3b: 设置额外环境变量（与 PATH 无关，始终生效）
+        if !extra_envs.is_empty() {
             let actions = try_step!(
                 self.env_operation.set_sdk_envs(&extra_envs),
                 &snapshot,
@@ -216,10 +222,22 @@ impl SdkManager {
 
         // ── Phase 4: 成功完成 ──
         // hook 已注入时按回车（prompt 触发 sdkm env 重建 PATH）即生效；未注入（手动 eval 场景）仍需重启
-        self.sink.info(
-            "PATH has been updated. Press Enter to apply, or restart your terminal if hooks are not installed."
-                .to_string(),
-        );
+        if add_to_path {
+            self.sink.info(
+                "PATH has been updated. Press Enter to apply, or restart your terminal if hooks are not installed."
+                    .to_string(),
+            );
+        } else {
+            // add_to_path=false（如 Tomcat）：PATH 不变，告知从软链目录启动
+            let launch_dir = match sdk_bin_dir.as_deref().filter(|b| !b.is_empty()) {
+                Some(bin) => sdk_symlink_dir.join(bin),
+                None => sdk_symlink_dir.clone(),
+            };
+            self.sink.info(format!(
+                "`{sdk}` is not added to PATH. Launch it from: {}",
+                launch_dir.display()
+            ));
+        }
         self.sink
             .success(format!("switch sdk `{sdk}` to version `{target_version}` success!"));
         Ok(())

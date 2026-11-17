@@ -129,6 +129,10 @@ pub fn field_type(key: &ConfigKey) -> ValueType {
             field: SdkField::ArchStyle,
             ..
         } => ValueType::ArchStyle,
+        ConfigKey::Sdk {
+            field: SdkField::AddToPath,
+            ..
+        } => ValueType::Bool,
         ConfigKey::SdkExtraVar { .. } => ValueType::NonEmptyString,
         ConfigKey::SdkExtraPath { .. } => ValueType::Path,
     }
@@ -242,6 +246,14 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
             deletable: sdk_deletable,
             value_type: ValueType::ArchStyle,
             default_desc: "default".to_string(),
+        },
+        ConfigKey::Sdk {
+            field: SdkField::AddToPath,
+            ..
+        } => KeyMeta {
+            deletable: sdk_deletable,
+            value_type: ValueType::Bool,
+            default_desc: "true".to_string(),
         },
         ConfigKey::SdkExtraVar { .. } => KeyMeta {
             deletable: sdk_deletable,

@@ -16,10 +16,10 @@ pub struct UninstallHandler {
     )]
     sdk: String,
 
-    /// Target version to uninstall (fuzzy match supported, e.g. '21' resolves to latest 21.x)
+    /// Target version to uninstall (fuzzy match supported, e.g. '21' → latest 21.x; java vendor: '21-zulu' or 'zulu@21')
     #[arg(
         value_name = "version",
-        help = "Target version (fuzzy match supported, e.g. '21' → latest 21.x)"
+        help = "Target version (fuzzy match supported, e.g. '21' → latest 21.x; java vendor builds: '21-zulu' or 'zulu@21')"
     )]
     sdk_version: String,
 

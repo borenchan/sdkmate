@@ -70,6 +70,7 @@ pub const HELM: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };
 
 pub const TERRAFORM: SdkSeed = SdkSeed {
@@ -89,4 +90,5 @@ pub const TERRAFORM: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };

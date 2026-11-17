@@ -46,9 +46,14 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// 起 HTTP server，按精确路径返回 body（GH 引擎追加的 per_page 查询串按前缀兜底）
 fn serve_routes(routes: Vec<(&'static str, Vec<u8>)>) -> String {
+    serve_routes_status(routes.into_iter().map(|(p, b)| (p, 200, b)).collect())
+}
+
+/// 同 `serve_routes`，但可为每条路由指定状态码（测试重试 / 确定性失败行为）
+fn serve_routes_status(routes: Vec<(&'static str, u16, Vec<u8>)>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
-    let map: HashMap<String, Vec<u8>> = routes.into_iter().map(|(p, b)| (p.to_string(), b)).collect();
+    let map: HashMap<String, (u16, Vec<u8>)> = routes.into_iter().map(|(p, s, b)| (p.to_string(), (s, b))).collect();
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
@@ -57,16 +62,25 @@ fn serve_routes(routes: Vec<(&'static str, Vec<u8>)>) -> String {
             let req = String::from_utf8_lossy(&buf);
             let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
             let bare = path.split('?').next().unwrap_or("").to_string();
-            let matched = map.get(&bare).map(|b| b.as_slice());
+            let matched = map.get(&bare);
             let head = match matched {
-                Some(body) => format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    body.len()
-                ),
+                Some((status, body)) => {
+                    let reason = match *status {
+                        200 => "OK",
+                        400..=499 => "Client Error",
+                        _ => "Server Error",
+                    };
+                    format!(
+                        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        status,
+                        reason,
+                        body.len()
+                    )
+                }
                 None => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
             };
             let _ = stream.write_all(head.as_bytes());
-            if let Some(body) = matched {
+            if let Some((_, body)) = matched {
                 let _ = stream.write_all(body);
             }
         }
@@ -122,6 +136,37 @@ impl EnvOperation for MockEnv {
         Ok(Vec::new())
     }
     fn add_sdk_path(&self, _sdk_path: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
+    }
+    fn get_path(&self) -> Result<String> {
+        Ok(String::new())
+    }
+    fn remove_sdk_path(&self, _sdk_path: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
+    }
+    fn get_env_value(&self, _key: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+    fn unset_sdk_env(&self, _key: &str) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
+    }
+    fn restore_sdk_envs(&self, _old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
+    }
+}
+
+/// 记录型 EnvOperation：断言 PATH / env 注入行为（如 add_to_path=false 不写 PATH）
+struct RecordingEnv(Arc<Mutex<Vec<String>>>);
+
+impl EnvOperation for RecordingEnv {
+    fn set_sdk_envs(&self, envs: &HashMap<String, String>) -> Result<Vec<EnvAction>> {
+        for k in envs.keys() {
+            self.0.lock().unwrap().push(format!("env:{k}"));
+        }
+        Ok(Vec::new())
+    }
+    fn add_sdk_path(&self, sdk_path: &str) -> Result<Vec<EnvAction>> {
+        self.0.lock().unwrap().push(format!("path:{sdk_path}"));
         Ok(Vec::new())
     }
     fn get_path(&self) -> Result<String> {
@@ -276,6 +321,23 @@ fn minimal_tar_gz() -> Vec<u8> {
     tar.into_inner().unwrap().finish().unwrap()
 }
 
+/// Tomcat 形态 zip：唯一顶层目录 `apache-tomcat-{ver}/` + bin/ 载荷（触发 normalize 提升）
+fn tomcat_zip(version: &str) -> Vec<u8> {
+    let mut buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut w = zip::ZipWriter::new(&mut buf);
+        for entry in [
+            format!("apache-tomcat-{version}/bin/demo.txt"),
+            format!("apache-tomcat-{version}/conf/server.xml"),
+        ] {
+            w.start_file(entry, zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, b"payload").unwrap();
+        }
+        w.finish().unwrap();
+    }
+    buf.into_inner()
+}
+
 fn assert_installed(env: &TestEnv, sdk: &str, ver: &str, payload_rel: &str) {
     let dir = env.temp.join("store").join(sdk).join(ver);
     assert!(dir.exists(), "version dir missing: {}", dir.display());
@@ -317,6 +379,7 @@ fn core_flow_github_releases_direct_link() {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }],
         symlink_dir: None,
     };
@@ -355,6 +418,7 @@ fn core_flow_template_download() {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }],
         symlink_dir: None,
     };
@@ -368,6 +432,137 @@ fn core_flow_template_download() {
 
     assert_installed(&env, "tmpl", "2.10.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
     assert_current("tmpl", "2.10.0");
+}
+
+/// Tomcat：Apache 归档两级 HTML 目录 → 版本发现 → 模板下载 → bin 布局 + CATALINA_HOME 不进 PATH
+#[test]
+fn core_flow_tomcat_html_discovery() {
+    let base = serve_routes(vec![
+        (
+            "/tomcat/",
+            br#"<a href="tomcat-11/">t11</a><a href="tomcat-12/">t12</a>"#.to_vec(),
+        ),
+        (
+            "/tomcat/tomcat-11/",
+            br#"<a href="v11.0.5/">a</a><a href="v11.0.0-M1/">m</a>"#.to_vec(),
+        ),
+        ("/tomcat/tomcat-11/v11.0.5/bin/apache-tomcat-11.0.5.zip", tomcat_zip("11.0.5")),
+    ]);
+
+    let mut extra_vars = HashMap::new();
+    extra_vars.insert("CATALINA_HOME".to_string(), "{sdk_dir}".to_string());
+    let config = SdkmConfig {
+        network: NetworkConfig::default(),
+        sdks: vec![SdkConfig {
+            name: "tomcat".to_string(),
+            version_url: Some(format!("{base}/tomcat/")),
+            version_fallback_url: None,
+            download_url: Some(format!(
+                "{base}/tomcat/tomcat-{{feature_version}}/v{{version}}/bin/apache-tomcat-{{version}}.zip"
+            )),
+            download_fallback_url: None,
+            current_version: None,
+            bin_dir: Some("bin".to_string()),
+            extra_vars,
+            extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
+            add_to_path: Some(false),
+        }],
+        symlink_dir: None,
+    };
+    let env = setup(&config);
+    let env_log = Arc::new(Mutex::new(Vec::new()));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let mut mgr = SdkManager {
+        config,
+        env_operation: Box::new(RecordingEnv(env_log.clone())),
+        sink: Arc::new(MockSink(events.clone())),
+    };
+
+    let sdk = "tomcat".parse().unwrap();
+    // 模糊 "11" → 最新 11.x（里程碑被过滤），feature_version 由条目 major 覆盖
+    let resolved = rt().block_on(mgr.resolve_install_version_async(&sdk, "11")).unwrap();
+    assert_eq!(resolved.full_version, "11.0.5");
+    assert_eq!(resolved.feature_version.as_deref(), Some("11"));
+    assert!(resolved.fuzzy_matched);
+
+    rt().block_on(mgr.install_sdk_async(&sdk, &resolved, true)).unwrap();
+    assert_installed(&env, "tomcat", "11.0.5", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
+    assert_current("tomcat", "11.0.5");
+
+    // add_to_path=false：只设 CATALINA_HOME，不写 PATH
+    let log = env_log.lock().unwrap().clone();
+    assert!(log.iter().any(|e| e == "env:CATALINA_HOME"), "log: {log:?}");
+    assert!(!log.iter().any(|e| e.starts_with("path:")), "log: {log:?}");
+
+    // 提示适配：明确说 tomcat 不进 PATH、从软链目录启动；不再出现「PATH has been updated」
+    let events_log = events.lock().unwrap().clone();
+    let hint = events_log
+        .iter()
+        .find(|m| m.contains("is not added to PATH"))
+        .unwrap_or_else(|| panic!("缺少不进 PATH 提示: {events_log:?}"))
+        .clone();
+    assert!(hint.contains("Launch it from:"), "{hint}");
+    assert!(hint.contains("bin"), "提示应指向 bin 目录: {hint}");
+    assert!(
+        !events_log.iter().any(|m| m.contains("PATH has been updated")),
+        "add_to_path=false 不应提示 PATH 已更新: {events_log:?}"
+    );
+
+    // 远程列表：同一份 HTML 源，limit 生效，已装状态标记为 Active
+    let remote = rt().block_on(mgr.fetch_remote_versions_async(&sdk, 10)).unwrap();
+    assert_eq!(remote.total_count, 1);
+    assert_eq!(remote.items[0].full_version, "11.0.5");
+    assert_eq!(remote.items[0].install_status, sdkm_core::list::InstallStatus::Active);
+}
+
+/// Java 供应商后缀：默认 Temurin 不带后缀，zulu/amzn/librca 独立目录，两种输入写法等价
+#[test]
+fn core_flow_java_vendor_store_isolation() {
+    let config = SdkmConfig {
+        network: NetworkConfig::default(),
+        sdks: vec![SdkConfig {
+            name: "java".to_string(),
+            version_url: Some("https://example.invalid/java".to_string()),
+            version_fallback_url: None,
+            download_url: Some("https://example.invalid/{feature_version}".to_string()),
+            download_fallback_url: None,
+            current_version: None,
+            bin_dir: Some("bin".to_string()),
+            extra_vars: HashMap::new(),
+            extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
+            add_to_path: None,
+        }],
+        symlink_dir: None,
+    };
+    let env = setup(&config);
+    for v in ["21.0.13", "21.0.13-zulu", "21.0.13.0.11-amzn"] {
+        fs::create_dir_all(env.temp.join("store").join("java").join(v)).unwrap();
+    }
+    let mgr = make_manager(config);
+    let sdk = "java".parse().unwrap();
+
+    // 无后缀 = 默认 Temurin，不会被 zulu 劫持
+    assert_eq!(mgr.resolve_installed_version(&sdk, "21").unwrap().version, "21.0.13");
+    // 后缀式与 @ 式等价
+    assert_eq!(mgr.resolve_installed_version(&sdk, "21-zulu").unwrap().version, "21.0.13-zulu");
+    assert_eq!(mgr.resolve_installed_version(&sdk, "zulu@21").unwrap().version, "21.0.13-zulu");
+    // amzn 别名 + 多段 tag
+    assert_eq!(
+        mgr.resolve_installed_version(&sdk, "amzn@21.0.13").unwrap().version,
+        "21.0.13.0.11-amzn"
+    );
+    // Temurin 别名归一化为无后缀
+    assert_eq!(mgr.resolve_installed_version(&sdk, "21.0.13-tem").unwrap().version, "21.0.13");
+    // 仅装了其他供应商时，默认 Temurin 查 17 给出提示
+    let err = mgr
+        .resolve_installed_version(&sdk, "17")
+        .err()
+        .expect("expected vendor hint error");
+    assert!(format!("{err}").contains("other vendors installed"));
 }
 
 /// install 全流程事件 + 进度生命周期：core 零打印，文案/进度逐条经 sink 可断言
@@ -392,6 +587,7 @@ fn core_flow_emits_event_sequence() {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }],
         symlink_dir: None,
     };
@@ -460,6 +656,7 @@ fn core_flow_emits_already_installed() {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }],
         symlink_dir: None,
     };
@@ -499,10 +696,11 @@ fn core_flow_emits_already_installed() {
 #[test]
 fn core_flow_fallback_download_bar_lifecycle() {
     let zip = minimal_zip_at(true);
-    let base = serve_routes(vec![
-        ("/ver.json", br#"["3.0.0"]"#.to_vec()),
-        // 主源路径故意不注册：serve_routes 未匹配返回 404
-        ("/fb/tool-3.0.0.zip", zip),
+    let base = serve_routes_status(vec![
+        ("/ver.json", 200, br#"["3.0.0"]"#.to_vec()),
+        // 主源返回 500（可重试的瞬时失败）：验证重试告警 + 备源接管
+        ("/dist/tool-3.0.0-bin.zip", 500, Vec::new()),
+        ("/fb/tool-3.0.0.zip", 200, zip),
     ]);
 
     let config = SdkmConfig {
@@ -519,6 +717,7 @@ fn core_flow_fallback_download_bar_lifecycle() {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }],
         symlink_dir: None,
     };
@@ -565,6 +764,56 @@ fn core_flow_fallback_download_bar_lifecycle() {
     );
 }
 
+/// 主源 404（确定性失败，如 dlcdn 只有当前版本）→ 不重试，立即切备源
+#[test]
+fn core_flow_fallback_skips_retry_on_404() {
+    let zip = minimal_zip_at(true);
+    let base = serve_routes(vec![
+        ("/ver.json", br#"["4.0.0"]"#.to_vec()),
+        // 主源路径故意不注册 → 404（确定性失败）
+        ("/fb/tool-4.0.0.zip", zip),
+    ]);
+
+    let config = SdkmConfig {
+        network: NetworkConfig::default(),
+        sdks: vec![SdkConfig {
+            name: "fb404".to_string(),
+            version_url: Some(format!("{}/ver.json", base)),
+            version_fallback_url: None,
+            download_url: Some(format!("{}/dist/tool-{{version}}-bin.zip", base)),
+            download_fallback_url: Some(format!("{}/fb/tool-{{version}}.zip", base)),
+            current_version: None,
+            bin_dir: Some("bin".to_string()),
+            extra_vars: HashMap::new(),
+            extra_paths: Vec::new(),
+            os_style: None,
+            arch_style: None,
+            add_to_path: None,
+        }],
+        symlink_dir: None,
+    };
+    let env = setup(&config);
+    let (mut mgr, events) = make_manager_recording(config);
+
+    let sdk = "fb404".parse().unwrap();
+    let resolved = rt().block_on(mgr.resolve_install_version_async(&sdk, "4.0.0")).unwrap();
+    rt().block_on(mgr.install_sdk_async(&sdk, &resolved, false)).unwrap();
+
+    assert_installed(&env, "fb404", "4.0.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
+    let log = events.lock().unwrap().clone();
+    assert!(
+        !log.iter().any(|m| m.contains("Download attempt #")),
+        "404 属确定性失败，不应重试: {log:?}"
+    );
+    assert_in_order(
+        &log,
+        &[
+            "Primary download failed, trying fallback URL: ",
+            "fb404 4.0.0 installed successfully!",
+        ],
+    );
+}
+
 /// 安装 + switch 符号链接链路（回归保护：引擎型 Custom SDK 走既有 switch 语义）
 #[test]
 fn switch_symlink_resolves_to_installed_version() {
@@ -586,6 +835,7 @@ fn switch_symlink_resolves_to_installed_version() {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }],
         symlink_dir: None,
     };

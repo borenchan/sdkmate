@@ -117,6 +117,7 @@ fn java_config() -> SdkConfig {
         extra_paths: Vec::new(),
         os_style: None,
         arch_style: None,
+        add_to_path: None,
     }
 }
 

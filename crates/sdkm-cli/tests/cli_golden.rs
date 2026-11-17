@@ -224,6 +224,43 @@ fn config_get_and_list() {
     assert!(text.contains("network.connect_timeout = 30"));
 }
 
+/// 远程列表离线（预写缓存 fixture）：Tomcat 走 Apache HTML 目录发现，里程碑 `-M` 不进列表
+#[test]
+fn ls_remote_tomcat_from_cache_fixture() {
+    let fx = Sandbox::new("lsrmtc");
+    let cache = fx.root.join(".cache").join("api");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(
+        cache.join("tomcat.json"),
+        r#"<a href="tomcat-11/">t11</a><a href="tomcat-9/">t9</a>"#,
+    )
+    .unwrap();
+    fs::write(
+        cache.join("tomcat-11.json"),
+        r#"<a href="v11.0.5/">a</a><a href="v11.0.0-M1/">m</a>"#,
+    )
+    .unwrap();
+
+    let out = run_in(&fx, &["list", "tomcat", "--remote", "--limit", "5"], &[]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", plain(&fx, &out.stderr));
+    let text = plain(&fx, &out.stdout);
+    assert!(text.contains("11.0.5"), "got: {text:?}");
+    assert!(!text.contains("M1"), "milestone leaked into list: {text:?}");
+}
+
+/// 本地列表：Java 供应商后缀目录与默认 Temurin 目录并列展示
+#[test]
+fn ls_local_java_vendor_suffix() {
+    let fx = Sandbox::new("lsjava");
+    fs::create_dir_all(fx.root.join("store/java/21.0.5-zulu")).unwrap();
+
+    let out = run_in(&fx, &["list", "java"], &[]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", plain(&fx, &out.stderr));
+    let text = plain(&fx, &out.stdout);
+    assert!(text.contains("21.0.5"), "got: {text:?}");
+    assert!(text.contains("21.0.5-zulu"), "got: {text:?}");
+}
+
 /// 未注册 SDK：exit 1 + stderr 错误文案（字节级）+ stdout 空（分流契约）
 #[test]
 fn err_unregistered_switch() {

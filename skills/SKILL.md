@@ -87,8 +87,10 @@ sdkm 的 **home = 运行中可执行文件的父目录**（`current_exe()`），
 ```bash
 sdkm init                    # 首次初始化
 sdkm i java 21               # 远程安装 Java 21 最新版并自动切换（支持模糊版本；install 别名 i）
+sdkm i java zulu@17          # 换 JDK 供应商（等价写法 17-zulu；switch/rm/use 同样支持）
 sdkm ls                      # 列出所有已安装 SDK + 当前版本
 sdkm ls node -r              # 交互式浏览远程 Node 版本，按 i 安装、s 切换
+sdkm i tomcat 11             # 安装 Apache Tomcat（归档全历史；只设 CATALINA_HOME，不写 PATH）
 sdkm s java 17               # 切换到本地已安装的 Java 17
 sdkm c                       # 查看当前激活版本
 sdkm rm node 16              # 卸载本地 Node 16（uninstall 别名 rm；-y 跳过确认）
@@ -140,7 +142,9 @@ Invoke-Expression ((sdkm use --shell java 21) -join "`n")
 
 ### 各命令细节
 
-**install**：从远程下载并安装。内部 12 阶段（解析→本地检查→建 URL→下载→解压→校验→标准化→安装验证→清理→自动切换），各阶段带进度展示，失败自动回滚已完成步骤。默认安装后自动切到新版本，`--no-switch` 关闭。内置支持 `java`/`node`/`python`/`maven`/`go`，也接受自定义 SDK。
+**install**：从远程下载并安装。内部 12 阶段（解析→本地检查→建 URL→下载→解压→校验→标准化→安装验证→清理→自动切换），各阶段带进度展示，失败自动回滚已完成步骤。默认安装后自动切到新版本，`--no-switch` 关闭。内置支持 `java`/`node`/`python`/`maven`/`go`/`tomcat` 等 40+ 工具，也接受自定义 SDK。
+
+> **Java 供应商**：默认 Eclipse Temurin；换供应商把供应商写进版本号，`21-zulu`（后缀式）与 `zulu@21`（前缀式）等价，别名 `tem`/`temurin`、`zulu`、`amzn`/`corretto`、`librca`/`liberica`。安装目录与 `current` 显示规范形态 `21.0.13-zulu`（Temurin 无后缀）。`switch`/`rm`/`use` 接受同样两种写法。
 
 **uninstall**：卸载本地版本并清理。模糊匹配（`sdkm rm node 16` 命中本地 v16.x）；**若卸的是当前激活版本，自动清理其激活环境（PATH 条目、env vars、config 的 current_version）**。交互式确认，`-y`/`--yes` 跳过（agent/脚本务必带 `-y`）。
 
@@ -151,6 +155,8 @@ Invoke-Expression ((sdkm use --shell java 21) -join "`n")
 - `--limit N`：远程列表最多显示 N 条，默认 20。
 - `-r` 但未给 SDK 名 → 报错 `Please specify an SDK name`。
 - `list maven -r` → 报错（Maven 不支持远程版本列表）。
+- `list java -r` → 四家供应商（Temurin/Zulu/Corretto/Liberica）的 LTS 系列 + 最新 feature 系列版本**合并成一个列表**，非 Temurin 条目带后缀；无 `--vendor` 参数，TUI 里按 `f` 搜 `zulu`/`amzn`/`librca` 即可筛。
+- `list tomcat -r` → 解析 Apache 归档 HTML 目录（root → `tomcat-9/10/11`），含全部历史 patch，里程碑 `-M` 已过滤。
 
 **switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。**已注入 hook 时切换后按一下回车即生效**（hook 每次回车触发 `sdkm env` 从 config 动态重建 PATH）；未注入 hook 需重启终端。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
 
@@ -221,7 +227,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 
 > 远程版本列表采用「缓存优先 + TTL」：未过期用本地缓存，过期才请求 API；API 失败退化为返回过期缓存，离线可用。
 
-`[[sdk]]` 段（每个 SDK 一条，内置 5 个 + 用户自定义）：
+`[[sdk]]` 段（每个 SDK 一条，内置 40+ 个 + 用户自定义）：
 
 | 键 | 说明 |
 |:---|:---|
@@ -234,6 +240,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 | `bin_dir` | 二进制所在子目录名；**空串 = 二进制在 SDK 根目录**（如 Node.js、Windows Python），**必填** |
 | `extra_vars` | 额外环境变量键值表，值支持模板渲染（如 `JAVA_HOME = "{sdk_dir}"`） |
 | `extra_paths` | 额外 PATH 条目（相对符号链接目录，可多条） |
+| `add_to_path` | 默认 `true`；`false` = 切换时只设 `extra_vars` 不写 PATH（内置 Tomcat 即如此） |
 
 ### 类型校验规则
 
@@ -315,18 +322,25 @@ sdkm config add-sdk groovy \
 
 | SDK | 版本发现源 | 下载源 |
 |:---|:---|:---|
-| Java | Adoptium available_releases API | Adoptium binary latest API（`{feature_version}`/`{os}`/`{arch}`） |
+| Java | 四家供应商 API：Adoptium（默认 Temurin）/ Azul Zulu / GitHub `corretto-*` tags / BellSoft Liberica | 各家 API 返回的平台直链；仅「默认供应商 + 裸大版本」（如 `install java 21`）走 `sdk.java.download_url` 模板（`{feature_version}`/`{os}`/`{arch}`），可换镜像 |
 | Node.js | nodejs.org/dist/index.json | `nodejs.org/dist/{version}/...`（`{os}`=`win/darwin/linux`） |
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
 | Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
+| Tomcat | Apache 归档 HTML 目录索引（`archive.apache.org/dist/tomcat/`，多请求，备源 dlcdn） | 归档模板（`{feature_version}`/`{version}`/`{ext}`，备源 dlcdn），可换镜像 |
 | Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
+
+> **自定义 SDK 只认 JSON**：`version_url` 需返回版本列表 JSON（扁平数组 / `{"version": ...}` 数组 / GitHub Releases 三种形态）。Apache 风格的 HTML 目录索引只有内置 Tomcat 支持，自定义 SDK 指向 HTML 页会解析失败。
 
 ## 已知限制（动手前必看）
 
 - **Maven 无远程版本发现**：`install maven` 必须给精确版本，`list maven -r` 报错。
 - **Windows 需管理员权限**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`、创建符号链接需管理员权限，`init`/`switch` 需管理员运行。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
-- **内置不含 Rust 工具链**：sdkm 内置 SDK 含 Java/Node/Python/Maven/Go，不含 Rust 条目（如需管理 Rust 用 rustup）。
+- **内置不含 Rust 工具链**：sdkm 内置 SDK 含 Java/Node/Python/Maven/Go/Tomcat，不含 Rust 条目（如需管理 Rust 用 rustup）。
+- **Java 供应商覆盖范围**：首批 4 家（Temurin 默认 / Zulu / Corretto / Liberica），Oracle、Microsoft、Semeru、GraalVM 等未接入。`list java -r` 只列 LTS 系列 + 最新 feature 系列；未列出的大版本仍可直接 `install java 24`。Corretto 无 Windows aarch64 构建。
+- **Java 精确安装下载源固定**：`install java 21.0.13`、任何供应商写法都用各家 API 直链，改 `sdk.java.download_url` 不生效；只有 `install java 21` 走模板。
+- **Tomcat 不写 PATH**：`bin/` 里 `startup`/`version`/`digest` 等脚本名太通用，内置条目 `add_to_path = false`，切换只更新 `CATALINA_HOME`，用 `$CATALINA_HOME/bin/...`（Windows `%CATALINA_HOME%\bin\catalina.bat`）启动。
+- **Tomcat 版本源是 HTML**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存）；下载主源 dlcdn，历史版本 404 立即回退 archive（不浪费重试），卡死 30s 无数据会自动中止重试。**国内建议换华为云镜像**（全历史可用且快）：`sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"`（阿里云/清华同理）。
 - **Unix 环境变量操作**修改 shell profile；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
 - **self update 跨改名迁移**：0.3.0 起 release 产物名从 `sdkmate-*` 改为 `sdkm-*`，0.2.x 的 `self update` 无法升级到 0.3.0（asset 名不匹配），需手动下载 0.3.0 覆盖一次，之后正常。

@@ -21,6 +21,8 @@ pub enum BuiltinSdk {
     Python,
     /// go programming language
     Go,
+    /// apache tomcat web 容器（Apache 归档目录多请求发现）
+    Tomcat,
 }
 
 impl FromStr for Sdk {
@@ -50,6 +52,7 @@ impl FromStr for BuiltinSdk {
             "node" => Ok(BuiltinSdk::Node),
             "python" => Ok(BuiltinSdk::Python),
             "go" => Ok(BuiltinSdk::Go),
+            "tomcat" => Ok(BuiltinSdk::Tomcat),
             _ => Err(anyhow::anyhow!("not builtin sdk")),
         }
     }
@@ -62,6 +65,7 @@ impl Display for BuiltinSdk {
             BuiltinSdk::Node => write!(f, "node"),
             BuiltinSdk::Python => write!(f, "python"),
             BuiltinSdk::Go => write!(f, "go"),
+            BuiltinSdk::Tomcat => write!(f, "tomcat"),
         }
     }
 }

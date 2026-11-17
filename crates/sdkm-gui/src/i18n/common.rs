@@ -104,6 +104,13 @@ pub fn sdk_desc(name: &str, lang: crate::prefs::GuiLang) -> &'static str {
                 "Java Development Kit"
             }
         }
+        "tomcat" => {
+            if zh {
+                "Web 容器 / Java 应用服务器"
+            } else {
+                "Web Container / Java Application Server"
+            }
+        }
         "maven" => {
             if zh {
                 "构建工具"

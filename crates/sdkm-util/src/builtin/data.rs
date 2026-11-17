@@ -43,6 +43,7 @@ pub const VAULT: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };
 
 pub const CONSUL: SdkSeed = SdkSeed {
@@ -59,6 +60,7 @@ pub const CONSUL: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };
 
 pub const PACKER: SdkSeed = SdkSeed {
@@ -75,4 +77,5 @@ pub const PACKER: SdkSeed = SdkSeed {
     asset_prefix: None,
     extra_vars: &[],
     extra_paths: &[],
+    add_to_path: true,
 };

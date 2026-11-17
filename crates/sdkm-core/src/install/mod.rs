@@ -16,6 +16,7 @@ use crate::runtime::run_blocking;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
 use crate::version::{
     ResolvedVersion, VersionSource, get_version_discovery, resolve_java_version, resolve_sdk_version,
+    resolve_tomcat_version,
 };
 use download_url::build_download_url;
 use downloader::{build_download_client, build_reqwest_client, download_with_retry};
@@ -38,10 +39,29 @@ impl SdkManager {
         };
         let resolve_pb = self.sink.progress(ProgressKind::Resolve, resolve_title);
         let client = build_reqwest_client(&self.config.network)?;
+        let cache_ttl = self.config.network.cache_ttl_secs as u64;
 
         let resolved = if let Sdk::Built(BuiltinSdk::Java) = sdk {
-            // Java 有两步查询逻辑（available_releases → assets API），独立处理
-            resolve_java_version(&client, version_input).await?
+            // Java 多供应商解析（sdkman 式后缀 / `vendor@major` 输入；下载直链来自各供应商 API）
+            resolve_java_version(&client, &self.config.network, cache_ttl, self.sink.as_ref(), version_input).await?
+        } else if let Sdk::Built(BuiltinSdk::Tomcat) = sdk {
+            // Tomcat：Apache 归档两级 HTML 目录（root → 分支）多请求发现，下载走 config 模板
+            let root = sdk_conf.version_url.clone().unwrap_or_default();
+            if root.is_empty() {
+                bail!(
+                    "tomcat has no version_url configured, cannot resolve versions (version discovery drives the download template)"
+                );
+            }
+            resolve_tomcat_version(
+                &client,
+                &self.config.network,
+                cache_ttl,
+                self.sink.as_ref(),
+                &root,
+                sdk_conf.version_fallback_url.as_deref(),
+                version_input,
+            )
+            .await?
         } else {
             // 通用流程：版本源统一读 config（内置 SDK 的种子已由 ensure_builtin_sdks 物化，
             // 用户可 config set sdk.<name>.version_url 换源/镜像）+ 缓存兜底 + 模糊匹配
@@ -90,7 +110,7 @@ impl SdkManager {
                     &sdk_name,
                     version_input,
                     headers,
-                    self.config.network.cache_ttl_secs as u64,
+                    cache_ttl,
                     &self.config.network,
                     self.sink.as_ref(),
                 )

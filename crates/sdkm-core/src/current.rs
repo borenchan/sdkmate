@@ -7,7 +7,7 @@
 use crate::manager::SdkManager;
 use crate::project_config::{ProjectConfig, find_project_config};
 use crate::shell::env::session_env_value;
-use crate::version::fuzzy_match_version_core;
+use crate::version::match_installed_version;
 use anyhow::Result;
 use sdkm_util::path::get_installed_sdks_dir;
 use sdkm_util::sdk::Sdk;
@@ -98,7 +98,9 @@ impl SdkManager {
             return None;
         }
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        fuzzy_match_version_core(&version_strings, input).ok().map(|m| m.full_version)
+        match_installed_version(sdk, &version_strings, input)
+            .ok()
+            .map(|m| m.full_version)
     }
 
     /// 全局层：`current_version` 原样返回（不重校验安装，与现状一致）

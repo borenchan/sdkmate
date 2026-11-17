@@ -328,3 +328,11 @@ flowchart TD
 - **Windows 需管理员权限**：Windows 下环境变量与系统 PATH 写入 `HKEY_LOCAL_MACHINE`、创建符号链接需管理员权限，运行 `init`/`switch` 需管理员。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
+- **Java 供应商覆盖范围**：首批 4 家（Temurin 默认 / Zulu / Corretto / Liberica），Oracle、Microsoft、Semeru、GraalVM 等暂未接入。`sdkm list java -r` 只列 LTS 系列 + 最新 feature 系列的 patch；未列出的大版本（如 `24`）仍可直接 `sdkm install java 24`（解析时按需查对应供应商 API）。Corretto 无 Windows aarch64 构建，该平台会明确报错。
+- **Java 精确安装的下载源固定**：`install java 21.0.13` / 任何供应商写法都使用各家 API 返回的直链，改 `sdk.java.download_url` 不生效；只有 `install java 21`（默认供应商 + 裸大版本）走模板，可换 Adoptium 镜像。GitHub 托管的直链仍受 `network.github_download_mirror` 影响。
+- **Tomcat 不写 PATH**：Tomcat 的 `bin/` 里有 `startup`、`version`、`digest` 这类通用名脚本，入 PATH 容易撞名。因此内置条目设了 `add_to_path = false`，切换只更新 `CATALINA_HOME`，用 `$CATALINA_HOME/bin/...`（Windows `%CATALINA_HOME%\bin\catalina.bat`）启动。想改成入 PATH：`sdkm config set sdk.tomcat.add_to_path true`。
+- **Tomcat 版本源是 HTML 目录**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存）；下载主源 dlcdn（官方 CDN），历史版本 dlcdn 404 时立即（不重试）回退 `archive.apache.org`；下载卡住 30 秒无数据会自动中止并重试/切备源。**国内建议换镜像**（实测华为云全历史可用且快）：
+  ```bash
+  sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"
+  ```
+  其他可选：`https://mirrors.aliyun.com/apache/tomcat/...`、`https://mirrors.tuna.tsinghua.edu.cn/apache/tomcat/...`（占位符 `{feature_version}` = 主版本 9/10/11，`{ext}` = Windows `zip` / Unix `tar.gz`）。

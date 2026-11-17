@@ -23,7 +23,7 @@ use crate::hook_cache::{
 };
 use crate::manager::SdkManager;
 use crate::project_config::find_project_config;
-use crate::version::fuzzy_match_version_core;
+use crate::version::match_installed_version;
 use sdkm_util::config_helper::PLACEHOLDER_SDK_DIR;
 use sdkm_util::consts::{ENV_HOOK_BASE_PATH, ENV_HOOK_INJECTED_PATHS, PATH_LIST_SEPARATOR, SDKM_SESSION_ENV_PREFIX};
 use sdkm_util::sdk::Sdk;
@@ -205,8 +205,12 @@ impl SdkManager {
             if s.current_version.is_none() || covered.contains(&s.name) {
                 continue; // 无 current_version 非全局 active；会话/项目层优先于全局层
             }
-            // bin 路径：symlink 目录 + bin_dir（bin_dir None = 二进制在 symlink 根目录）
-            let mut bins = vec![Path::new(&symlink_root).join(&s.name).join(s.bin_dir.as_deref().unwrap_or(""))];
+            // bin 路径：symlink 目录 + bin_dir（bin_dir None = 二进制在 symlink 根目录）；
+            // add_to_path=false 的 SDK（如 Tomcat）不注入主 bin，extra_paths 照常
+            let mut bins = Vec::new();
+            if s.add_to_path() {
+                bins.push(Path::new(&symlink_root).join(&s.name).join(s.bin_dir.as_deref().unwrap_or("")));
+            }
             for extra in &s.extra_paths {
                 let extra_dir = Path::new(&symlink_root).join(&s.name).join(extra);
                 if extra_dir.exists() {
@@ -260,7 +264,7 @@ impl SdkManager {
             return None;
         }
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        let matched = match fuzzy_match_version_core(&version_strings, version_input) {
+        let matched = match match_installed_version(&sdk, &version_strings, version_input) {
             Ok(m) => m,
             Err(e) => {
                 self.sink.error(format!("project config: `{name}` {e}"));
@@ -270,11 +274,13 @@ impl SdkManager {
         let target = matched.full_version;
         let item = versions.into_iter().find(|v| v.sdk_version == target)?;
 
-        // 拼项目层 PATH 条目：store 真实版本目录 + bin_dir（绕过全局 symlink）
+        // 拼项目层 PATH 条目：store 真实版本目录 + bin_dir（绕过全局 symlink）；
+        // add_to_path=false 的 SDK（如 Tomcat）不注入主 bin，extra_paths 照搬 switch 的处理
         let mut bins = Vec::new();
-        let main_bin = item.sdk_dir.join(sdk_conf.bin_dir.as_deref().unwrap_or(""));
-        bins.push(main_bin.to_string_lossy().into_owned());
-        // extra_paths 照搬 switch 的处理（如 Python Windows 的 Scripts）
+        if sdk_conf.add_to_path() {
+            let main_bin = item.sdk_dir.join(sdk_conf.bin_dir.as_deref().unwrap_or(""));
+            bins.push(main_bin.to_string_lossy().into_owned());
+        }
         for extra in &sdk_conf.extra_paths {
             let extra_dir = item.sdk_dir.join(extra);
             if extra_dir.exists() {

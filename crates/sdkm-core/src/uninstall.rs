@@ -10,7 +10,7 @@ use crate::env::report_env_actions;
 use crate::link::symlink::remove_symlink;
 use crate::manager::SdkManager;
 use crate::project_config::find_project_config;
-use crate::version::fuzzy_match_version_core;
+use crate::version::match_installed_version;
 use anyhow::{Context, Result, bail};
 use sdkm_util::path::get_installed_sdks_dir;
 use sdkm_util::sdk::Sdk;
@@ -41,7 +41,7 @@ impl SdkManager {
 
         // 模糊匹配本地已装版本（复用 fuzzy 核心，找不到匹配内部带 did-you-mean）
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
+        let matched = match_installed_version(sdk, &version_strings, version_input)?;
         let target_version = matched.full_version;
 
         let target_item = versions.iter().find(|v| v.sdk_version == target_version).context(format!(
@@ -85,7 +85,7 @@ impl SdkManager {
         // 模糊匹配本地已装版本（复用 fuzzy 核心，找不到匹配内部带 did-you-mean）——
         // 执行段自查：调用端确认期间状态可能变化，不信任预检查结果
         let version_strings: Vec<String> = versions.iter().map(|v| v.sdk_version.clone()).collect();
-        let matched = fuzzy_match_version_core(&version_strings, version_input)?;
+        let matched = match_installed_version(sdk, &version_strings, version_input)?;
         let target_version = matched.full_version;
 
         // 定位目标版本项
@@ -282,7 +282,7 @@ impl SdkManager {
         // pin 可能是模糊值（如 "21"：用户手写 .sdkm.toml），不能精确比较——
         // 把被卸载版本当候选池、pin 当输入做模糊匹配，命中即视为引用
         match project_cfg.pins.get(&sdk.to_string()) {
-            Some(pin) if fuzzy_match_version_core(&[version.to_string()], pin).is_ok() => vec![path],
+            Some(pin) if match_installed_version(sdk, &[version.to_string()], pin).is_ok() => vec![path],
             _ => Vec::new(),
         }
     }

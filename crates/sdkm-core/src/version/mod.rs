@@ -15,10 +15,26 @@ pub mod github_releases;
 
 pub use cache::{VersionSource, fetch_version_data};
 pub use discovery::{
-    ResolvedVersion, VersionDiscovery, VersionEntry, fuzzy_match_version, get_version_discovery, resolve_java_version,
-    resolve_sdk_version,
+    ResolvedVersion, VersionDiscovery, VersionEntry, fetch_java_list_majors, fetch_tomcat_entries, fuzzy_match_version,
+    get_version_discovery, list_java_versions, resolve_java_version, resolve_sdk_version, resolve_tomcat_version,
 };
-pub use fuzzy::{FuzzyMatch, fuzzy_match_version_core, suggest_similar_version};
+pub use fuzzy::{
+    FuzzyMatch, JavaVendor, format_java_version, fuzzy_match_version_core, fuzzy_match_version_with_vendor,
+    parse_java_version_input, suggest_similar_version,
+};
+pub use github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
+
+use anyhow::Result;
+use sdkm_util::sdk::{BuiltinSdk, Sdk};
+
+/// 本地已装版本匹配入口：Java 走供应商后缀感知匹配，其余 SDK 走通用模糊匹配
+pub fn match_installed_version(sdk: &Sdk, versions: &[String], input: &str) -> Result<FuzzyMatch> {
+    if matches!(sdk, Sdk::Built(BuiltinSdk::Java)) {
+        fuzzy_match_version_with_vendor(versions, input)
+    } else {
+        fuzzy_match_version_core(versions, input)
+    }
+}
 
 /// 截断字符串到指定长度(缓存重试日志与 Java 解析错误信息共用)
 pub(super) fn truncate(s: &str, max: usize) -> String {
