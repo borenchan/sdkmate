@@ -1,0 +1,165 @@
+name: Claim
+
+# Issue 认领：评论以 `/claim` 或 `/认领` 开头 → 自动加入 Assignees、打「已认领」标签。
+# 配置了项目面板（repo variable PROJECT_NUMBER + secret PROJECT_TOKEN）时，同时把卡片
+# 加入面板并置为 Status = In progress。
+# 只处理 issue（跳过 PR 评论）；已被他人认领时提示先协商，由维护者调整 Assignees。
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  claim:
+    if: >-
+      !github.event.issue.pull_request &&
+      (startsWith(github.event.comment.body, '/claim') || startsWith(github.event.comment.body, '/认领'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        id: claim
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.payload.issue.number;
+            const commenter = context.payload.comment.user.login;
+            const assignees = (context.payload.issue.assignees || []).map((a) => a.login);
+            const reply = (body) =>
+              github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
+
+            if (assignees.length > 0) {
+              if (assignees.includes(commenter)) {
+                await reply(`@${commenter} 你已经在认领名单中，继续跟进即可。`);
+              } else {
+                await reply(
+                  `该 issue 已由 ${assignees.map((u) => '@' + u).join('、')} 认领。` +
+                    `如需接手，请先与认领人沟通，由维护者调整 Assignees。`
+                );
+              }
+              return;
+            }
+
+            const res = await github.rest.issues.addAssignees({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              assignees: [commenter],
+            });
+            if (!res.data.assignees.some((a) => a.login === commenter)) {
+              await reply(
+                `@${commenter} 自动认领失败（公开仓库的 Assignee 需要先在该 issue 下评论过），` +
+                  `请维护者手动把 @${commenter} 加入 Assignees。`
+              );
+              return;
+            }
+
+            // 「已认领」标签不存在则先创建
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: '已认领' });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: '已认领',
+                color: 'fbca04',
+                description: '已有贡献者认领，正在跟进',
+              });
+            }
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              labels: ['已认领'],
+            });
+            await reply(
+              `@${commenter} 认领成功 🎉 完成后请在 PR 描述中写 \`Closes #${issueNumber}\`，合并时会自动关闭此 issue。`
+            );
+            core.setOutput('claimed', 'true');
+
+      # 项目面板同步（可选）：Projects v2 的 GraphQL API 不支持 GITHUB_TOKEN，
+      # 需要 repo variable PROJECT_NUMBER + secret PROJECT_TOKEN（classic PAT，project scope）
+      - uses: actions/github-script@v7
+        if: steps.claim.outputs.claimed == 'true'
+        env:
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN || github.token }}
+          script: |
+            if (!process.env.PROJECT_NUMBER || !process.env.PROJECT_TOKEN) {
+              core.info('未配置 PROJECT_NUMBER / PROJECT_TOKEN，跳过项目面板同步');
+              return;
+            }
+
+            const projectNumber = Number(process.env.PROJECT_NUMBER);
+            const owner = context.repo.owner;
+            const contentId = context.payload.issue.node_id;
+
+            // 按用户级 / 组织级依次查找项目，并按名字解析 Status 字段与 In progress 选项
+            let project = null;
+            for (const kind of ['user', 'organization']) {
+              const data = await github.graphql(
+                `query($login: String!, $number: Int!) {
+                   ${kind}(login: $login) {
+                     projectV2(number: $number) {
+                       id
+                       field(name: "Status") {
+                         ... on ProjectV2SingleSelectField { id options { id name } }
+                       }
+                     }
+                   }
+                 }`,
+                { login: owner, number: projectNumber }
+              );
+              if (data[kind] && data[kind].projectV2) {
+                project = data[kind].projectV2;
+                break;
+              }
+            }
+            if (!project) {
+              core.warning(`未找到第 ${projectNumber} 号项目，跳过面板同步`);
+              return;
+            }
+
+            const status = project.field;
+            const option =
+              status && status.options.find((o) => ['in progress', '进行中'].includes(o.name.toLowerCase()));
+            if (!option) {
+              core.warning('Status 字段缺少「In progress」选项，跳过面板同步');
+              return;
+            }
+
+            try {
+              // 已在面板中的条目会返回既有 item，不会重复添加
+              const added = await github.graphql(
+                `mutation($project: ID!, $content: ID!) {
+                   addProjectV2ItemById(input: {projectId: $project, contentId: $content}) {
+                     item { id }
+                   }
+                 }`,
+                { project: project.id, content: contentId }
+              );
+              await github.graphql(
+                `mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+                   updateProjectV2ItemFieldValue(input: {
+                     projectId: $project,
+                     itemId: $item,
+                     fieldId: $field,
+                     value: {singleSelectOptionId: $option}
+                   }) { projectV2Item { id } }
+                 }`,
+                {
+                  project: project.id,
+                  item: added.addProjectV2ItemById.item.id,
+                  field: status.id,
+                  option: option.id,
+                }
+              );
+              core.info('已把 issue 移入项目面板 In progress');
+            } catch (e) {
+              // 面板同步失败不影响认领本身
+              core.warning(`项目面板同步失败：${e.message}`);
+            }

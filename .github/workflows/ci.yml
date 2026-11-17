@@ -4,15 +4,20 @@ name: CI
 # 固定具体版本不用 latest：GitHub 滚动 latest 时 glibc/Xcode/MSVC 跳变会让 CI 无预警变红
 # （MACOSX_DEPLOYMENT_TARGET 教训）；镜像退役前 GitHub 会提前公告，届时手动升级即可。
 # ARM64 / musl / macOS Intel 等完整目标由 release.yml 发版七产物矩阵兜底（发版必真编译）。
-# 只留 push 触发（非 master）：PR 与 push 是同一 commit，双触发纯重复跑两遍。
+# 触发策略：同仓库分支 push 即触发；pull_request 只为覆盖 fork PR（fork 的 push 发生在贡献者
+# 仓库，上游收不到 push 事件）。同仓库 PR 与分支 push 是同一 commit，job 级 if 挡掉非 fork 的
+# pull_request，避免双跑。fork 首次贡献者的 run 需维护者手动 approve 一次（GitHub 默认策略）。
 on:
   push:
     branches-ignore:
       - master # master 的质量验证由 release.yml 的发版链承载，避免重复跑
+  pull_request:
 
 jobs:
   check:
     name: Check (${{ matrix.os }})
+    # push 永远跑；pull_request 只放 fork PR（同仓库 PR 已由 push 覆盖）
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
