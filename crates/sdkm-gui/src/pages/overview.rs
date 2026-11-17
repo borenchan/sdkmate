@@ -66,8 +66,8 @@ impl OverviewState {
             .filter(|(_, r)| match self.filter {
                 OverviewFilter::All => true,
                 OverviewFilter::Installed => r.installed,
-                OverviewFilter::RemoteSupported => r.has_version_url,
-                OverviewFilter::LocalOnly => !r.has_version_url,
+                OverviewFilter::RemoteSupported => r.can_install_remote,
+                OverviewFilter::LocalOnly => !r.can_install_remote,
                 OverviewFilter::Custom => !r.is_builtin,
             })
             .filter(|(_, r)| kw.is_empty() || r.name.to_lowercase().contains(&kw))
@@ -80,8 +80,8 @@ impl OverviewState {
                 .filter(|r| match f {
                     OverviewFilter::All => true,
                     OverviewFilter::Installed => r.installed,
-                    OverviewFilter::RemoteSupported => r.has_version_url,
-                    OverviewFilter::LocalOnly => !r.has_version_url,
+                    OverviewFilter::RemoteSupported => r.can_install_remote,
+                    OverviewFilter::LocalOnly => !r.can_install_remote,
                     OverviewFilter::Custom => !r.is_builtin,
                 })
                 .count()

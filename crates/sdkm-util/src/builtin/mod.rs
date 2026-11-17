@@ -10,15 +10,17 @@
 //   并从 assets 中挑选当前平台的压缩包直链（download_url 留空即可）
 // - 组合模式：GH 版本列表 + 官方 CDN 模板下载（helm/terraform——GH release 不含二进制资产）
 //
-// 文件组织：本模块只放类型、构造函数与聚合；种子按领域拆分在子模块（core/cli/devops/security/data）。
+// 文件组织：本模块只放类型、构造函数与聚合；种子按领域拆分在各子模块。
 //
 // 内置准入门槛：语言/数据库/中间件优先，star ≥ 15k 或 mega-famous 级常用度（太冷门无内置价值）；
-// 资产命名与解压布局须满足标准 B 引擎（装完即用：主命令直接命中 PATH——
+// 远程资产的命名与解压布局须满足安装引擎（装完即用：主命令直接命中 PATH——
 // zip 内 exe 带平台名的除名，如 codex/yq；裸二进制无压缩包的除名，如 jq/mkcert）。
+// 组件式开发工具链可只提供内置本地布局，不将组件归档误作可直接运行的完整 SDK。
 
 mod cli;
 mod core;
 mod data;
+mod development;
 mod devops;
 mod security;
 
@@ -32,11 +34,11 @@ pub struct SdkSeed {
     pub name: &'static str,
     /// 对应 BuiltinSdk 枚举变体；None = 引擎型 SDK（无专属代码路径，全走通用引擎）
     pub variant: Option<BuiltinSdk>,
-    /// 版本发现主源 URL（空串 = 无远程版本发现，仅精确版本安装）
+    /// 版本发现主源 URL（空串 = 无远程列表；有下载模板则可精确安装，否则仅本地管理）
     pub version_url: &'static str,
     /// 版本发现备源 URL（主源失败时回退）
     pub version_fallback_url: Option<&'static str>,
-    /// 下载主源 URL 模板（None = 无模板，仅靠版本源直链；含 {version}/{os}/{arch}/{ext} 等占位符）
+    /// 下载主源 URL 模板（None = 靠版本源直链或仅本地管理；支持 {version}/{os}/{arch}/{ext}）
     pub download_url: Option<&'static str>,
     /// 下载备源模板（下载主源失败时回退）
     pub download_fallback_url: Option<&'static str>,
@@ -67,9 +69,17 @@ impl SdkSeed {
         primary_executables: &'static [&'static str],
     ) -> Self {
         SdkSeed {
+            version_url,
+            ..Self::local(name, primary_executables)
+        }
+    }
+
+    /// 本地内置 SDK：提供布局、环境和内置身份，不声明远程安装能力。
+    pub const fn local(name: &'static str, primary_executables: &'static [&'static str]) -> Self {
+        SdkSeed {
             name,
             variant: None,
-            version_url,
+            version_url: "",
             version_fallback_url: None,
             download_url: None,
             download_fallback_url: None,
@@ -81,6 +91,30 @@ impl SdkSeed {
             extra_vars: &[],
             extra_paths: &[],
         }
+    }
+
+    /// 官方归档模板：无版本发现时由调用方提供精确版本。
+    pub const fn archive(
+        name: &'static str,
+        download_url: &'static str,
+        primary_executables: &'static [&'static str],
+    ) -> Self {
+        SdkSeed {
+            download_url: Some(download_url),
+            ..Self::local(name, primary_executables)
+        }
+    }
+
+    /// 覆盖额外环境变量。
+    pub const fn vars(mut self, vars: &'static [(&'static str, &'static str)]) -> Self {
+        self.extra_vars = vars;
+        self
+    }
+
+    /// 覆盖相对 SDK 根目录的额外 PATH 条目。
+    pub const fn paths(mut self, paths: &'static [&'static str]) -> Self {
+        self.extra_paths = paths;
+        self
     }
 
     /// 覆盖 bin_dir（解压后二进制在子目录，如 cmake/gh 的 "bin"）
@@ -107,6 +141,15 @@ pub static SDK_SEEDS: &[&SdkSeed] = &[
     &core::NODE,
     &core::PYTHON,
     &core::GO,
+    // ── 开发工具链（官方归档 / 本地完整 SDK）────────────────────────
+    &development::ANDROID,
+    &development::DART,
+    &development::DOTNET,
+    &development::FLUTTER,
+    &development::GRADLE,
+    &development::LLVM,
+    &development::MINGW,
+    &development::RUST,
     // ── 引擎型 SDK（标准 A/B 数据驱动，无专属代码路径）────────────────
     &core::BUN,
     &core::PNPM,

@@ -118,8 +118,8 @@ impl SdkPageState {
             .filter(|(_, it)| match self.filter {
                 SdkFilter::All => true,
                 SdkFilter::Installed => it.installed,
-                SdkFilter::RemoteSupported => it.has_version_url,
-                SdkFilter::LocalOnly => !it.has_version_url,
+                SdkFilter::RemoteSupported => it.can_install_remote,
+                SdkFilter::LocalOnly => !it.can_install_remote,
                 SdkFilter::Custom => !it.is_builtin,
             })
             .filter(|(_, it)| kw.is_empty() || it.name.to_lowercase().contains(&kw))
@@ -132,8 +132,8 @@ impl SdkPageState {
                 .filter(|it| match f {
                     SdkFilter::All => true,
                     SdkFilter::Installed => it.installed,
-                    SdkFilter::RemoteSupported => it.has_version_url,
-                    SdkFilter::LocalOnly => !it.has_version_url,
+                    SdkFilter::RemoteSupported => it.can_install_remote,
+                    SdkFilter::LocalOnly => !it.can_install_remote,
                     SdkFilter::Custom => !it.is_builtin,
                 })
                 .count()
@@ -465,7 +465,7 @@ fn sdk_detail(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElemen
         BtnSize::Large,
         t.sdk.btn_install_version,
         Some(IconName::Download),
-        app.sdk_page.busy || app.sdk_page.resolving,
+        app.sdk_page.busy || app.sdk_page.resolving || !it.can_install_remote,
         app.sdk_page.resolving,
         cx.listener(open_install_dialog),
         cx,

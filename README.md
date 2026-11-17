@@ -274,8 +274,12 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 | 🐍 **Python** | ✅ Supported | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ Supported | Apache Maven (dlcdn) |
 | 🔵 **Go** | ✅ Supported | go.dev |
+| **Dart / .NET SDK / Gradle** | ✅ Built-in, exact-version installation | Official SDK archives |
+| **Android / Flutter / LLVM / MinGW / Rust** | ✅ Built-in, local SDK management | Complete local SDK/toolchain directories |
 | 🚀 **uv / bun / claude-code / cmake / fzf / ripgrep / ... 40+ more** | ✅ Supported | GitHub Releases |
 | ⚙️ **Custom SDK** | ✅ Infinitely extensible | User-configured (any URL) |
+
+CLI and desktop share the built-in registry. Android, Flutter, LLVM, MinGW, and Rust manage prepared local SDKs; remote component installation is not included. Dart, .NET, and Gradle require exact versions (no default remote version list). Existing entries keep their source settings on upgrade. See [layouts and source configuration](./docs/custom-sdk.md#内置开发-sdk).
 
 ---
 

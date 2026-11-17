@@ -190,6 +190,7 @@ pub struct SdkListItem {
     pub installed: bool,
     pub current: Option<String>,
     pub has_version_url: bool,
+    pub can_install_remote: bool,
     /// 种子表内置（含引擎型内置）；不在种子表的才是用户自定义
     pub is_builtin: bool,
     /// 本地已安装版本列表（未安装为空）
@@ -696,6 +697,7 @@ fn collect_sdk_rows(manager: &SdkManager) -> anyhow::Result<Vec<SdkListItem>> {
             installed: it.installed,
             current: it.current,
             has_version_url: it.has_version_url,
+            can_install_remote: it.can_install_remote,
             is_builtin,
             versions,
         });

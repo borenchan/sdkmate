@@ -166,6 +166,18 @@ pub struct SdkConfig {
     pub arch_style: Option<String>,
 }
 impl SdkConfig {
+    /// 主源或备源提供远程版本发现。
+    pub fn has_version_source(&self) -> bool {
+        [&self.version_url, &self.version_fallback_url]
+            .iter()
+            .any(|url| url.as_deref().is_some_and(|url| !url.is_empty()))
+    }
+
+    /// 版本源可返回下载直链；没有版本源时也可用模板安装精确版本。
+    pub fn can_install_remote(&self) -> bool {
+        self.has_version_source() || self.download_url.as_deref().is_some_and(|url| !url.is_empty())
+    }
+
     /// 构造 SdkConfig，bin_dir 传 None 表示二进制在 SDK 根目录
     pub fn new(name: String, version_url: String, download_url: String, bin_dir: Option<String>) -> SdkConfig {
         SdkConfig {

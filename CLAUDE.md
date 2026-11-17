@@ -64,7 +64,7 @@ github_token = ""         # GitHub PAT for higher API rate limit
 
 [[sdk]]
 name = "java"
-download_url = "..."   # 自定义 SDK 可省略（= 本地 switch-only，不远程安装）；内置 SDK 必填
+download_url = "..."   # 可省略：版本源可能提供直链；无版本源和模板时为本地管理（内置/自定义均支持）
 bin_dir = "bin"
 ```
 
@@ -110,30 +110,25 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-16）
+## 当前开发进度（2026-11-17）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 异步改造：runtime 归前端 + GUI 共享线程池（B1/B2/C）
+### 内置开发 SDK：CLI / 桌面共享注册表
 
-- **core 只出 async**：`resolve_install_version_async` / `install_sdk_async` / `fetch_remote_versions_async` / `update_self_async` / `fetch_latest|previous_version_async` 全部 `pub`；原 6 个同步壳（每次调用新建 runtime + block_on）**已删除**；`runtime.rs` 只剩 `run_blocking`（`spawn_blocking` 单点封装）
-- **阻塞段治理**：install/self_update 的解压、目录调整、校验、清理、卸载删除共 8 处包 `run_blocking`；`switch` 保留内联（毫秒级 + `&mut self` 无法移入 'static 闭包）
-- **trait 线程边界**：`EnvOperation` / `ProgressHandle` 补 `Send + Sync`；`EventSink` 原有。async future 跨 await 持有 `&SdkManager` 需要 `Sync`，这是编译期强制要求
-- **CLI**：`crates/sdkm-cli/src/runtime.rs` 进程级单线程 runtime（OnceLock 惰性），handler 在阶段边界 block_on，TUI 交互逻辑不变
-- **GUI**：`data.rs` 进程级 2-worker runtime（`tokio` 加回 `rt-multi-thread`，exe 14.26→14.30 MiB）；`spawn_task_inner` 由 `std::thread::spawn` 改 `runtime.spawn`；`build_outcome` 拆为 async，概览/列表扫描与卸载删除走 `spawn_blocking`（不占 worker）
-- **进度节流**：`sink.rs` 位置事件 10Hz（CAS 保证单发送者），finish 补发终态——下载期不再每个 8~16KB chunk 触发整窗 60fps 重绘
-- **取消升级**：关闭进度弹窗 → `JoinHandle::abort()` 网络段即时取消；解压等阻塞段仍靠 `AtomicBool` 检查点（任何运行时共性）
-- **启动去重**：概览任务本身含 SDK 列表，启动/init 后只派发一份（原先两遍全盘列举）；列表就绪后处理提取为 `on_sdk_rows_ready`
-- **HTTP client 复用**：`downloader.rs` 进程级缓存（api/download 各一），按 proxy/ssl_verify/connect_timeout 指纹失效
-- **验证**：`cargo test --workspace` 全绿（`core_install_flow` 覆盖下载→解压→校验→切换）；真实网络 `ls --remote` / `self update --check` 正常；沙箱真实安装 node 20.20.2 成功；GUI 启动与空数据态同改造前一致（11 线程 / 43.3 MB）
-- **线程构成（实测）**：`main` + 2 个 `tokio-rt-worker` + `DManip`/`VSync` + 框架内部；**加载已安装 SDK 后额外 +11~12 个未命名线程**（体积缓存未命中触发 jwalk 并行遍历；旧构建同样存在，非本次引入）。`RAYON_NUM_THREADS` 未能约束，归属待落实
-- **注意**：沙箱 `SDKM_HOME` 测试时，config 里的 `symlink_dir` 是绝对路径会写**真实 links 目录**，必须同时隔离该配置
+- **八种内置定义**：`sdkm-util/builtin/development.rs` 注册 android、dart、dotnet、flutter、gradle、llvm、mingw、rust；沿用数据驱动种子，不扩专属解析枚举。CLI 与 GUI 的分类、默认配置和删除保护共用 `SDK_SEEDS`。
+- **分发能力**：Dart / .NET / Gradle 提供官方归档模板，仅精确版本安装；其他五种默认管理本地完整 SDK。Dart/Gradle 固定 zip；.NET Windows zip、Unix tar.gz，区分 macOS=osx 与 Linux GNU/musl。
+- **已有配置保留**：按名字补缺失条目；同名旧条目的源、版本、根目录布局和环境变量保持原值，内置身份立即生效，不盲目回填用户清空的源。
+- **能力分层**：core 的 `has_version_source` / `can_install_remote` 区分版本列表与精确安装；GUI 概览/SDK 页筛选和安装按钮按真实能力显示。本地 SDK 的安装请求在联网前给出放置目录及 switch 指引。
+- **Unix ZIP 权限**：恢复归档中普通权限与执行位，并清除 setuid/setgid 等特殊位，避免 Dart/Gradle 解压后无法执行。
+- **验证**：Windows CLI/GUI 编译通过，CLI 金样与辅助测试通过；新增临时验证覆盖升级、保留覆盖值、内置保护、清空源幂等与归档布局。Linux 真实 core 95 项全绿（含临时验证），另有 2 项 ZIP 权限/实际执行验证通过。Windows 全量运行的安装链路受本进程符号链接权限 1314 限制，同一链路已在 Linux 完整验证。
+- **跨平台验证方法**：本机 Windows Rust + Zig 可交叉构建 Linux core，通过 WSL 在 Linux 临时目录运行测试，无需安装额外系统依赖；临时验证文件不提交。
 
 ## 已知问题与注意事项
 
 - **使用处禁止跨模块全路径，一律顶部 use 短名**（如 `sdkm_util::builtin::find_seed(...)` 写体内 → 改 `use sdkm_util::builtin::find_seed;`）。rustfmt 只管 use 语句、管不了使用处写法，无自动化工具；clippy `absolute_paths` 的 `max-segments=3`（为放过 `tokio::fs` 等第三方 3 段惯用写法，实测降 2 噪音比 4:1）恰好抓不到项目内 3 段路径——**review diff 时人工扫 `sdkm_util::`/`crate::` 开头的体内全路径**（宏内 `$crate::` 除外，那是正确写法）。CLI help 的内置 SDK 名单固定写 "java, node, python, go, maven, ... (see docs)" 省略号形式，不随名单扩容联动修改
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
-- Rust 完全缺失内置源配置条目
+- Rust 为内置本地工具链 SDK：放置完整已安装 toolchain 根目录，非 `.cargo/bin` 的 rustup 代理；默认不执行远程组件安装
 - **Windows 需管理员运行**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`，符号链接创建需 `SeCreateSymbolicLinkPrivilege`（管理员或开发者模式），`init`/`switch` 需管理员权限
 - Unix 环境变量操作使用 `unsafe { env::set_var() }`，在 Rust 2024 edition 中属于 UB（功能生效，彻底修复需 shim 模式重构或用户手动 source）
 - Python 版本解析 `per_page=100` 仅获取最近 100 个 release（仅备源 GitHub API 有限制，主源 uv metadata 无此问题）

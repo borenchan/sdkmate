@@ -3,6 +3,8 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::io;
 use std::path::Path;
+#[cfg(unix)]
+use std::{fs::Permissions, os::unix::fs::PermissionsExt};
 
 /// 解压下载的压缩包到指定目录，支持进度反馈
 /// - Windows / .zip → 使用 zip crate，逐文件进度
@@ -68,6 +70,12 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &dyn ProgressHandle) ->
                 fs::File::create(&out_path).context(format!("Failed to create file: {}", out_path.display()))?;
             io::copy(&mut entry, &mut out_file)
                 .context(format!("Failed to write zip entry to: {}", out_path.display()))?;
+            #[cfg(unix)]
+            if let Some(mode) = entry.unix_mode() {
+                // 保留 Dart / Gradle 等 Unix ZIP 的执行位，不恢复 setuid/setgid 等特殊位。
+                fs::set_permissions(&out_path, Permissions::from_mode(mode & 0o777))
+                    .context(format!("Failed to set zip entry permissions: {}", out_path.display()))?;
+            }
         }
 
         pb.inc(1);

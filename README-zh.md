@@ -274,8 +274,12 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 | 🐍 **Python** | ✅ 已支持 | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ 已支持 | Apache Maven (dlcdn) |
 | 🔵 **Go** | ✅ 已支持 | go.dev |
+| **Dart / .NET SDK / Gradle** | ✅ 内置，精确版本安装 | 官方 SDK 归档 |
+| **Android / Flutter / LLVM / MinGW / Rust** | ✅ 内置，本地 SDK 管理 | 已准备好的完整 SDK / 工具链目录 |
 | 🚀 **uv / bun / claude-code / cmake / fzf / ripgrep / ... 40+ more** | ✅ 已支持 | GitHub Releases |
 | ⚙️ **自定义 SDK** | ✅ 可无限扩展 | 用户配置（任意 URL） |
+
+CLI 与桌面端共用内置注册表。Android、Flutter、LLVM、MinGW、Rust 默认管理本地完整 SDK，暂不执行远程组件安装；Dart、.NET、Gradle 支持精确版本安装，暂无默认远程版本列表。升级时已有同名条目的源设置保留。目录约定和配置方式见[内置开发 SDK](./docs/custom-sdk.md#内置开发-sdk)。
 
 ---
 

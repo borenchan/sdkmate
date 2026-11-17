@@ -132,6 +132,62 @@ pub fn sdk_desc(name: &str, lang: crate::prefs::GuiLang) -> &'static str {
                 "Go Toolchain"
             }
         }
+        "android" => {
+            if zh {
+                "Android 开发工具包"
+            } else {
+                "Android SDK"
+            }
+        }
+        "dart" => {
+            if zh {
+                "Dart 开发工具包"
+            } else {
+                "Dart SDK"
+            }
+        }
+        "dotnet" => {
+            if zh {
+                ".NET 开发工具包"
+            } else {
+                ".NET SDK"
+            }
+        }
+        "flutter" => {
+            if zh {
+                "Flutter 开发工具包"
+            } else {
+                "Flutter SDK"
+            }
+        }
+        "gradle" => {
+            if zh {
+                "Gradle 构建工具"
+            } else {
+                "Gradle Build Tool"
+            }
+        }
+        "llvm" => {
+            if zh {
+                "LLVM 编译工具链"
+            } else {
+                "LLVM Compiler Toolchain"
+            }
+        }
+        "mingw" => {
+            if zh {
+                "MinGW 编译工具链"
+            } else {
+                "MinGW Compiler Toolchain"
+            }
+        }
+        "rust" => {
+            if zh {
+                "Rust 语言工具链"
+            } else {
+                "Rust Toolchain"
+            }
+        }
         "docker" => {
             if zh {
                 "容器化工具"

@@ -29,6 +29,13 @@ impl SdkManager {
     pub async fn resolve_install_version_async(&self, sdk: &Sdk, version_input: &str) -> Result<ResolvedVersion> {
         let sdk_conf = self.config.find_sdk_ok(sdk)?;
         let sdk_name = sdk.to_string();
+        if !sdk_conf.can_install_remote() {
+            bail!(
+                "`{sdk_name}` manages local versions only. Place a complete SDK at \
+                 `store/{sdk_name}/<version>/` and use `sdkm switch {sdk_name} <version>`, \
+                 or configure a download_url to enable remote installation."
+            );
+        }
 
         // 文案区分：ls 浏览模式无版本输入（空串）→ 拉取远程列表；install 场景为版本解析
         let resolve_title = if version_input.is_empty() {

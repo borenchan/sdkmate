@@ -1,8 +1,43 @@
 # 自定义 SDK
 
-sdkm 内置支持 Java、Node.js、Python、Maven、Go 五个 SDK。除此之外，任何「能从 URL 下载、解压后得到带可执行文件的目录」的工具，都可以注册为自定义 SDK，纳入 `sdkm` 统一管理——安装、切换、环境变量一视同仁。
+sdkm 内置支持 Java、Node.js、Python、Maven、Go，以及 Android、Dart、.NET、Flutter、Gradle、LLVM、MinGW、Rust 等开发工具。内置身份由共享注册表决定，CLI 与桌面端使用同一份定义；内置管理能力与远程下载能力分别判断。
+
+其他工具可以注册为自定义 SDK，纳入统一管理。若有可直接解压的下载归档，还可以配置远程安装。
 
 本文档讲解如何用 `sdkm config add-sdk` 注册自定义 SDK，以及下载 URL 模板中的占位符系统。配置项完整含义见 [configuration.md](./configuration.md)。
+
+## 内置开发 SDK
+
+以下 SDK 无需 `config add-sdk`，新配置自动包含；升级后缺少的条目会自动补全。已有同名条目会直接获得内置身份，但其版本、布局、环境变量和源设置保留，包括用户主动清空的源；不会用默认下载源覆盖旧配置。
+
+| SDK 名称 | 默认命令目录 | 默认环境变量 / 额外 PATH | 默认远程能力 |
+|:---|:---|:---|:---|
+| `android` | `platform-tools` | `ANDROID_HOME`、`ANDROID_SDK_ROOT`；`cmdline-tools/latest/bin`、`emulator` | 管理本地完整 SDK |
+| `dart` | `bin` | — | 官方 stable 归档，精确版本安装 |
+| `dotnet` | 根目录 | `DOTNET_ROOT` | 官方 SDK 归档，精确版本安装 |
+| `flutter` | `bin` | `FLUTTER_ROOT` | 管理本地完整 SDK |
+| `gradle` | `bin` | `GRADLE_HOME` | 官方 bin.zip，精确版本安装 |
+| `llvm` | `bin` | — | 管理本地完整工具链 |
+| `mingw` | `bin` | — | 管理本地完整工具链（Windows） |
+| `rust` | `bin` | — | 管理本地已安装工具链 |
+
+Dart、.NET、Gradle 尚无默认远程版本列表，需提供完整版本号：
+
+```bash
+sdkm install dart 3.9.4
+sdkm install dotnet 8.0.417
+sdkm install gradle 8.8
+```
+
+Dart 使用 Windows/Linux/macOS 的 zip；.NET 使用 Windows zip 或 Unix tar.gz，并区分 Linux GNU/musl；Gradle 各平台均使用 zip。默认下载模板面向 x64/arm64；其他架构可修改源配置。已有同名本地条目若要启用下载，可按下方源参考用 `sdkm config set sdk.<name>.download_url <模板>` 配置。
+
+本地内置 SDK 按 `store/<SDK>/<版本>/` 放置后即可 `list` / `switch` / `use`。它们拥有与其他内置 SDK 相同的分类和配置删除保护，仍可修改字段或补充下载源。目录必须保留完整布局：
+
+- Android 放完整 SDK 根，包含 `platform-tools/`、`cmdline-tools/latest/`、平台和构建工具等组件；单独的 command-line tools 压缩包不构成完整 SDK。
+- Flutter 保留 `bin/`、缓存和 Git 元数据；目标平台构建工具另行准备。
+- Rust 放真实工具链根（如 rustup 的 `toolchains/<工具链>/`），其中有 `bin/rustc` 和 `bin/cargo`；不要放 `.cargo/bin` 的代理程序或尚未执行组件安装的发行归档。
+- .NET 本地导入需保留 `dotnet`、`host/`、`sdk/`、`shared/` 等根目录组件；只复制 `sdk/<版本>/` 不构成可运行的 SDK。
+- Gradle 需要 JDK；Rust/MSVC、LLVM、MinGW、Flutter 的系统依赖或链接器不随版本切换自动安装。
 
 ## 注册自定义 SDK
 
@@ -75,7 +110,7 @@ sdkm config add-sdk mylocal --bin-dir bin
 sdkm config remove-sdk <NAME>
 ```
 
-内置 SDK（java/node/python/go/maven/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform）不可移除。移除只删除 `config.toml` 中的条目，不会删除 `store/` 下已下载的文件。
+内置 SDK（包括 java/node/python/go/maven、上述八种开发 SDK 及其他注册表条目）不可移除。移除只删除 `config.toml` 中的条目，不会删除 `store/` 下已下载的文件。
 
 ## URL 模板占位符
 
@@ -121,6 +156,10 @@ sdkm config remove-sdk <NAME>
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
 | Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
 | Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
+| Dart | （无，仅精确版本） | `storage.googleapis.com/dart-archive/channels/stable/release/{version}/sdk/dartsdk-<windows/linux/macos>-{arch}-release.zip` |
+| .NET SDK | （无，仅精确版本） | `builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-<win/linux/linux-musl/osx>-{arch}.<zip/tar.gz>` |
+| Gradle | （无，仅精确版本） | `services.gradle.org/distributions/gradle-{version}-bin.zip` |
+| Android / Flutter / LLVM / MinGW / Rust | （无） | 默认管理本地完整 SDK，无远程源 |
 
 ## GitHub Releases 接入标准（标准 B）
 

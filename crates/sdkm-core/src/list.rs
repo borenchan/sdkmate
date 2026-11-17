@@ -63,8 +63,10 @@ pub struct RegisteredSdkItem {
     pub installed: bool,
     /// 当前激活版本(config current_version,未激活为 None)
     pub current: Option<String>,
-    /// 有版本发现源 → 支持远程列表(TUI 跳转 -r)
+    /// 有主/备版本发现源 → 支持远程列表(TUI 跳转 -r)
     pub has_version_url: bool,
+    /// 有版本发现源或下载模板 → 支持远程安装（含仅精确版本安装）。
+    pub can_install_remote: bool,
 }
 
 /// 本地概览行（数据层）：store 中已安装 SDK 的名称/current/目录，size 留给前端经 SizeCache 解析
@@ -155,13 +157,15 @@ impl SdkManager {
             let sdk = Sdk::from_str(&sdk_conf.name)?;
             let installed = sdks_root_dir.join(&sdk_conf.name).is_dir();
             let current = sdk_conf.current_version.clone();
-            let has_version_url = sdk_conf.version_url.as_deref().is_some_and(|u| !u.is_empty());
+            let has_version_url = sdk_conf.has_version_source();
+            let can_install_remote = sdk_conf.can_install_remote();
             items.push(RegisteredSdkItem {
                 sdk,
                 name: sdk_conf.name.clone(),
                 installed,
                 current,
                 has_version_url,
+                can_install_remote,
             });
         }
         Ok(items)

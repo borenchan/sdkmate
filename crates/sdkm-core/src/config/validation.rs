@@ -198,7 +198,7 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
             field: SdkField::DownloadUrl,
             ..
         } => KeyMeta {
-            // 自定义 SDK 可删（reset 为 None = 本地 switch-only）；内置 SDK 仍必填不可删
+            // 自定义 SDK 可删；内置按身份保护字段，默认值可以为 None（本地 SDK / 版本源直链）
             deletable: sdk_deletable,
             value_type: ValueType::UrlTemplate,
             default_desc: "(none)".to_string(),
