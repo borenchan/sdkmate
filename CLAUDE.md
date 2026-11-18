@@ -51,6 +51,7 @@ crates/sdkm-cli    → CLI 前端 + sdkm 二进制入口：src/main.rs（[[bin]]
 - 创建符号链接 `<symlink_dir>/<sdk_name>` → `<store>/<sdk>/<version>` 目录
 - 将符号链接的 bin 目录加入 PATH
 - 通过平台特定的环境变量操作设置额外变量（如 JAVA_HOME）
+- **Unix 持久化 = 托管 env 文件**：PATH / extra_vars 写入 `<home>/sdkm_env.sh`（fish 为 `sdkm_env.fish`）的 `# >>> sdkm env >>>` 标记块（或 config `env_file` 指定的自定义文件）；profile 只注入 source 行 + hook 行，日常 `switch` 不碰 profile
 - 切换后更新 config.toml 中的 `current_version`
 
 ### 配置项 (`config.toml`)
@@ -68,10 +69,10 @@ download_url = "..."   # 自定义 SDK 可省略（= 本地 switch-only，不远
 bin_dir = "bin"
 ```
 
-`symlink_dir` 为 `Option<String>`：`None` = 跟随 home（运行时 resolve 成 `<home>/links`），`Some` = 用户自定义。exe 移到哪 links 就在哪，绿色便携。
+`symlink_dir` 为 `Option<String>`：`None` = 跟随 home（运行时 resolve 成 `<home>/links`），`Some` = 用户自定义。exe 移到哪 links 就在哪，绿色便携。`env_file` 同为 `Option<String>`（仅 Unix）：`None` = 跟随 home（`<home>/sdkm_env.sh|fish`），`Some` = 用户自定义文件；`set`（空串=恢复默认）/`delete` 成功后自动迁移托管块内容并把 profile 的 source 行重定向到新路径。自定义文件只适用单一 shell（块内语法随写入时检测的 shell）。
 
 ### 平台抽象
-- `EnvOperation` trait：`WindowsEnvOperation`（注册表 + WM_SETTINGCHANGE 广播）和 `UnixEnvOperation`（shell profile 修改）
+- `EnvOperation` trait：`WindowsEnvOperation`（注册表 + WM_SETTINGCHANGE 广播）和 `UnixEnvOperation`（托管 env 文件读写；profile 只注入 source/hook 行）
 - `cfg(windows)` / `cfg(unix)` 条件编译用于环境操作、符号链接、默认路径
 - 类型别名 `OsEnvOperation` 在编译时选择平台实现
 
@@ -110,20 +111,6 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-17）
-
-> **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
-
-### 批次：Tomcat 内置 + Java 多供应商
-
-- **Tomcat（#19）**：新增 `BuiltinSdk::Tomcat` + 种子（版本源 `archive.apache.org` 全历史；下载主源 dlcdn、备源 archive，可 `config set sdk.tomcat.download_url` 换镜像）。版本发现写在 `version/discovery.rs`（不新建模块）：root 索引 → `tomcat-9/10/11` 分支多请求，复用 `fetch_version_data` 按分支缓存；`vX.Y.Z/` 严格匹配天然排除里程碑；`feature_version` 取版本首段。install/list 各自专属分支，下载走模板渲染 `{feature_version}/{version}/{ext}`；`get_version_discovery` 返回防御占位。
-- **add_to_path 通用开关**：`SdkConfig`/`SdkSeed`/keys/validation 新增（默认 true，仅 false 落盘）；`switch`、hook 全局层、项目层三处都遵守。Tomcat 设 false：切换只建软链（current 落点）+ 设 `CATALINA_HOME`，不写 PATH、不做冲突检测，提示「`tomcat` is not added to PATH. Launch it from: <links>/tomcat/bin」。
-- **Java 多供应商（#20）**：sdkman 式后缀 4 家（Temurin 无后缀 / `-zulu` / `-amzn` / `-librca`）；输入支持 `21-zulu` 与 `zulu@21` 两种等价写法（`fuzzy.rs` 的 `parse_java_version_input`/`format_java_version`/`fuzzy_match_version_with_vendor`）。`discovery.rs` 四家抓取：Adoptium feature_releases（Temurin，裸大版本仍走 config 模板，保留镜像覆盖）、Azul（latest+history 合并、fx/crac/musl 过滤）、Corretto（GitHub tags + `macosx` 命名 + Windows aarch64 明确报错）、Liberica（`arch=x86/arm`、去 `+build`）。`list java -r` 四家 LTS+最新 feature 合并（`tokio::spawn` 并行 + 缓存），信息源主备读 config，双源失败降级默认 LTS；本地匹配 6 处统一走 `match_installed_version`。
-- **下载器健壮性**：4xx（除 429/408）确定性失败不重试、直接切备源；30 秒无数据判定卡死并中止（此前要等 600s 总超时）。
-- **测试**：新增 Java 输入/匹配、四家解析、Tomcat 目录解析、add_to_path、Tomcat 全链路（本地 HTTP + CATALINA_HOME + 不进 PATH 提示）、Java 目录隔离、404 不重试 / 500 重试；CLI 金样加 Tomcat 离线列表与 java 后缀本地列表。
-- **实测（2026-11-17）**：`list tomcat -r` 205 条（全历史）；`list java -r` 515 条（四家混排）；沙箱安装 tomcat 11.0.29 / 11.0.6、`zulu@17` → `17.0.21-zulu`。镜像测速：华为云 5.9MB/s、阿里云 3.1、清华 0.6、dlcdn 卡死（20s 无数据）。
-- **选型（2026-11-17）**：Java 首批 4 家（均有稳定 JSON API）；Oracle 不收录（NFTC 许可、sdkman 客户端亦不负责下载）；Flutter 本期不做（用户已提 PR）。
-
 ## 已知问题与注意事项
 
 - **Tomcat 分支白名单硬编码**：`TOMCAT_SUPPORTED_FEATURES = [9,10,11]`（`version/discovery.rs`），Apache 新增分支（如 12）需手动加入；版本列表解析的是 HTML 目录索引（自定义 SDK 引擎仍只认 JSON）
@@ -142,9 +129,11 @@ bin_dir = "bin"
 - **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`。改 `unix.rs` 后**必须**验证类型——Windows 上临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use` 避免冲突），跑 `cargo check -p sdkm-core` 强制编译暴露错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行（aws-lc-rs build.rs 找不到 `x86_64-linux-gnu-gcc`）；或直接 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用）**——`split()` 的 item 是 `&str`，闭包参数是 `&&str`，必须用 `|&p|` 解构才能跟 `&str` 比较；`&String` 用 `.as_str()` 转 `&str`。**涉及跨平台代码提交前必须保证双平台编译通过**（v0.5.1 教训：region.rs unix 分支漏 `-> bool`，tag 构建全挂，删 tag 重发补救）；单文件级验证法 = 临时剥 `#[cfg(unix)]` 属性跑 `cargo check`，完事必须恢复属性并重编译确认（sed 批量剥极易漏恢复）
 - **SDKM_HOME 环境变量可覆盖 home**：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME`，未设回退 `current_exe().parent()`，行为兼容。主要解锁 in-process 集成测试——`SdkManager::new()` 等路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入），注入后测试可全部指向临时目录。`tests/uninstall.rs` 等用：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录。**沙箱测试注意：config 里的 `symlink_dir` 若是绝对路径会写真实 links 目录，测试必须同时隔离该配置**
 - **改完代码先 review 再交付**（编译通过 ≠ 代码干净）：每次改完、build/test/通知用户/提交前，对本次 diff 逐文件自审——(1) 逻辑/边界 bug（空集、None、并发、`panic=abort` 下后台线程无 unwrap）；(2) 因改动变孤儿的 import/变量/函数一并清；(3) 风格违规（标准库别用 `std::fs::` 全路径，优先 `use` 短名，歧义才加包名）；(4) 冗余/可简化处。复核通过再 build/test/交付
-- **env/unix.rs 的 RebuildLine 与 PerDirCommand 是两条独立代码路径**：改 PATH 持久化行为时（插入位置、去重、删除），bash/zsh 走 RebuildLine 分支、fish 走 PerDirCommand 分支，**修一处必须检查另一处是否同型遗漏**——bash Bug 2（PATH 行错位到 hook 后）修了 RebuildLine、漏了 PerDirCommand，fish 用户 WSL 实测才暴露（v0.4.3 补修）
+- **env/unix.rs 的 RebuildLine 与 PerDirCommand 是两条独立代码路径**：改托管 env 文件的 PATH 行行为时（插入位置、去重、删除），bash/zsh 走 RebuildLine 分支、fish 走 PerDirCommand 分支，**修一处必须检查另一处是否同型遗漏**——bash Bug 2（PATH 行错位到 hook 后）修了 RebuildLine、漏了 PerDirCommand，fish 用户 WSL 实测才暴露（v0.4.3 补修）
+- **Unix 环境持久化只走托管 env 文件**：不要在 `switch`/`uninstall` 等命令里直接编辑用户 profile；profile 只由 `init` 注入 source/hook 行、由 `self uninstall` 精准移除。自卸载的清理**只作用于当前 shell（`$SHELL`）**，且整行精确匹配（注释行/hook 调用行/legacy 形态；PATH 条目必须等于 `<home>` 或在 `links/` 树内才删），宁可漏删不误删
+- **shell 检测只看 `$SHELL`（2026-11-18 决策）**：不引入父进程检测——`/proc` 仅 Linux、会覆盖正确的 `$SHELL`、为"非登录 shell 里手动启动 fish"这种边缘场景伤正常场景；该场景靠手动注入 hook 或把目标 shell 设为登录 shell（文档已注明）
 - **bug 回归测试用临时文件验证后删除，不提交**：用户规矩——测试代码跑通证明修复生效即可，diff 里只留修复本身
-- **WSL + Windows 双装 sdkm 的跨平台污染**（排查"项目级切换重启失效"教训）：WSL 默认 `appendWindowsPath=true` 继承 Windows PATH，但 **WSL bash 不补 `.exe` 后缀**（[WSL#2003](https://github.com/microsoft/WSL/issues/2003)）——bare `sdkm`/`node` 只命中文件名恰好叫 `sdkm`/`node`（无后缀）的条目，Windows 目录里的 `sdkm.exe`/`node.exe` **不匹配**。所以 Windows PATH 里的 `/mnt/d/.../sdkm` 是纯干扰，不能让 bare 命令生效。用户若在 WSL 敲 `sdkm.exe`（带后缀）则跑的是 **Windows sdkm**，操作 Windows home（`D:\...\sdkm`）、写 PowerShell profile/注册表，**完全不碰 Linux `.bashrc`**。排查要点：让用户 `command -v sdkm` + `file $(command -v sdkm)` 确认命中 Linux ELF 还是 Windows PE。`init` 的 PATH 持久化靠 `add_sdk_path`→`add_path_entry` 写 profile 行，但 `source_profile` 只把新 PATH 设进 **sdkm 子进程**（`env::set_var`），**不回传交互 shell**——所以 init/switch 后必须新开 shell 或 `source ~/.bashrc` 才生效。已修三 bug：dedup 不再回退进程 `$PATH`（Bug 1）、新建 PATH 行插到 hook 行之前（Bug 2，避免 source 时 hook 找不到 sdkm）、fish PerDirCommand 分支同型错位 relocate 自愈（v0.4.3）。详见进度段本次改动。
+- **WSL + Windows 双装 sdkm 的跨平台污染**（排查"项目级切换重启失效"教训）：WSL 默认 `appendWindowsPath=true` 继承 Windows PATH，但 **WSL bash 不补 `.exe` 后缀**（[WSL#2003](https://github.com/microsoft/WSL/issues/2003)）——bare `sdkm`/`node` 只命中文件名恰好叫 `sdkm`/`node`（无后缀）的条目，Windows 目录里的 `sdkm.exe`/`node.exe` **不匹配**。所以 Windows PATH 里的 `/mnt/d/.../sdkm` 是纯干扰，不能让 bare 命令生效。用户若在 WSL 敲 `sdkm.exe`（带后缀）则跑的是 **Windows sdkm**，操作 Windows home（`D:\...\sdkm`）、写 PowerShell profile/注册表，**完全不碰 Linux `.bashrc`**。排查要点：让用户 `command -v sdkm` + `file $(command -v sdkm)` 确认命中 Linux ELF 还是 Windows PE。`init`/`switch` 的 PATH 持久化写托管 env 文件，`source_env_file` 只把新 PATH 设进 **sdkm 子进程**（`env::set_var`），**不回传交互 shell**——所以 init/switch 后必须新开 shell 或 `source` 托管 env 文件才生效。已修三 bug：dedup 不再回退进程 `$PATH`（Bug 1）、新建 PATH 行插到 hook 行之前（Bug 2，避免 source 时 hook 找不到 sdkm）、fish PerDirCommand 分支同型错位 relocate 自愈（v0.4.3）。
 
 ## 发布流程
 
@@ -167,7 +156,8 @@ bin_dir = "bin"
 
 ## 提交规范
 
-- 格式：`type(scope): description`（如 `feat(cli): add switch command`）；scope 可选，与 type 语义不同、不可同名
-- 类型：feat、fix、perf、refactor、docs、test、style、build、ci、chore
-- scope 仅代码模块：cli / core / util / gui；跨 crate 用逗号分隔（`feat(cli,core): ...`）；docs / ci / test / style / build 类不带 scope，发版 `chore: release vX.Y.Z`，依赖升级 `build(deps): bump ...`
-- 分支命名：`feature/xxx`、`fix/xxx`、`docs/xxx`
+完整规范（type/scope、分支命名、PR 流程与工程约束）统一维护在 [CONTRIBUTING.md · 提交规范](CONTRIBUTING.md#提交规范)，此处不重复。agent 额外约定：
+
+- commit message 用英文、一行简短主题（不写长 body，`Closes #xx` 除外）
+- 不添加 Claude 署名 / co-author 信息
+- 仅当用户确认测试通过并明确要求时才 commit / push；push 前先 rebase 到远端最新，保持线性历史
