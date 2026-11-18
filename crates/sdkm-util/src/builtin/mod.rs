@@ -54,6 +54,8 @@ pub struct SdkSeed {
     pub extra_vars: &'static [(&'static str, &'static str)],
     /// 额外 PATH 条目（相对 symlink 目录，如 Windows Python 的 Scripts）
     pub extra_paths: &'static [&'static str],
+    /// 是否把 bin 目录加入 PATH（false = 仅设 extra_vars，不注入 PATH，如 Tomcat 的 CATALINA_HOME）
+    pub add_to_path: bool,
 }
 
 impl SdkSeed {
@@ -80,6 +82,7 @@ impl SdkSeed {
             asset_prefix: None,
             extra_vars: &[],
             extra_paths: &[],
+            add_to_path: true,
         }
     }
 
@@ -96,9 +99,6 @@ impl SdkSeed {
     }
 }
 
-/// Java 的 assets 详情 API 模板（两步查询专用，其余 SDK 不使用）
-pub const JAVA_ASSETS_URL: &str = "https://api.adoptium.net/v3/assets/latest/{feature_version}/hotspot?architecture={arch}&image_type=jdk&os={os}&vendor=eclipse";
-
 /// 内置 SDK 注册表（唯一事实来源：init 种子、is_builtin 保护、布局默认值均出自此表）
 pub static SDK_SEEDS: &[&SdkSeed] = &[
     // ── 专属路径 SDK（Sdk::Built，保留历史解析/下载逻辑）─────────────
@@ -107,6 +107,7 @@ pub static SDK_SEEDS: &[&SdkSeed] = &[
     &core::NODE,
     &core::PYTHON,
     &core::GO,
+    &core::TOMCAT,
     // ── 引擎型 SDK（标准 A/B 数据驱动，无专属代码路径）────────────────
     &core::BUN,
     &core::PNPM,

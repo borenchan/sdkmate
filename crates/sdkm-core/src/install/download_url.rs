@@ -66,6 +66,18 @@ pub fn build_download_url(
             .var(PLACEHOLDER_OS_EXT, detect_ext())
             .var(PLACEHOLDER_VERSION, &resolved.full_version)
             .render(template),
+        // Tomcat：Apache 归档路径含主版本目录（tomcat-{feature_version}/v{version}/...）
+        Sdk::Built(BuiltinSdk::Tomcat) => {
+            let mut r = TemplateRenderer::new()
+                .var(PLACEHOLDER_OS, detect_os_with(OsStyle::Default))
+                .var(PLACEHOLDER_ARCH, detect_arch_with(ArchStyle::Default))
+                .var(PLACEHOLDER_OS_EXT, detect_ext())
+                .var(PLACEHOLDER_VERSION, &resolved.full_version);
+            if let Some(fv) = &resolved.feature_version {
+                r = r.var(PLACEHOLDER_FEATURE_VERSION, fv);
+            }
+            r.render(template)
+        }
         // custom SDK（含引擎型内置种子）：os/arch 风格可由 config 配置（如 helm/terraform 的
         // amd64 命名配 arch_style="go"），未配置时保持 Default 风格的历史行为
         Sdk::Custom(_) => {
@@ -81,12 +93,16 @@ pub fn build_download_url(
                 .map(parse_arch_style)
                 .transpose()?
                 .unwrap_or(ArchStyle::Default);
-            TemplateRenderer::new()
+            let mut r = TemplateRenderer::new()
                 .var(PLACEHOLDER_OS, detect_os_with(os_style))
                 .var(PLACEHOLDER_ARCH, detect_arch_with(arch_style))
                 .var(PLACEHOLDER_OS_EXT, detect_ext())
-                .var(PLACEHOLDER_VERSION, &resolved.full_version)
-                .render(template)
+                .var(PLACEHOLDER_VERSION, &resolved.full_version);
+            // {feature_version} 可选占位（Apache 风格镜像模板用，如 tomcat-11/v11.0.5）
+            if let Some(fv) = &resolved.feature_version {
+                r = r.var(PLACEHOLDER_FEATURE_VERSION, fv);
+            }
+            r.render(template)
         }
     }
 }

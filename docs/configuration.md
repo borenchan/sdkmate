@@ -19,7 +19,7 @@ cache_ttl_secs = 3600       # 版本接口缓存 TTL（秒），0 = 每次都拉
 github_token = ""           # GitHub PAT，提升 API 限速（60/hr → 5000/hr）
 github_download_mirror = "" # GitHub 下载镜像前缀，如 "https://gh-proxy.com/"，空 = 关闭
 
-# 每个 [[sdk]] 是一个 SDK 条目，内置 5 个 + 用户自定义
+# 每个 [[sdk]] 是一个 SDK 条目，内置 40+ 个 + 用户自定义
 [[sdk]]
 name = "java"
 version_url = "https://api.adoptium.net/v3/info/available_releases"
@@ -53,7 +53,7 @@ extra_paths = []
 
 ### `[[sdk]]` SDK 条目
 
-每个 `[[sdk]]` 描述一个 SDK 的版本发现与下载来源。内置 14 个（java/node/python/go/maven 传统模板 + bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform GitHub Releases 引擎型），用户可通过 `sdkm config add-sdk` 添加自定义条目（见 [custom-sdk.md](./custom-sdk.md)）。
+每个 `[[sdk]]` 描述一个 SDK 的版本发现与下载来源。内置 40+ 个（java/node/python/go/maven/tomcat 传统模板 + bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform 等 GitHub Releases 引擎型），用户可通过 `sdkm config add-sdk` 添加自定义条目（见 [custom-sdk.md](./custom-sdk.md)）。
 
 | 键 | 类型 | 可删除 | 说明 |
 |:---|:---|:---:|:---|
@@ -66,8 +66,10 @@ extra_paths = []
 | `bin_dir` | FreeString | **否（任何 SDK）** | 二进制所在子目录名；**空值/省略 = 二进制在 SDK 根目录**（如 Windows 下的 Node.js / Python）；内置 SDK 已按平台预设（Linux/macOS 的 Node 与 Python 为 `bin`，Java/Maven 全平台为 `bin`）；必填 |
 | `extra_vars` | NonEmptyString | 同上 | 额外环境变量键值表，值支持模板渲染（如 `JAVA_HOME = "{sdk_dir}"`） |
 | `extra_paths` | Path | 同上 | 额外 PATH 条目（相对符号链接目录，可多条） |
+| `os_style` / `arch_style` | OsStyle / ArchStyle | 同上 | 下载模板 `{os}` / `{arch}` 的命名风格（仅模板型 SDK 用到） |
+| `add_to_path` | Bool | 同上 | `true`（默认）= 切换时把 `<links>/<sdk>/<bin_dir>` 写入 PATH；`false` = 只设 `extra_vars` 不碰 PATH（内置 Tomcat 即如此，避免 `startup`/`version` 这类通用脚本名污染全局 PATH） |
 
-> **内置 SDK 保护**：内置 SDK（java/node/python/go/maven/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**（省略 = 本地 switch-only SDK，不远程安装）。
+> **内置 SDK 保护**：内置 SDK（java/node/python/go/maven/tomcat/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform 等）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**（省略 = 本地 switch-only SDK，不远程安装）。
 
 ## 键名格式（点分隔）
 
@@ -81,7 +83,7 @@ extra_paths = []
 | `sdk.<name>.extra_vars.<KEY>` | `sdk.java.extra_vars.JAVA_HOME` |
 | `sdk.<name>.extra_paths.<N>` | `sdk.java.extra_paths.0`（按索引，从 0 开始） |
 
-SDK 字段 `<field>` 取值：`version_url` / `version_fallback_url` / `download_url` / `download_fallback_url` / `current_version` / `bin_dir`。
+SDK 字段 `<field>` 取值：`version_url` / `version_fallback_url` / `download_url` / `download_fallback_url` / `current_version` / `bin_dir` / `os_style` / `arch_style` / `add_to_path`。
 
 无效键名会报错并列出全部合法键名清单。
 

@@ -2,7 +2,10 @@ use crate::install::downloader::build_reqwest_client;
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
 use crate::version::github_releases::{ensure_per_page, github_api_headers, is_github_releases_url};
-use crate::version::{VersionSource, fetch_version_data, get_version_discovery};
+use crate::version::{
+    VersionSource, fetch_java_list_majors, fetch_tomcat_entries, fetch_version_data, get_version_discovery,
+    list_java_versions,
+};
 use anyhow::{Result, bail};
 use sdkm_util::path::get_installed_sdks_dir;
 use sdkm_util::sdk::{BuiltinSdk, Sdk};
@@ -179,6 +182,7 @@ impl SdkManager {
         let client = build_reqwest_client(&self.config.network)?;
         let sdk_name = sdk.to_string();
         let cache_key = sdk_name.to_lowercase();
+        let ttl = self.config.network.cache_ttl_secs as u64;
 
         // Maven 无 version_url → 不支持远程版本列表
         if let Sdk::Built(BuiltinSdk::Maven) = sdk {
@@ -221,22 +225,57 @@ impl SdkManager {
             None
         };
 
-        // 复用 version 模块的"缓存优先 + fetch"管线
-        let body = fetch_version_data(
-            &client,
-            &source,
-            &cache_key,
-            &sdk_name,
-            headers,
-            self.config.network.cache_ttl_secs as u64,
-            &self.config.network,
-            self.sink.as_ref(),
-        )
-        .await?;
+        // ── 专属路径：Java 多供应商合并列表 / Tomcat Apache 归档多请求 ──
+        let (entries, source_display_url) = match sdk {
+            Sdk::Built(BuiltinSdk::Java) => {
+                // 主源 + 配置备源都失败时内部告警并退回默认 LTS 列表，不阻断整条列表
+                let majors = fetch_java_list_majors(
+                    &client,
+                    &self.config.network,
+                    ttl,
+                    self.sink.as_ref(),
+                    &version_url,
+                    sdk_conf.version_fallback_url.as_deref(),
+                )
+                .await;
+                let items = list_java_versions(&client, &self.config.network, ttl, self.sink.clone(), &majors).await?;
+                (items, version_url)
+            }
+            Sdk::Built(BuiltinSdk::Tomcat) => {
+                if version_url.is_empty() {
+                    pb.finish_and_clear();
+                    bail!("tomcat has no version_url configured, cannot list remote versions");
+                }
+                let items = fetch_tomcat_entries(
+                    &client,
+                    &self.config.network,
+                    ttl,
+                    self.sink.as_ref(),
+                    &version_url,
+                    sdk_conf.version_fallback_url.as_deref(),
+                )
+                .await?;
+                (items, version_url.clone())
+            }
+            _ => {
+                // 通用路径：单 URL 拉取 + 解析器分发
+                let body = fetch_version_data(
+                    &client,
+                    &source,
+                    &cache_key,
+                    &sdk_name,
+                    headers,
+                    ttl,
+                    &self.config.network,
+                    self.sink.as_ref(),
+                )
+                .await?;
+                let strategy = get_version_discovery(sdk, &version_url);
+                let parsed = strategy.parse_version_data(&body)?;
+                (parsed, source_display_url)
+            }
+        };
         pb.finish_with_message(format!("✅ Fetched remote versions for {}", sdk_name));
-
-        let strategy = get_version_discovery(sdk, &version_url);
-        let entries = strategy.parse_version_data(&body)?;
 
         // 用本地安装状态补充信息
         let local_versions = self.list_local_sdk_versions(sdk)?;

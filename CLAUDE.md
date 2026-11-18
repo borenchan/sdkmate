@@ -110,27 +110,25 @@ bin_dir = "bin"
 
 `config` 子命令：`set`/`get`/`list`/`delete`/`edit`/`add-sdk`/`remove-sdk`，按类型校验（`ValueType`：Url/UrlTemplate/Bool/U32/Path/Token/String）+ 原子写入（写入-重命名）+ 快照回滚；内置 SDK（java/node/python/maven）不可 delete/remove-sdk，只能 set 修改。
 
-## 当前开发进度（2026-11-16）
+## 当前开发进度（2026-11-17）
 
 > **维护规则**：本节只保留最新一次改动，每次完成后**整体替换**（不是追加），文件体积不随历史增长。
 
-### 异步改造：runtime 归前端 + GUI 共享线程池（B1/B2/C）
+### 批次：Tomcat 内置 + Java 多供应商
 
-- **core 只出 async**：`resolve_install_version_async` / `install_sdk_async` / `fetch_remote_versions_async` / `update_self_async` / `fetch_latest|previous_version_async` 全部 `pub`；原 6 个同步壳（每次调用新建 runtime + block_on）**已删除**；`runtime.rs` 只剩 `run_blocking`（`spawn_blocking` 单点封装）
-- **阻塞段治理**：install/self_update 的解压、目录调整、校验、清理、卸载删除共 8 处包 `run_blocking`；`switch` 保留内联（毫秒级 + `&mut self` 无法移入 'static 闭包）
-- **trait 线程边界**：`EnvOperation` / `ProgressHandle` 补 `Send + Sync`；`EventSink` 原有。async future 跨 await 持有 `&SdkManager` 需要 `Sync`，这是编译期强制要求
-- **CLI**：`crates/sdkm-cli/src/runtime.rs` 进程级单线程 runtime（OnceLock 惰性），handler 在阶段边界 block_on，TUI 交互逻辑不变
-- **GUI**：`data.rs` 进程级 2-worker runtime（`tokio` 加回 `rt-multi-thread`，exe 14.26→14.30 MiB）；`spawn_task_inner` 由 `std::thread::spawn` 改 `runtime.spawn`；`build_outcome` 拆为 async，概览/列表扫描与卸载删除走 `spawn_blocking`（不占 worker）
-- **进度节流**：`sink.rs` 位置事件 10Hz（CAS 保证单发送者），finish 补发终态——下载期不再每个 8~16KB chunk 触发整窗 60fps 重绘
-- **取消升级**：关闭进度弹窗 → `JoinHandle::abort()` 网络段即时取消；解压等阻塞段仍靠 `AtomicBool` 检查点（任何运行时共性）
-- **启动去重**：概览任务本身含 SDK 列表，启动/init 后只派发一份（原先两遍全盘列举）；列表就绪后处理提取为 `on_sdk_rows_ready`
-- **HTTP client 复用**：`downloader.rs` 进程级缓存（api/download 各一），按 proxy/ssl_verify/connect_timeout 指纹失效
-- **验证**：`cargo test --workspace` 全绿（`core_install_flow` 覆盖下载→解压→校验→切换）；真实网络 `ls --remote` / `self update --check` 正常；沙箱真实安装 node 20.20.2 成功；GUI 启动与空数据态同改造前一致（11 线程 / 43.3 MB）
-- **线程构成（实测）**：`main` + 2 个 `tokio-rt-worker` + `DManip`/`VSync` + 框架内部；**加载已安装 SDK 后额外 +11~12 个未命名线程**（体积缓存未命中触发 jwalk 并行遍历；旧构建同样存在，非本次引入）。`RAYON_NUM_THREADS` 未能约束，归属待落实
-- **注意**：沙箱 `SDKM_HOME` 测试时，config 里的 `symlink_dir` 是绝对路径会写**真实 links 目录**，必须同时隔离该配置
+- **Tomcat（#19）**：新增 `BuiltinSdk::Tomcat` + 种子（版本源 `archive.apache.org` 全历史；下载主源 dlcdn、备源 archive，可 `config set sdk.tomcat.download_url` 换镜像）。版本发现写在 `version/discovery.rs`（不新建模块）：root 索引 → `tomcat-9/10/11` 分支多请求，复用 `fetch_version_data` 按分支缓存；`vX.Y.Z/` 严格匹配天然排除里程碑；`feature_version` 取版本首段。install/list 各自专属分支，下载走模板渲染 `{feature_version}/{version}/{ext}`；`get_version_discovery` 返回防御占位。
+- **add_to_path 通用开关**：`SdkConfig`/`SdkSeed`/keys/validation 新增（默认 true，仅 false 落盘）；`switch`、hook 全局层、项目层三处都遵守。Tomcat 设 false：切换只建软链（current 落点）+ 设 `CATALINA_HOME`，不写 PATH、不做冲突检测，提示「`tomcat` is not added to PATH. Launch it from: <links>/tomcat/bin」。
+- **Java 多供应商（#20）**：sdkman 式后缀 4 家（Temurin 无后缀 / `-zulu` / `-amzn` / `-librca`）；输入支持 `21-zulu` 与 `zulu@21` 两种等价写法（`fuzzy.rs` 的 `parse_java_version_input`/`format_java_version`/`fuzzy_match_version_with_vendor`）。`discovery.rs` 四家抓取：Adoptium feature_releases（Temurin，裸大版本仍走 config 模板，保留镜像覆盖）、Azul（latest+history 合并、fx/crac/musl 过滤）、Corretto（GitHub tags + `macosx` 命名 + Windows aarch64 明确报错）、Liberica（`arch=x86/arm`、去 `+build`）。`list java -r` 四家 LTS+最新 feature 合并（`tokio::spawn` 并行 + 缓存），信息源主备读 config，双源失败降级默认 LTS；本地匹配 6 处统一走 `match_installed_version`。
+- **下载器健壮性**：4xx（除 429/408）确定性失败不重试、直接切备源；30 秒无数据判定卡死并中止（此前要等 600s 总超时）。
+- **测试**：新增 Java 输入/匹配、四家解析、Tomcat 目录解析、add_to_path、Tomcat 全链路（本地 HTTP + CATALINA_HOME + 不进 PATH 提示）、Java 目录隔离、404 不重试 / 500 重试；CLI 金样加 Tomcat 离线列表与 java 后缀本地列表。
+- **实测（2026-11-17）**：`list tomcat -r` 205 条（全历史）；`list java -r` 515 条（四家混排）；沙箱安装 tomcat 11.0.29 / 11.0.6、`zulu@17` → `17.0.21-zulu`。镜像测速：华为云 5.9MB/s、阿里云 3.1、清华 0.6、dlcdn 卡死（20s 无数据）。
+- **选型（2026-11-17）**：Java 首批 4 家（均有稳定 JSON API）；Oracle 不收录（NFTC 许可、sdkman 客户端亦不负责下载）；Flutter 本期不做（用户已提 PR）。
 
 ## 已知问题与注意事项
 
+- **Tomcat 分支白名单硬编码**：`TOMCAT_SUPPORTED_FEATURES = [9,10,11]`（`version/discovery.rs`），Apache 新增分支（如 12）需手动加入；版本列表解析的是 HTML 目录索引（自定义 SDK 引擎仍只认 JSON）
+- **Java 供应商 API 均为单源**（无可换镜像）：只有 Adoptium 信息源（major 列表）支持 config 主备，其余四家抓取无备源；Temurin 只有「默认供应商 + 裸大版本」走 `sdk.java.download_url` 模板（可换 Adoptium 镜像），精确版本与其他供应商用各家 API 直链
+- **Tomcat 默认下载源 dlcdn 国内可能卡死**（实测 20s 零数据）：文档（`docs/usage.md`、`skills/SKILL.md`）给华为云镜像一行命令；下载器已加「4xx 不重试直接切备源 + 30s 无数据判卡死」
 - **使用处禁止跨模块全路径，一律顶部 use 短名**（如 `sdkm_util::builtin::find_seed(...)` 写体内 → 改 `use sdkm_util::builtin::find_seed;`）。rustfmt 只管 use 语句、管不了使用处写法，无自动化工具；clippy `absolute_paths` 的 `max-segments=3`（为放过 `tokio::fs` 等第三方 3 段惯用写法，实测降 2 噪音比 4:1）恰好抓不到项目内 3 段路径——**review diff 时人工扫 `sdkm_util::`/`crate::` 开头的体内全路径**（宏内 `$crate::` 除外，那是正确写法）。CLI help 的内置 SDK 名单固定写 "java, node, python, go, maven, ... (see docs)" 省略号形式，不随名单扩容联动修改
 - Maven 有下载模板但无 `version_url`，仅支持精确版本安装（模糊版本不可用）
 - Rust 完全缺失内置源配置条目
@@ -142,7 +140,7 @@ bin_dir = "bin"
 - **reqwest 0.13.4 + rustls**：`default-features = false, features = ["json","gzip","default-tls"]`。`default-tls = rustls`（aws-lc-rs + rustls-platform-verifier 走系统 CA bundle），不依赖系统 OpenSSL——Linux 编译只需 `cmake`，运行时需 `ca-certificates`。禁 `http2`/`charset`/`query`/`form`
 - **BugReport 标记只用于真正不可由用户修复的错误**：`install_sdk` 入口用 `?` 传播，真正的 bug（解压/校验失败、内置配置缺失）在 `install_sdk_async` 内部用 `try_bug!`/`bail_bug!` 精确标记，CLI 层 `needs_bug_report` 靠 `downcast_ref` 检测。用户取消是普通 `bail!`。switch 的 `try_step!` 不标 BugReport——步骤失败（symlink 创建 os error 1314、env 写入 os error 5）多属权限/环境问题，用户可自行解决（管理员运行），返回普通错误。**init 第 4 步 symlink_dir 不可写属用户环境问题，用 `bail!` 不用 `try_bug!`**
 - **cfg(unix) 代码在 Windows 上不编译，类型错误会漏到 Linux 才暴露**：`env/unix.rs` 整个模块 `#[cfg(unix)]`。改 `unix.rs` 后**必须**验证类型——Windows 上临时把 `env/mod.rs` 的 `#[cfg(unix)] mod unix;` 改成 `mod unix;`（注释掉对应 `pub use` 避免冲突），跑 `cargo check -p sdkm-core` 强制编译暴露错误，验证完改回。`cargo check --target x86_64-unknown-linux-gnu` 不行（aws-lc-rs build.rs 找不到 `x86_64-linux-gnu-gcc`）；或直接 WSL `cargo build`。**filter 闭包参数是 `&Self::Item`（item 的引用）**——`split()` 的 item 是 `&str`，闭包参数是 `&&str`，必须用 `|&p|` 解构才能跟 `&str` 比较；`&String` 用 `.as_str()` 转 `&str`。**涉及跨平台代码提交前必须保证双平台编译通过**（v0.5.1 教训：region.rs unix 分支漏 `-> bool`，tag 构建全挂，删 tag 重发补救）；单文件级验证法 = 临时剥 `#[cfg(unix)]` 属性跑 `cargo check`，完事必须恢复属性并重编译确认（sed 批量剥极易漏恢复）
-- **SDKM_HOME 环境变量可覆盖 home**：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME`，未设回退 `current_exe().parent()`，行为兼容。主要解锁 in-process 集成测试——`SdkManager::new()` 等路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入），注入后测试可全部指向临时目录。`tests/uninstall.rs` 等用：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录
+- **SDKM_HOME 环境变量可覆盖 home**：`util/path.rs::get_sdkm_home` 优先读 `SDKM_HOME`，未设回退 `current_exe().parent()`，行为兼容。主要解锁 in-process 集成测试——`SdkManager::new()` 等路径全经 `get_sdkm_home`（绑 `current_exe`，原本不可注入），注入后测试可全部指向临时目录。`tests/uninstall.rs` 等用：设 `SDKM_HOME=temp` + 手工构造 `SdkManager{config, env_operation: Box<MockEnv>}`（字段 pub，`MockEnv` impl `EnvOperation` 记录调用）+ 模块级 `Mutex` 串行（`set_var` 全局竞态）+ `TestEnv` Drop 恢复 env/清理目录。**沙箱测试注意：config 里的 `symlink_dir` 若是绝对路径会写真实 links 目录，测试必须同时隔离该配置**
 - **改完代码先 review 再交付**（编译通过 ≠ 代码干净）：每次改完、build/test/通知用户/提交前，对本次 diff 逐文件自审——(1) 逻辑/边界 bug（空集、None、并发、`panic=abort` 下后台线程无 unwrap）；(2) 因改动变孤儿的 import/变量/函数一并清；(3) 风格违规（标准库别用 `std::fs::` 全路径，优先 `use` 短名，歧义才加包名）；(4) 冗余/可简化处。复核通过再 build/test/交付
 - **env/unix.rs 的 RebuildLine 与 PerDirCommand 是两条独立代码路径**：改 PATH 持久化行为时（插入位置、去重、删除），bash/zsh 走 RebuildLine 分支、fish 走 PerDirCommand 分支，**修一处必须检查另一处是否同型遗漏**——bash Bug 2（PATH 行错位到 hook 后）修了 RebuildLine、漏了 PerDirCommand，fish 用户 WSL 实测才暴露（v0.4.3 补修）
 - **bug 回归测试用临时文件验证后删除，不提交**：用户规矩——测试代码跑通证明修复生效即可，diff 里只留修复本身

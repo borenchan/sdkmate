@@ -45,6 +45,7 @@ impl ConfigKey {
                     SdkField::BinDir => "bin_dir",
                     SdkField::OsStyle => "os_style",
                     SdkField::ArchStyle => "arch_style",
+                    SdkField::AddToPath => "add_to_path",
                 };
                 format!("sdk.{}.{}", name, field_name)
             }
@@ -69,6 +70,7 @@ pub enum SdkField {
     BinDir,
     OsStyle,
     ArchStyle,
+    AddToPath,
 }
 
 /// 从点分隔字符串解析为 ConfigKey
@@ -141,6 +143,10 @@ pub fn parse_config_key(key: &str) -> Result<ConfigKey> {
                     name: parts[1].to_string(),
                     field: SdkField::ArchStyle,
                 }),
+                "add_to_path" => Ok(ConfigKey::Sdk {
+                    name: parts[1].to_string(),
+                    field: SdkField::AddToPath,
+                }),
                 "extra_vars" | "extra_paths" => bail!(
                     "Invalid config key '{}'. For extra_vars, use: sdk.{}.extra_vars.<KEY>\nFor extra_paths, use: sdk.{}.extra_paths.<N>",
                     key,
@@ -205,6 +211,7 @@ pub fn known_keys() -> Vec<&'static str> {
         "sdk.<name>.bin_dir",
         "sdk.<name>.os_style",
         "sdk.<name>.arch_style",
+        "sdk.<name>.add_to_path",
         "sdk.<name>.extra_vars.<KEY>",
         "sdk.<name>.extra_paths.<N>",
     ]

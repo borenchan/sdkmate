@@ -96,7 +96,7 @@ sdkm config remove-sdk <NAME>
 
 | 占位符 | 含义 | 用于 |
 |:---|:---|:---|
-| `{feature_version}` | 大版本号（如 `21`） | Java（Adoptium） |
+| `{feature_version}` | 大版本号（如 `21`） | Java（Adoptium）、Tomcat（Apache 分支目录 `tomcat-11`） |
 | `{release_tag}` | 构建日期标签（如 `20241216`，动态发现） | Python（python-build-standalone） |
 | `{platform}` | 平台三元组（如 `x86_64-pc-windows-msvc`，自动检测） | Python |
 
@@ -116,11 +116,16 @@ sdkm config remove-sdk <NAME>
 
 | SDK | 版本发现源 | 下载源 |
 |:---|:---|:---|
-| Java | Adoptium available_releases API | Adoptium binary latest API（`{feature_version}`/`{os}`/`{arch}`） |
+| Java | 四家供应商 API：Adoptium（默认 Temurin）/ Azul Zulu / GitHub `corretto-*` tags / BellSoft API | 各供应商 API 返回的平台直链 |
 | Node.js | nodejs.org/dist/index.json | `nodejs.org/dist/{version}/...`（`{os}`=`win/darwin/linux`） |
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
 | Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
+| Tomcat | `archive.apache.org/dist/tomcat/`（HTML 目录索引，多请求） | dlcdn 模板（当前版本 CDN，备源 archive；404 不重试直接回退），可换镜像 |
 | Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
+
+> **两点特例**
+> 1. **Java 只有部分场景走下载模板**：`sdkm install java 21`（默认供应商 + 裸大版本）仍渲染 `sdk.java.download_url` 模板，可改成 Adoptium 镜像；一旦指定精确版本或供应商（`21.0.13-zulu`、`amzn@21`、`librca@21`），下载直链来自各家 API，模板不参与（GitHub 托管的直链仍受 `network.github_download_mirror` 影响）。`sdk.java.version_url` 用于取可用大版本列表。
+> 2. **自定义 SDK 只认 JSON**：`version_url` 需返回版本列表 JSON（扁平数组 / `{"version": ...}` 数组 / GitHub Releases 三种形态）。Apache 风格的 **HTML 目录索引只有内置 Tomcat 支持**，自定义 SDK 指向 HTML 页会解析失败。
 
 ## GitHub Releases 接入标准（标准 B）
 

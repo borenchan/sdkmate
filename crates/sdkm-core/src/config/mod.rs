@@ -164,8 +164,16 @@ pub struct SdkConfig {
     //下载模板 {arch} 占位符的命名风格（default/adoptium/python/go；None = default）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arch_style: Option<String>,
+    //是否把 bin 目录加入 PATH（None = true；false = 仅设 extra_vars 不注入 PATH，如 Tomcat）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub add_to_path: Option<bool>,
 }
 impl SdkConfig {
+    /// bin 目录是否加入 PATH（字段缺省视为 true，兼容老配置）
+    pub fn add_to_path(&self) -> bool {
+        self.add_to_path.unwrap_or(true)
+    }
+
     /// 构造 SdkConfig，bin_dir 传 None 表示二进制在 SDK 根目录
     pub fn new(name: String, version_url: String, download_url: String, bin_dir: Option<String>) -> SdkConfig {
         SdkConfig {
@@ -180,6 +188,7 @@ impl SdkConfig {
             extra_paths: Vec::new(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         }
     }
 
@@ -346,6 +355,7 @@ impl SdkmConfig {
                     SdkField::BinDir => Ok(sdk.bin_dir.clone().unwrap_or_default()),
                     SdkField::OsStyle => Ok(sdk.os_style.clone().unwrap_or_default()),
                     SdkField::ArchStyle => Ok(sdk.arch_style.clone().unwrap_or_default()),
+                    SdkField::AddToPath => Ok(sdk.add_to_path().to_string()),
                 }
             }
             ConfigKey::SdkExtraVar { name, var_key } => {
@@ -406,6 +416,7 @@ impl SdkmConfig {
                         SdkField::BinDir => sdk.bin_dir = Some(value),
                         SdkField::OsStyle => sdk.os_style = Some(value),
                         SdkField::ArchStyle => sdk.arch_style = Some(value),
+                        SdkField::AddToPath => sdk.add_to_path = Some(value == "true"),
                     }
                 }
             }
@@ -502,6 +513,7 @@ impl SdkmConfig {
                         SdkField::DownloadUrl => sdk.download_url = None,
                         SdkField::OsStyle => sdk.os_style = None,
                         SdkField::ArchStyle => sdk.arch_style = None,
+                        SdkField::AddToPath => sdk.add_to_path = None,
                         SdkField::CurrentVersion => sdk.current_version = None,
                         SdkField::BinDir => {
                             // bin_dir 不可删除（已在 delete_value 中校验，不应到达）
@@ -730,6 +742,8 @@ fn seed_to_config(seed: &SdkSeed) -> SdkConfig {
         extra_paths,
         os_style,
         arch_style,
+        // true 不落盘（省一行）；false 才物化，语义即"关闭 PATH 注入"
+        add_to_path: if seed.add_to_path { None } else { Some(false) },
     }
 }
 

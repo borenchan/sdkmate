@@ -200,8 +200,10 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 
 ```bash
 # 从远程安装（支持模糊匹配，自动切换）
-sdkm install java 21              # '21' → 最新 21.x
+sdkm install java 21              # '21' → 最新 21.x（默认 Eclipse Temurin）
+sdkm install java zulu@17         # 换 JDK 供应商：'zulu@17' 等价 '17-zulu'
 sdkm install node 20.11.0
+sdkm install tomcat 11            # Apache Tomcat（归档全历史）
 
 # 或把已有 SDK 交给 sdkm 托管（无需重新下载）
 # 放到 <sdkm所在目录>/store/java/21/ 下，sdkm 自动发现
@@ -269,10 +271,11 @@ eval "$(sdkm use --shell java 21)"       # 临时：仅当前终端（优先级�
 
 | SDK | 支持状态 | 下载源 |
 |:---|:---:|:---|
-| ☕ **Java (JDK)** | ✅ 已支持 | Adoptium Eclipse Temurin |
+| ☕ **Java (JDK)** | ✅ 已支持 | Eclipse Temurin（默认）· Azul Zulu · Amazon Corretto · BellSoft Liberica |
 | 🟢 **Node.js** | ✅ 已支持 | nodejs.org |
 | 🐍 **Python** | ✅ 已支持 | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ 已支持 | Apache Maven (dlcdn) |
+| 🐈 **Tomcat** | ✅ 已支持 | Apache Tomcat（归档源，dlcdn 备源） |
 | 🔵 **Go** | ✅ 已支持 | go.dev |
 | 🚀 **uv / bun / claude-code / cmake / fzf / ripgrep / ... 40+ more** | ✅ 已支持 | GitHub Releases |
 | ⚙️ **自定义 SDK** | ✅ 可无限扩展 | 用户配置（任意 URL） |

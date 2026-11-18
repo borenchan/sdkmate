@@ -1,6 +1,6 @@
 // 版本字符串模糊匹配(与 SDK 来源无关,install/switch/list 共用)
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::cmp::Ordering;
 
 /// 去除版本号前导的 `v`/`V`(`"v14.16.0"` → `"14.16.0"`),用于归一化比较。
@@ -16,6 +16,7 @@ fn strip_v_prefix(s: &str) -> &str {
 }
 
 /// 通用模糊匹配结果(与 SDK 来源无关,install/switch 共用)
+#[derive(Debug)]
 pub struct FuzzyMatch {
     /// 匹配到的完整版本号(保留原始形态,如带 `v` 前缀)
     pub full_version: String,
@@ -137,6 +138,190 @@ fn version_distance(a: &[u32], b: &[u32]) -> u64 {
         d += av.abs_diff(bv) * weight;
     }
     d
+}
+
+// ─── Java 多供应商（sdkman 式版本标识）──────────────────────────
+
+/// JDK 供应商（版本后缀的取值域；sdkman 式标识见 parse_java_version_input）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JavaVendor {
+    /// Eclipse Temurin（默认，存储无后缀，兼容既有安装）
+    Temurin,
+    /// Azul Zulu
+    Zulu,
+    /// Amazon Corretto
+    Corretto,
+    /// BellSoft Liberica
+    Liberica,
+}
+
+impl JavaVendor {
+    pub const ALL: [JavaVendor; 4] = [
+        JavaVendor::Temurin,
+        JavaVendor::Zulu,
+        JavaVendor::Corretto,
+        JavaVendor::Liberica,
+    ];
+
+    /// 存储规范后缀（Temurin 无后缀）
+    pub fn suffix(self) -> Option<&'static str> {
+        match self {
+            JavaVendor::Temurin => None,
+            JavaVendor::Zulu => Some("zulu"),
+            JavaVendor::Corretto => Some("amzn"),
+            JavaVendor::Liberica => Some("librca"),
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            JavaVendor::Temurin => "Temurin",
+            JavaVendor::Zulu => "Zulu",
+            JavaVendor::Corretto => "Corretto",
+            JavaVendor::Liberica => "Liberica",
+        }
+    }
+
+    /// 别名 → 供应商（大小写不敏感）
+    pub fn from_alias(s: &str) -> Option<JavaVendor> {
+        match s.to_ascii_lowercase().as_str() {
+            "tem" | "temurin" | "eclipse" => Some(JavaVendor::Temurin),
+            "zulu" => Some(JavaVendor::Zulu),
+            "amzn" | "corretto" | "amazon" => Some(JavaVendor::Corretto),
+            "librca" | "liberica" | "bellsoft" => Some(JavaVendor::Liberica),
+            _ => None,
+        }
+    }
+}
+
+/// 从版本串尾部拆已知供应商后缀；未知尾段（如 `1.0.0-beta`）不拆，返回 None
+fn split_vendor_suffix(version: &str) -> Option<(&str, JavaVendor)> {
+    version
+        .rsplit_once('-')
+        .and_then(|(num, tail)| JavaVendor::from_alias(tail).map(|v| (num, v)))
+}
+
+/// 解析用户输入 → (数字版本, 供应商)
+///
+/// 支持三种写法：`21`/`21.0.13`（默认 Temurin）、`21-zulu`（后缀式）、`zulu@17`（供应商@版本，
+/// `@` 优先于后缀）。`@` 左侧必须是已知别名，右侧不再允许供应商后缀（防冲突写法）。
+pub fn parse_java_version_input(input: &str) -> Result<(String, JavaVendor)> {
+    let t = input.trim();
+    if let Some((lhs, rhs)) = t.split_once('@') {
+        let vendor = JavaVendor::from_alias(lhs.trim()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown Java vendor '{}'. Valid: tem/temurin, zulu, amzn/corretto, librca/liberica",
+                lhs.trim()
+            )
+        })?;
+        let ver = rhs.trim();
+        if ver.is_empty() {
+            anyhow::bail!("missing version after '@' (e.g. `zulu@17`)");
+        }
+        if let Some((num, v2)) = split_vendor_suffix(ver) {
+            if v2 != vendor {
+                anyhow::bail!(
+                    "conflicting vendor spec in '{}': '@{}' vs '-{}'",
+                    input,
+                    vendor.display_name().to_lowercase(),
+                    v2.display_name().to_lowercase()
+                );
+            }
+            return Ok((num.to_string(), vendor));
+        }
+        return Ok((ver.to_string(), vendor));
+    }
+    Ok(match split_vendor_suffix(t) {
+        Some((num, v)) => (num.to_string(), v),
+        None => (t.to_string(), JavaVendor::Temurin),
+    })
+}
+
+/// 规范存储形态：数字版本 + 供应商后缀（Temurin 无后缀）
+pub fn format_java_version(numeric: &str, vendor: JavaVendor) -> String {
+    match vendor.suffix() {
+        Some(s) => format!("{numeric}-{s}"),
+        None => numeric.to_string(),
+    }
+}
+
+/// 供应商感知的本地版本模糊匹配（store 目录名带后缀，如 `21.0.13-zulu`）
+///
+/// - 输入先过 [`parse_java_version_input`]（`@` 与后缀两种写法都支持）
+/// - 候选按供应商过滤（无已知后缀 = Temurin），对数字部分跑 [`fuzzy_match_version_core`]
+/// - 裸 major（`21` / `zulu@21`）同样走前缀匹配（fuzzy=true，调用端确认，与历史行为一致）
+/// - 目标供应商无候选时，错误里列出已装的其他供应商版本并给出切换提示
+pub fn fuzzy_match_version_with_vendor(versions: &[String], input: &str) -> Result<FuzzyMatch> {
+    let (numeric_in, vendor) = parse_java_version_input(input)?;
+
+    // 候选拆（原始串, 数字部分, 供应商）
+    let pool: Vec<(&String, &str, JavaVendor)> = versions
+        .iter()
+        .map(|v| match split_vendor_suffix(v) {
+            Some((num, ven)) => (v, num, ven),
+            None => (v, v.as_str(), JavaVendor::Temurin),
+        })
+        .collect();
+    let filtered: Vec<(&String, &str, JavaVendor)> = pool.iter().copied().filter(|(_, _, v)| *v == vendor).collect();
+
+    if filtered.is_empty() {
+        let others: Vec<&str> = pool
+            .iter()
+            .copied()
+            .filter(|(_, _, v)| *v != vendor)
+            .map(|(orig, _, _)| orig.as_str())
+            .collect();
+        let list = if others.is_empty() {
+            String::new()
+        } else {
+            format!(" (installed: {})", others.join(", "))
+        };
+        let suggest = others.first().map(|o| format!(", try '{o}'")).unwrap_or_default();
+        anyhow::bail!(
+            "version '{input}' not found: no installed versions for vendor '{}'{}{}",
+            vendor.display_name(),
+            list,
+            suggest
+        );
+    }
+
+    let nums: Vec<String> = filtered.iter().map(|(_, n, _)| (*n).to_string()).collect();
+    // 裸 major（"21"）与部分版本（"21.0"）都走核心前缀匹配（fuzzy=true 需确认，与历史行为一致）
+    let matched = match fuzzy_match_version_core(&nums, &numeric_in) {
+        Ok(m) => m,
+        Err(e) => {
+            // 同供应商无匹配时，若其他供应商装了同系列版本，给出可操作的切换提示
+            let others: Vec<&str> = pool
+                .iter()
+                .copied()
+                .filter(|(_, _, v)| *v != vendor)
+                .map(|(orig, _, _)| orig.as_str())
+                .collect();
+            if others.is_empty() {
+                return Err(e);
+            }
+            let suggest = others
+                .iter()
+                .find(|o| {
+                    let num = split_vendor_suffix(o).map(|(n, _)| n).unwrap_or(o);
+                    num.starts_with(&format!("{numeric_in}."))
+                })
+                .or_else(|| others.first())
+                .copied()
+                .unwrap_or("");
+            anyhow::bail!("{}; other vendors installed: {} (try '{}')", e, others.join(", "), suggest)
+        }
+    };
+
+    let original = filtered
+        .iter()
+        .find(|(_, n, _)| *n == matched.full_version)
+        .map(|(orig, _, _)| (*orig).clone())
+        .context("matched version not found in candidate pool (internal error)")?;
+    Ok(FuzzyMatch {
+        full_version: original,
+        fuzzy_matched: matched.fuzzy_matched,
+    })
 }
 
 #[cfg(test)]
@@ -277,5 +462,77 @@ mod tests {
         let versions = vs(&["v14.16.0", "v16.20.0"]);
         // 归一化后 14 与 v14.16.0 有公共数值前缀 → 建议它
         assert_eq!(suggest_similar_version(&versions, "14"), Some("v14.16.0".into()));
+    }
+
+    // ── Java 供应商后缀匹配 ──────────────────────────────────────
+
+    #[test]
+    fn parse_java_input_forms() {
+        assert_eq!(parse_java_version_input("21").unwrap(), ("21".into(), JavaVendor::Temurin));
+        assert_eq!(
+            parse_java_version_input("21.0.13").unwrap(),
+            ("21.0.13".into(), JavaVendor::Temurin)
+        );
+        assert_eq!(parse_java_version_input("21-zulu").unwrap(), ("21".into(), JavaVendor::Zulu));
+        assert_eq!(
+            parse_java_version_input("21.0.13.0.11-amzn").unwrap(),
+            ("21.0.13.0.11".into(), JavaVendor::Corretto)
+        );
+        assert_eq!(parse_java_version_input("zulu@17").unwrap(), ("17".into(), JavaVendor::Zulu));
+        assert_eq!(
+            parse_java_version_input("amzn@21.0.13").unwrap(),
+            ("21.0.13".into(), JavaVendor::Corretto)
+        );
+        // tem/temurin 归一化为无后缀 Temurin
+        assert_eq!(parse_java_version_input("21-tem").unwrap(), ("21".into(), JavaVendor::Temurin));
+        assert_eq!(parse_java_version_input("tem@21").unwrap(), ("21".into(), JavaVendor::Temurin));
+        // 未知尾段不拆（保持旧行为）
+        assert_eq!(
+            parse_java_version_input("1.0.0-beta").unwrap(),
+            ("1.0.0-beta".into(), JavaVendor::Temurin)
+        );
+    }
+
+    #[test]
+    fn parse_java_input_rejects_bad_vendor_and_conflicts() {
+        assert!(parse_java_version_input("bogus@21").is_err());
+        assert!(parse_java_version_input("zulu@").is_err());
+        assert!(parse_java_version_input("zulu@21-amzn").is_err());
+        // 同供应商后缀与 @ 组合是冗余但合法
+        assert_eq!(
+            parse_java_version_input("zulu@21-zulu").unwrap(),
+            ("21".into(), JavaVendor::Zulu)
+        );
+    }
+
+    #[test]
+    fn vendor_fuzzy_isolates_default_vendor() {
+        let versions = vs(&["21.0.13", "21.0.13-zulu", "17.0.9-zulu"]);
+        // "21" 只匹配 Temurin，不会被 zulu 劫持
+        let m = fuzzy_match_version_with_vendor(&versions, "21").unwrap();
+        assert_eq!(m.full_version, "21.0.13");
+        // "21-zulu" 与 "zulu@21" 等价
+        let m2 = fuzzy_match_version_with_vendor(&versions, "21-zulu").unwrap();
+        assert_eq!(m2.full_version, "21.0.13-zulu");
+        assert!(m2.fuzzy_matched);
+        let m3 = fuzzy_match_version_with_vendor(&versions, "zulu@21").unwrap();
+        assert_eq!(m3.full_version, "21.0.13-zulu");
+        // "17" 无 Temurin 家族 → 报错并提示已装的 zulu 版本
+        let err = fuzzy_match_version_with_vendor(&versions, "17").unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("other vendors installed"));
+        assert!(msg.contains("try '17.0.9-zulu'"));
+    }
+
+    #[test]
+    fn vendor_fuzzy_exact_and_prefix() {
+        let versions = vs(&["21.0.13", "21.0.13-zulu", "21.0.13.0.11-amzn"]);
+        let m = fuzzy_match_version_with_vendor(&versions, "21.0.13-zulu").unwrap();
+        assert_eq!(m.full_version, "21.0.13-zulu");
+        assert!(!m.fuzzy_matched);
+        // corretto tag 是多段数字，前缀 "21.0.13" 能命中
+        let m2 = fuzzy_match_version_with_vendor(&versions, "amzn@21.0.13").unwrap();
+        assert_eq!(m2.full_version, "21.0.13.0.11-amzn");
+        assert!(m2.fuzzy_matched);
     }
 }

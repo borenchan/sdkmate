@@ -200,8 +200,10 @@ Don't want to memorize commands? sdkm also ships a simple, easy-to-use GUI, buil
 
 ```bash
 # Install from remote (fuzzy match, auto-switch)
-sdkm install java 21              # '21' → latest 21.x
+sdkm install java 21              # '21' → latest 21.x (Eclipse Temurin)
+sdkm install java zulu@17         # another JDK vendor: 'zulu@17' == '17-zulu'
 sdkm install node 20.11.0
+sdkm install tomcat 11            # Apache Tomcat (full archive history)
 
 # Or hand existing SDKs to sdkmate (no re-download)
 # Drop them under <sdkm-dir>/store/java/21/ — sdkm discovers them automatically
@@ -269,10 +271,11 @@ eval "$(sdkm use --shell java 21)"       # Temporary: this terminal only (highes
 
 | SDK | Status | Source |
 |:---|:---:|:---|
-| ☕ **Java (JDK)** | ✅ Supported | Adoptium Eclipse Temurin |
+| ☕ **Java (JDK)** | ✅ Supported | Eclipse Temurin (default) · Azul Zulu · Amazon Corretto · BellSoft Liberica |
 | 🟢 **Node.js** | ✅ Supported | nodejs.org |
 | 🐍 **Python** | ✅ Supported | astral-sh python-build-standalone |
 | 🧶 **Maven** | ✅ Supported | Apache Maven (dlcdn) |
+| 🐈 **Tomcat** | ✅ Supported | Apache Tomcat (archive, dlcdn fallback) |
 | 🔵 **Go** | ✅ Supported | go.dev |
 | 🚀 **uv / bun / claude-code / cmake / fzf / ripgrep / ... 40+ more** | ✅ Supported | GitHub Releases |
 | ⚙️ **Custom SDK** | ✅ Infinitely extensible | User-configured (any URL) |

@@ -372,6 +372,7 @@ impl AddSdkHandler {
             extra_paths: self.extra_path.clone(),
             os_style: None,
             arch_style: None,
+            add_to_path: None,
         };
 
         manager.config.add_sdk(sdk_config, manager.sink.as_ref())?;

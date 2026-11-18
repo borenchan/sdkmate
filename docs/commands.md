@@ -42,15 +42,18 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 sdkm install <SDK> <VERSION> [--no-switch]
 ```
 
-- `<SDK>`：SDK 名称。内置支持 `java` / `node` / `python` / `maven` / `go`，也接受 [custom-sdk.md](./custom-sdk.md) 中注册的自定义 SDK。
+- `<SDK>`：SDK 名称。内置支持 `java` / `node` / `python` / `maven` / `go` / `tomcat`，也接受 [custom-sdk.md](./custom-sdk.md) 中注册的自定义 SDK。
 - `<VERSION>`：目标版本，**支持模糊匹配**。例如 `21` 会解析为最新的 `21.x`，`20.11` 会匹配到 `20.11.x`。
+- **Java 供应商**：默认装 Eclipse Temurin；换供应商把供应商写进版本号，两种写法等价——`21-zulu`（后缀式）与 `zulu@21`（前缀式）。别名：`tem`/`temurin`、`zulu`、`amzn`/`corretto`、`librca`/`liberica`。安装目录与 `current` 显示为规范形态 `21.0.13-zulu`（Temurin 无后缀，兼容旧数据）。`switch` / `uninstall` / `use` 同样接受这两种写法。
 - `--no-switch`：仅安装，不自动切换到新版本。
 
 示例：
 
 ```bash
-sdkm install java 21            # 安装 Java 21 最新版并自动切换
+sdkm install java 21            # 安装 Java 21 最新版（Temurin）并自动切换
+sdkm install java zulu@17       # 安装 Zulu 的 17.x（等价于 17-zulu）
 sdkm i node 20.11.0             # 安装指定 Node.js 版本并自动切换
+sdkm install tomcat 11          # 安装 Tomcat 11.x（Apache 归档全历史）
 sdkm install python 3.12 --no-switch   # 安装 Python 3.12 但不切换
 ```
 
@@ -74,6 +77,8 @@ sdkm list [SDK] [-r/--remote] [--limit N]
 - `--limit N`：远程列表最多显示 N 条，默认 20，必须 ≥ 1。
 - `-r` 但未指定 `<SDK>` 会报错：`Please specify an SDK name`。
 - `sdkm list maven -r` 会报错：Maven 不支持远程版本列表。
+- `sdkm list java -r`：**四家供应商（Temurin/Zulu/Corretto/Liberica）的 LTS 系列 + 最新 feature 系列版本合并成一个列表**，非 Temurin 条目带后缀（如 `21.0.13-zulu`）；TUI 里按 `f` 搜 `zulu` / `amzn` / `librca` 即可筛。无 `--vendor` 参数——供应商就是版本号的一部分。
+- `sdkm list tomcat -r`：解析 Apache 归档的 HTML 目录索引（root → `tomcat-9/10/11` 分支），含全部历史 patch，里程碑 `-M` 已过滤。
 
 示例：
 

@@ -392,6 +392,7 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
                 extra_paths: Vec::new(),
                 os_style: None,
                 arch_style: None,
+                add_to_path: None,
             };
             manager.config.add_sdk(sdk_conf, sink.as_ref())?;
             Ok(TaskOutcome::Done)
