@@ -142,6 +142,7 @@ fn disk_current(sdk: &str) -> Option<String> {
 fn uninstall_non_active_keeps_current() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_sdk(Some("21"), Some("bin"), &[])],
     };
@@ -166,6 +167,7 @@ fn uninstall_non_active_keeps_current() {
 fn uninstall_active_with_other_switches() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_sdk(Some("21"), Some("bin"), &[])],
     };
@@ -190,6 +192,7 @@ fn uninstall_active_with_other_switches() {
 fn uninstall_active_only_cleans_env() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_sdk(Some("21"), Some("bin"), &[("JAVA_HOME", "{sdk_dir}")])],
     };
@@ -226,6 +229,7 @@ fn uninstall_active_only_cleans_env() {
 fn uninstall_nonexistent_version_bails() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_sdk(Some("21"), Some("bin"), &[])],
     };

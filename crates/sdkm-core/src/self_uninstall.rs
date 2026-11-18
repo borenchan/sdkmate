@@ -7,6 +7,7 @@
 
 use crate::env::report_env_actions;
 use crate::manager::SdkManager;
+use crate::shell::inject;
 use anyhow::Result;
 use sdkm_util::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_LINKS_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR};
 use sdkm_util::path::get_sdkm_home;
@@ -40,6 +41,31 @@ impl SdkManager {
             if let Err(e) = self.cleanup_sdk_environment(sdk) {
                 self.sink.warning(format!("failed to clean up `{sdk}` environment: {e}"));
             }
+        }
+
+        // hook 行：当前 shell 精确移除（固定注释行 + hook 调用行 + legacy 形态）
+        if let Err(e) = inject::remove_shell_hook(self.sink.as_ref()) {
+            self.sink.warning(format!("failed to remove shell hook lines: {e}"));
+        }
+
+        // 旧版直写 profile 的 PATH/export 行精准清扫（仅删 sdkm 管辖路径的行，宁可漏删不误删）。
+        // links 根与 extra_vars 键名必须在删除 config.toml 之前从配置解析。
+        let links_root = self.config.resolved_symlink_dir().unwrap_or_default();
+        let env_keys: Vec<String> = self.config.sdks.iter().flat_map(|s| s.extra_vars.keys().cloned()).collect();
+        let home_str = get_sdkm_home()?.to_string_lossy().to_string();
+        match self
+            .env_operation
+            .cleanup_legacy_profile_lines(&home_str, &links_root, &env_keys)
+        {
+            Err(e) => self.sink.warning(format!("failed to sweep legacy profile lines: {e}")),
+            Ok(actions) => report_env_actions(self.sink.as_ref(), &actions),
+        }
+
+        // 托管环境文件 + profile source 行：必须在删除 config.toml 之前
+        // （自定义 env_file 路径靠 config 解析，删了 config 就只能回退默认路径）
+        match self.env_operation.cleanup_env_file() {
+            Err(e) => self.sink.warning(format!("failed to clean up env file: {e}")),
+            Ok(actions) => report_env_actions(self.sink.as_ref(), &actions),
         }
 
         // 删除 home 目录内容（store/links/.tmp/cache/config.toml），尽力而为

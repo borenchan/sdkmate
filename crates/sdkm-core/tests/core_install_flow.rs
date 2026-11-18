@@ -366,6 +366,7 @@ fn core_flow_github_releases_direct_link() {
     let api_base = serve_routes(vec![("/api/repos/x/tool/releases", body.into_bytes())]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "tool".to_string(),
@@ -404,6 +405,7 @@ fn core_flow_template_download() {
     ]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "tmpl".to_string(),
@@ -452,6 +454,7 @@ fn core_flow_tomcat_html_discovery() {
     let mut extra_vars = HashMap::new();
     extra_vars.insert("CATALINA_HOME".to_string(), "{sdk_dir}".to_string());
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "tomcat".to_string(),
@@ -521,6 +524,7 @@ fn core_flow_tomcat_html_discovery() {
 #[test]
 fn core_flow_java_vendor_store_isolation() {
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "java".to_string(),
@@ -574,6 +578,7 @@ fn core_flow_emits_event_sequence() {
     ]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "ev".to_string(),
@@ -643,6 +648,7 @@ fn core_flow_emits_already_installed() {
     ]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "ev2".to_string(),
@@ -704,6 +710,7 @@ fn core_flow_fallback_download_bar_lifecycle() {
     ]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "fb".to_string(),
@@ -775,6 +782,7 @@ fn core_flow_fallback_skips_retry_on_404() {
     ]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "fb404".to_string(),
@@ -822,6 +830,7 @@ fn switch_symlink_resolves_to_installed_version() {
     let api_base = serve_routes(vec![("/api/repos/x/tool/releases", body.into_bytes())]);
 
     let config = SdkmConfig {
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![SdkConfig {
             name: "tool".to_string(),

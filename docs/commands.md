@@ -29,6 +29,7 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 ```
 
 - `--force` / `-f`：强制重新初始化。会覆盖已有 `config.toml`，并跳过「目录部署检测」。
+- 目标 shell 按登录 shell（`$SHELL`）检测；非登录 shell 场景（如 bash 登录后手动启动 fish）请在该 shell 的 profile 手动注入 hook，或把该 shell 设为登录 shell。
 - 初始化流程会透明地逐步打印每一步操作及其用途，便于排查。
 - Windows 下写入系统 PATH、环境变量与创建符号链接需**管理员权限**。
 
@@ -123,7 +124,7 @@ sdkm s node 20.11.0          # 切换到 Node.js 20.11.0
 
 切换机制：创建/更新符号链接 `<symlink_dir>/<sdk_name>` → `store/<sdk>/<version>`，将符号链接的 bin 目录加入 PATH，并通过平台特定方式设置额外环境变量（如 `JAVA_HOME`），最后更新 `config.toml` 的 `current_version`。
 
-**生效时机**：已注入 shell hook 时，切换完成**按一下回车**（提示符渲染触发 hook → `sdkm env` 重建 PATH）即生效，无需重启终端；未注入 hook 时需重启终端（或重新 source profile）。
+**生效时机**：已注入 shell hook 时，切换完成**按一下回车**（提示符渲染触发 hook → `sdkm env` 重建 PATH）即生效，无需重启终端；未注入 hook 时需重启终端（或重新 source 托管环境文件 `<sdkm_home>/sdkm_env.sh`）。
 
 **安全特性**：
 
@@ -275,7 +276,7 @@ sdkm config edit                                      # 用编辑器打开 confi
 
 ### sdkm self uninstall
 
-卸载 sdkm：清理所有被管理 SDK 的激活环境（符号链接 / PATH / 环境变量 / `current_version`），并删除 home 目录内容（store/links/.tmp/cache/config.toml）。破坏性操作，强制交互确认、不可跳过。sdkm 二进制本身与 PATH 条目需手动清理（运行中的 exe 跨平台不可靠自删）。
+卸载 sdkm：清理所有被管理 SDK 的激活环境（符号链接 / PATH / 环境变量 / `current_version`），**移除当前 shell 的 profile 里的 sdkm hook 行**（固定注释 + hook 调用行，含 PowerShell legacy 形态）与**旧版直写进该 profile 的 sdkm PATH / 环境变量行**（只删路径在 sdkm home 或 `links/` 目录树内的行，精准匹配、宁可漏删），删除托管环境文件与 home 目录内容（store/links/.tmp/cache/config.toml）。config.toml 已不存在（此前卸载过/未 init）时会降级用默认配置继续清理残留。破坏性操作，强制交互确认、不可跳过。sdkm 二进制本身需手动删除（运行中的 exe 跨平台不可靠自删）。
 
 ### sdkm self update
 

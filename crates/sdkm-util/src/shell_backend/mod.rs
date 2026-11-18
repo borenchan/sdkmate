@@ -52,6 +52,9 @@ pub struct ShellSyntax {
     pub export_line: fn(&str, &str) -> String,
     /// env 脚本取消行（bash `unset K` / fish `set -q K; and set -e K` / PS `$env:K = $null`）
     pub unset_line: fn(&str) -> String,
+    /// profile 中 source 托管环境文件的行（bash/zsh `[ -f p ] && . p` / fish `test -f p; and source p`；
+    /// 仅 Unix 使用——Windows 环境变量走注册表，env 文件不存在）
+    pub source_env_line: fn(&str) -> String,
 }
 
 /// 持久化表（unix.rs 专用，bash/zsh/fish 三行；PowerShell 缺席——Windows 走注册表）
@@ -105,6 +108,7 @@ mod tests {
             assert!(!(s.base_self_heal_line)().is_empty());
             assert!(!(s.export_line)("K", "v").is_empty());
             assert!(!(s.unset_line)("K").is_empty());
+            assert!((s.source_env_line)("/tmp/x").contains("/tmp/x"), "{sh:?} source 行缺路径");
         }
         // persistence：bash/zsh/fish 必须 Some 且字段满足各自 path_model；PowerShell 必须缺席
         for sh in [Shell::Bash, Shell::Zsh, Shell::Fish] {

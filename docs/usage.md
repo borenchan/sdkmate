@@ -85,7 +85,9 @@ sdkm use --shell java 21 | iex         # PowerShell
 
 ## Shell 支持与 Hook 注册
 
-项目级 / 临时级版本切换依赖 shell hook。sdkm 支持 4 种 shell，`sdkm init` 会自动检测当前 shell 并把 hook 注入到对应 profile：
+项目级 / 临时级版本切换依赖 shell hook。sdkm 支持 4 种 shell，`sdkm init` 会自动检测当前 shell 并把 hook 注入到对应 profile。
+
+**检测方式**（Unix）：按登录 shell（`$SHELL`）判定，未知兜底 bash。注意 `$SHELL` 不会随手动启动的 shell 改变——例如登录 shell 是 bash、再手动敲 `fish` 进入，sdkm 仍会按 bash 处理。非登录 shell 用户请在该 shell 的 profile 里手动注入 hook（见下文「手动注册 hook」），或直接把该 shell 设为登录 shell。
 
 | Shell | profile 路径 |
 |:---|:---|
@@ -99,10 +101,26 @@ sdkm use --shell java 21 | iex         # PowerShell
 ### 自动注入（推荐）
 
 ```bash
-sdkm init            # 自动检测 $SHELL 并注入 hook 到对应 profile
+sdkm init            # 自动检测登录 shell（$SHELL）并注入 hook
 ```
 
 重复跑 `sdkm init` 安全——已注入会跳过（去重），不会重复追加。
+
+**环境变量不再直接写进 profile**（Unix）：`init`/`switch` 把 PATH 与 `JAVA_HOME` 等写入托管环境文件 `<sdkm_home>/sdkm_env.sh`（fish 为 `sdkm_env.fish`），profile 只保留一行带注释的 source：
+
+```sh
+# sdkm environment (managed by sdkm, do not edit)
+[ -f "/path/to/sdkm/sdkm_env.sh" ] && . "/path/to/sdkm/sdkm_env.sh"
+```
+
+想按职责拆分文件（如统一放进 `~/.devrc`）可指定自定义路径，sdkm 只改标记块内的内容：
+
+```bash
+sdkm config set env_file "~/.devrc"   # 内容自动迁移，profile 的 source 行自动重定向
+sdkm config set env_file ""           # 恢复默认（<sdkm_home>/sdkm_env.sh|fish），迁移与重定向同上；等价 `sdkm config delete env_file`
+```
+
+> 从旧版本升级：日常使用中 profile 里旧版写入的 `export PATH=...` 行**不会**主动清理（它们指向稳定的 symlink 目录，换版本后依然正确；PATH 重复条目会被 hook 去重收敛）。执行 `sdkm self uninstall` 时会统一精准清扫：只删路径位于 sdkm home / `links/` 目录树内的行，用户自己的内容不动。Windows 不受影响（环境变量写注册表）。
 
 ### 手动注册 hook
 
@@ -309,14 +327,14 @@ flowchart TD
 
 ### 各 shell 的 hook 触发与 PATH 持久化
 
-| Shell | hook 触发机制 | PATH 持久化方式 |
+| Shell | hook 触发机制 | PATH 持久化位置 |
 |:---|:---|:---|
-| bash | `PROMPT_COMMAND` | 单行重建 `export PATH=...` |
-| zsh | `precmd`（`add-zsh-hook`） | 单行重建（同 bash） |
-| fish | `fish_prompt` 事件 | 逐行 `fish_add_path --path` |
-| PowerShell | 包装 `prompt` 函数 | 走注册表（Windows） |
+| bash | `PROMPT_COMMAND` | 托管环境文件单行重建 `export PATH=...` |
+| zsh | `precmd`（`add-zsh-hook`） | 托管环境文件单行重建（同 bash） |
+| fish | `fish_prompt` 事件 | 托管环境文件逐行 `fish_add_path --path` |
+| PowerShell | 包装 `prompt` 函数 | 走注册表（Windows，无环境文件） |
 
-> **为什么 profile 里持久化的 PATH 行不会与 hook 冲突**：hook 每次回车重建的 PATH（全局层 symlink bins + base）覆盖了持久化条目的语义——`switch` 维护 `config.toml` 的 `current_version` 与 profile 的 PATH 行一致，两者指向相同的 symlink 目录。profile 行只在「hook 未注入/首次启动」时兜底。
+> **为什么托管环境文件里的 PATH 行不会与 hook 冲突**：hook 每次回车重建的 PATH（全局层 symlink bins + base）覆盖了持久化条目的语义——`switch` 维护 `config.toml` 的 `current_version` 与环境文件的 PATH 行一致，两者指向相同的 symlink 目录。环境文件只在「hook 未注入 / 非交互 shell / 首次启动」时兜底。profile 中的 source 行由 `init` 注入，插在 hook 行之前（hook 启动时要能调用 `sdkm env`）。
 
 ---
 

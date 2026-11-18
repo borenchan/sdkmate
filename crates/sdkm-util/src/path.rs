@@ -1,4 +1,4 @@
-use crate::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_LINKS_DIR, SDKM_STORE_DIR};
+use crate::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_ENV_FILE_BASE, SDKM_LINKS_DIR, SDKM_STORE_DIR};
 use anyhow::{Context, Result};
 use std::{
     env,
@@ -68,6 +68,27 @@ pub fn get_size_cache_path() -> Result<PathBuf> {
 pub fn get_hook_cache_path() -> Result<PathBuf> {
     let sdkm_home = get_sdkm_home()?;
     Ok(sdkm_home.join(SDKM_CACHE_DIR).join("hook_cache.json"))
+}
+
+/// 托管环境文件默认路径（<home>/sdkm_env.sh | sdkm_env.fish，随 exe 走）
+pub fn get_default_env_file_path(is_fish: bool) -> Result<PathBuf> {
+    let ext = if is_fish { "fish" } else { "sh" };
+    Ok(get_sdkm_home()?.join(format!("{}.{}", SDKM_ENV_FILE_BASE, ext)))
+}
+
+/// 展开路径首部的 `~`（HOME 优先，Windows 回退 USERPROFILE；无法展开时原样返回）
+pub fn expand_tilde(path: &str) -> String {
+    if !path.starts_with('~') {
+        return path.to_string();
+    }
+    let home = env::var("HOME")
+        .ok()
+        .or_else(|| env::var("USERPROFILE").ok())
+        .filter(|h| !h.is_empty());
+    match home {
+        Some(h) => path.replacen('~', &h, 1),
+        None => path.to_string(),
+    }
 }
 
 /// 字节数格式化为人类可读（1024 进制，自动 B/KB/MB/GB/TB，1 位小数）

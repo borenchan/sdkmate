@@ -153,6 +153,7 @@ fn set_session(version: &str) {
 fn session_overrides_project_and_global() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(Some("17.0.10"))],
     };
@@ -175,6 +176,7 @@ fn session_overrides_project_and_global() {
 fn project_pin_fuzzy_resolves_with_path() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(Some("17.0.10"))],
     };
@@ -200,6 +202,7 @@ fn project_pin_fuzzy_resolves_with_path() {
 fn global_when_no_pins() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(Some("17.0.10"))],
     };
@@ -218,6 +221,7 @@ fn global_when_no_pins() {
 fn stale_session_pin_suppresses_project() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(Some("17.0.10"))],
     };
@@ -239,6 +243,7 @@ fn stale_session_pin_suppresses_project() {
 fn stale_project_pin_falls_back_to_global() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(Some("17.0.10"))],
     };
@@ -258,6 +263,7 @@ fn stale_project_pin_falls_back_to_global() {
 fn none_when_nothing_effective() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(None)],
     };
@@ -274,6 +280,7 @@ fn none_when_nothing_effective() {
 fn project_config_found_from_subdirectory() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config(Some("17.0.10"))],
     };

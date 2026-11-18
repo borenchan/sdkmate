@@ -58,6 +58,11 @@ pub fn manager() -> anyhow::Result<SdkManager> {
     SdkManager::new(Arc::new(TerminalSink::new()))
 }
 
+/// 自卸载专用构造：config 已缺失时降级默认配置（残留清理仍可执行）
+pub fn manager_for_uninstall() -> anyhow::Result<SdkManager> {
+    SdkManager::new_for_uninstall(Arc::new(TerminalSink::new()))
+}
+
 /// 事件 → 终端输出统一入口（与 sdkm_util::terminal 同款调用，样式不变）
 fn render_event(ev: &CoreEvent) {
     match ev {

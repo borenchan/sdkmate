@@ -50,6 +50,11 @@ pub(crate) fn unset_line(k: &str) -> String {
     format!("unset {k}")
 }
 
+/// profile 中 source 托管环境文件的行（文件不存在时静默跳过）
+pub(crate) fn source_env_line(path: &str) -> String {
+    format!("[ -f \"{path}\" ] && . \"{path}\"")
+}
+
 /// 匹配 profile 现有行的前缀（`export KEY=`）
 pub(crate) fn export_prefix(k: &str) -> String {
     format!("export {k}=")
@@ -103,6 +108,7 @@ pub const SYNTAX: ShellSyntax = ShellSyntax {
     path_line,
     export_line,
     unset_line,
+    source_env_line,
 };
 
 pub const PERSISTENCE: ProfilePersistence = ProfilePersistence {

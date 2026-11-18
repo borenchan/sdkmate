@@ -10,6 +10,9 @@ sdkm 的配置文件位于可执行文件同目录下的 `config.toml`（home �
 # 顶层：符号链接目录（切换后的 SDK 入口）
 # 默认不写此行 = 跟随 sdkm home（<sdkm_home>/links）；显式设置则用自定义路径
 # symlink_dir = "/home/user/.sdkm/links"
+# 顶层：托管环境变量文件（仅 Unix；Windows 走注册表不需要）
+# 默认不写此行 = 跟随 home（<sdkm_home>/sdkm_env.sh | sdkm_env.fish）
+# env_file = "~/.devrc"
 
 [network]
 proxy = ""                  # HTTP/HTTPS/SOCKS5 代理 URL，空 = 不使用代理
@@ -37,6 +40,7 @@ extra_paths = []
 | 键 | 类型 | 可删除 | 默认 | 说明 |
 |:---|:---|:---:|:---|:---|
 | `symlink_dir` | Path | 是 | `<sdkm_home>/links`（跟随 home） | 符号链接目录，切换 SDK 后各 SDK 的激活入口都在此目录下。**省略/删除 = 跟随 sdkm home**（exe 移到哪 links 就在哪，跨平台一致、用户级可写、绿色便携）；显式设置则用自定义路径（如多用户共享 `/opt/sdkm/links`） |
+| `env_file` | Path | 是 | `<sdkm_home>/sdkm_env.sh` / `sdkm_env.fish`（跟随 home） | **仅 Unix**：sdkm 托管 PATH/环境变量写入的环境文件。profile 里只保留一行 source 该文件。可自定义指向用户自有文件（如 `~/.devrc`），此时 sdkm 只维护 `# >>> sdkm env >>>` / `# <<< sdkm env <<<` 标记块内的内容，块外不动。**自定义文件只适用于单一 shell**（块内是写入时那个 shell 的语法，bash/fish 混用会互相解析失败）；多 shell 用户请保持默认的分 shell 文件。**修改后自动生效**：sdkm 会把旧文件的托管块内容迁移到新文件，并把 profile 里的 source 行重定向到新路径（旧文件保留不删，可自行删除）。设为空串 `""` = 恢复默认（等价 `sdkm config delete env_file`）；必须是文件路径，已存在的目录会被拒绝 |
 
 ### `[network]` 网络配置
 
@@ -78,6 +82,7 @@ extra_paths = []
 | 键名格式 | 示例 |
 |:---|:---|
 | `symlink_dir` | `symlink_dir` |
+| `env_file` | `env_file` |
 | `network.<field>` | `network.proxy`、`network.cache_ttl_secs` |
 | `sdk.<name>.<field>` | `sdk.java.download_url`、`sdk.node.bin_dir` |
 | `sdk.<name>.extra_vars.<KEY>` | `sdk.java.extra_vars.JAVA_HOME` |
@@ -97,7 +102,7 @@ SDK 字段 `<field>` 取值：`version_url` / `version_fallback_url` / `download
 | `UrlTemplate` | URL 模板，`{xxx}` 占位符替换为占位串后能通过 URL 校验 | `sdk.*.download_url` |
 | `Bool` | 接受 `true/false/1/0/yes/no/on/off`（大小写不敏感，与 git 一致） | `network.ssl_verify` |
 | `U32` | 正整数，范围 `[min, max]` | `network.connect_timeout` `[1,600]`、`cache_ttl_secs` `[0,86400]` |
-| `Path` | 非空字符串（不要求路径存在） | `symlink_dir`、`extra_paths` |
+| `Path` | 非空字符串（不要求路径存在） | `symlink_dir`、`env_file`、`extra_paths` |
 | `Token` | 非空字符串，**输出脱敏**（仅显示前 4 字符 + `***`） | `network.github_token` |
 | `NonEmptyString` | 非空字符串 | `current_version`、`extra_vars` 值 |
 | `FreeString` | 允许空值，**禁止路径分隔符** `/` `\`；空值表示「二进制在根目录」 | `bin_dir` |
