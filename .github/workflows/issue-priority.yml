@@ -1,0 +1,50 @@
+name: Issue priority label
+
+# issue 表单里的「优先级」下拉渲染成 `### 优先级` + 值（P0/P1/P2），
+# 这里按 body 解析并自动打 p0/p1/p2 标签（GitHub issue form 本身不支持条件标签）。
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Ensure priority labels exist
+        run: |
+          gh label create p0 --color B60205 --description "P0 严重 bug / 最高优先级" --force
+          gh label create p1 --color D93F0B --description "P1 高优先级" --force
+          gh label create p2 --color 7db36e --description "优先级p2" --force
+
+      - name: Apply priority label from issue body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            // issue form 的 dropdown 在 body 中的形态：`### 优先级\n\nP0`
+            const match = body.match(/###\s*优先级\s*\n+([^\n]+)/);
+            const value = (match ? match[1] : '').trim().toUpperCase();
+            const allowed = ['P0', 'P1', 'P2'];
+            if (!allowed.includes(value)) {
+              core.info(`No valid priority in issue body (got: "${value}"), skip.`);
+              return;
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.issue.number;
+            const target = value.toLowerCase();
+            for (const other of allowed.map((v) => v.toLowerCase())) {
+              if (other === target) continue;
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: other });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+            }
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [target] });

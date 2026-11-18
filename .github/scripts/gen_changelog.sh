@@ -17,7 +17,7 @@ fi
 # 拿到 短SHA + subject（每行一个）
 # --invert-grep --grep：排除 CI 回写 CHANGELOG.md 的提交（docs(changelog): update for vX.Y.Z），
 # 否则每次发版的 changelog 都会带上一次发版回写 CHANGELOG.md 的噪音提交，形成循环
-mapfile -t COMMITS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%h %s" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
+mapfile -t COMMITS < <(git log ${RANGE:+"$RANGE"} --no-merges --pretty=format:"%h %s" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
 if [ "${#COMMITS[@]}" -eq 0 ]; then
   echo "（无提交记录）"; exit 0
 fi
@@ -48,23 +48,12 @@ emit test     "✅" "Tests"
 emit style    "🎨" "Style"
 emit ci       "👷" "CI / Build"
 emit build    "📦" "Build"
-emit chore    "🧰" "Chore"
-
-# 未归类（非约定式提交）
-other_re="^(feat|fix|perf|refactor|docs|test|style|ci|build|chore)(\([^)]+\))?:"
-first=1
-for line in "${COMMITS[@]}"; do
-  sha="${line%% *}"; subject="${line#* }"
-  if [[ ! "$subject" =~ $other_re ]]; then
-    if [ $first -eq 1 ]; then printf '\n### 📌 Other\n\n'; first=0; fi
-    printf -- '- %s — [`%s`](https://github.com/%s/commit/%s)\n' "$subject" "$sha" "$REPO_FULL" "$sha"
-  fi
-done
+# chore 与 merge 提交通常是维护性噪音，不出现在 changelog（--no-merges 已排除 merge）
 
 # Contributors：本版本区间的提交作者（去重，过滤 bot 与 changelog 回写提交）
 # 优先用 GitHub commits API 拿 author login + avatar_url；无 token/失败则 fallback noreply email 提取或纯文字
 printf '\n### 🙌 Contributors\n\n'
-mapfile -t _AUTHORS < <(git log ${RANGE:+"$RANGE"} --pretty=format:"%h|%an|%ae" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
+mapfile -t _AUTHORS < <(git log ${RANGE:+"$RANGE"} --no-merges --pretty=format:"%h|%an|%ae" --invert-grep --grep="^docs(changelog):" 2>/dev/null || true)
 declare -A _seen=()
 for _entry in "${_AUTHORS[@]}"; do
   _sha="${_entry%%|*}"
@@ -72,8 +61,6 @@ for _entry in "${_AUTHORS[@]}"; do
   _name="${_rest%%|*}"
   _email="${_rest##*|}"
   [[ "$_email" == *"[bot]"* ]] && continue
-  [ -n "${_seen[$_email]:-}" ] && continue
-  _seen[$_email]=1
   _login=""
   _avatar_url=""
   # 优先：GitHub commits API 拿 author login + avatar_url（CI 上 GITHUB_TOKEN 可用）
@@ -87,6 +74,10 @@ for _entry in "${_AUTHORS[@]}"; do
     _login="${BASH_REMATCH[2]}"
     _avatar_url="https://avatars.githubusercontent.com/${_login}?s=64"
   fi
+  # 去重键：优先 GitHub login（同一人多邮箱/多 PR 只出现一次），无 login 时回退 email
+  _key="${_login:-$_email}"
+  [ -n "${_seen[$_key]:-}" ] && continue
+  _seen[$_key]=1
   if [ -n "$_login" ] && [ -n "$_avatar_url" ]; then
     printf -- '- <a href="https://github.com/%s"><img src="%s" width="32" height="32" alt="%s" /> %s</a>\n' "$_login" "$_avatar_url" "$_login" "$_name"
   else
