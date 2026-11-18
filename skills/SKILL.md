@@ -62,7 +62,7 @@ curl -s https://api.github.com/repos/borenchan/sdkmate/releases/latest | grep br
 .sdkm/sdkm init          # unix；Windows: .sdkm\sdkm.exe init
 ```
 
-`init` 会创建 `store/`（SDK 安装根）、写 `config.toml`，并把 sdkm 自身注册到 PATH（Unix 追加 shell profile；Windows 写注册表 PATH）。**Windows 的 `init`/`switch` 需管理员权限**（写 `HKEY_LOCAL_MACHINE` + 创建符号链接）。
+`init` 会创建 `store/`（SDK 安装根）、写 `config.toml`，并把 sdkm 自身注册到 PATH（Unix 写入托管环境文件并由 profile source 一行；Windows 写注册表 PATH）。**Windows 的 `init`/`switch` 需管理员权限**（写 `HKEY_LOCAL_MACHINE` + 创建符号链接）。
 
 ### 安装校验
 
@@ -158,7 +158,7 @@ Invoke-Expression ((sdkm use --shell java 21) -join "`n")
 - `list java -r` → 四家供应商（Temurin/Zulu/Corretto/Liberica）的 LTS 系列 + 最新 feature 系列版本**合并成一个列表**，非 Temurin 条目带后缀；无 `--vendor` 参数，TUI 里按 `f` 搜 `zulu`/`amzn`/`librca` 即可筛。
 - `list tomcat -r` → 解析 Apache 归档 HTML 目录（root → `tomcat-9/10/11`），含全部历史 patch，里程碑 `-M` 已过滤。
 
-**switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH，按平台设置额外环境变量（如 `JAVA_HOME`），更新 `config.toml` 的 `current_version`。**已注入 hook 时切换后按一下回车即生效**（hook 每次回车触发 `sdkm env` 从 config 动态重建 PATH）；未注入 hook 需重启终端。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
+**switch**：创建/更新符号链接 `<symlink_dir>/<sdk>` → `store/<sdk>/<version>`，把符号链接 bin 目录加入 PATH、设置额外环境变量（如 `JAVA_HOME`）——Unix 写入托管环境文件（profile 只 source 一行，不逐行写 profile），Windows 写注册表——并更新 `config.toml` 的 `current_version`。**已注入 hook 时切换后按一下回车即生效**（hook 每次回车触发 `sdkm env` 从 config 动态重建 PATH）；未注入 hook 需重启终端。安全特性：**PATH 冲突检测**（切换前查 PATH 是否已有同 SDK 其他版本路径）+ **快照回滚**（任一步骤失败自动恢复旧链接目标、旧环境变量、移除已加 PATH 条目、恢复旧配置）。Windows 需管理员。
 
 **use**：项目级（默认）写当前目录 `.sdkm.toml` 声明 pin，hook 自动生效；`--shell` 走临时会话级（输出 eval 脚本）。详见上文"多作用域版本切换"。
 
@@ -213,7 +213,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 
 ### 配置项含义
 
-顶层 `symlink_dir`（符号链接目录；默认 `<home>/links` 跟随 home，`delete` 可恢复跟随，`set` 可自定义）。
+顶层 `symlink_dir`（符号链接目录；默认 `<home>/links` 跟随 home，`delete` 可恢复跟随，`set` 可自定义）与 `env_file`（Unix 托管环境文件；默认 `<home>/sdkm_env.sh|fish`，`set` 可指向自有文件——内容自动迁移、profile 的 source 行自动重定向，空串/`delete` 恢复默认）。
 
 `[network]` 段：
 
@@ -341,7 +341,7 @@ sdkm config add-sdk groovy \
 - **Java 精确安装下载源固定**：`install java 21.0.13`、任何供应商写法都用各家 API 直链，改 `sdk.java.download_url` 不生效；只有 `install java 21` 走模板。
 - **Tomcat 不写 PATH**：`bin/` 里 `startup`/`version`/`digest` 等脚本名太通用，内置条目 `add_to_path = false`，切换只更新 `CATALINA_HOME`，用 `$CATALINA_HOME/bin/...`（Windows `%CATALINA_HOME%\bin\catalina.bat`）启动。
 - **Tomcat 版本源是 HTML**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存）；下载主源 dlcdn，历史版本 404 立即回退 archive（不浪费重试），卡死 30s 无数据会自动中止重试。**国内建议换华为云镜像**（全历史可用且快）：`sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"`（阿里云/清华同理）。
-- **Unix 环境变量操作**修改 shell profile；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
+- **Unix 环境变量操作**写入托管环境文件（默认 `<home>/sdkm_env.sh`，fish 为 `sdkm_env.fish`，`config set env_file` 可指向自有文件），profile 只保留一行 source；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
 - **self update 跨改名迁移**：0.3.0 起 release 产物名从 `sdkmate-*` 改为 `sdkm-*`，0.2.x 的 `self update` 无法升级到 0.3.0（asset 名不匹配），需手动下载 0.3.0 覆盖一次，之后正常。
 

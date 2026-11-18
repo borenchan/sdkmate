@@ -74,12 +74,12 @@
   <table>
     <tr>
       <td width="20%" align="center">
-        <h3>🟢 纯绿色 CLI · 轻量</h3>
-        <p>CLI 单二进制 · 零运行时依赖 · <strong>~5MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
+        <h3>🟢 纯绿色便捷分发 · 轻量二进制</h3>
+        <p>CLI 单二进制 · 零运行时依赖 · <strong>~4MB</strong><br>拷到 U 盘即用 · 已有 SDK 放进目录即托管</p>
       </td>
       <td width="20%" align="center">
         <h3>🖥️ 原生 GUI</h3>
-        <p>基于 GPUI 构建 · 跨平台桌面应用<br>可视化管理系统 · 与 CLI 共用同一套 Rust 核心</p>
+        <p>基于 GPUI 构建 · 极致轻量的跨平台桌面应用<br>可视化管理系统 · 与 CLI 共用同一套 Rust 核心</p>
       </td>
       <td width="20%" align="center">
         <h3>⚡ 多作用域版本切换</h3>
@@ -143,7 +143,7 @@ sdkm 自带一份自包含的 [agent skill 文档](./skills/SKILL.md)——Claud
 | **多作用域切换** | ✅ 全局（符号链接 + 系统 PATH）/ 项目（`.sdkm.toml` + hook）/ 临时（`use --shell`）三档全支持，**SDK 运行时零开销** | ✅ 全局 / 项目（`.mise.toml`）/ shell 三档，默认 shims 中间层[官方说明](https://mise.jdx.dev/installing-mise.html#installation) | ⚠️ `sdk use` 仅当前 Shell；需 `sdk default` 才持久，无项目级 pin[使用指南](https://sdkman.io/usage#sdk-use-command) | ⚠️ `.nvmrc` / `.python-version` 项目级 + Shell；全局靠 default，机制不一 |
 | **路径透明度 (which/IDE)** | ✅ `which java` 直接指向真实 SDK 路径 | ⚠️ shims 下 `which node` 指向 shim；官方承认“打断 `which`”，需 `mise which` 才能看到真实路径，[设计说明](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ✅ 路径透明 | ✅ 路径透明（但在 Shell 内部） |
 | **模糊版本匹配** | ✅ `21` → 最新 21.x，并给出候选列表建议 | ✅ 支持模糊版本（如 `node = "26"`）及就近匹配 | ❌ 不支持前缀模糊；需要精确版本或手动选择 | ⚠️ 部分工具支持前缀匹配，实现不一 |
-| **单文件可移植 / 绿色** | ✅ 单二进制仅**5MB**， 配置目录，可放在 U 盘或任意路径使用 | ⚠️ **100MB+**,需要 shims 目录（`~/.local/share/mise/shims` 或 `%LOCALAPPDATA%\mise\shims`），[安装说明](https://mise.jdx.dev/installing-mise.html#installation) | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + Shell 钩子，依赖 Shell 环境 |
+| **单文件可移植 / 绿色** | ✅ 单二进制仅**4MB**， 配置目录，可放在 U 盘或任意路径使用 | ⚠️ **100MB+**,需要 shims 目录（`~/.local/share/mise/shims` 或 `%LOCALAPPDATA%\mise\shims`），[安装说明](https://mise.jdx.dev/installing-mise.html#installation) | ❌ 脚本 + 固定安装路径 | ❌ 脚本 + Shell 钩子，依赖 Shell 环境 |
 | **操作可回滚** | ✅ 快照自动恢复（项目特性） | ⚠️ 依赖外部手段（如自己备份配置） | ❌ 不提供自动回滚机制 | ❌ 不提供自动回滚机制 |
 | **实现语言 / 内存安全** | ⚡ Rust 所有权 + 编译期检查 | ⚡ Rust 所有权 + 编译期检查 | 🐌 Bash / Shell 脚本 | 🐌 Shell / Bash 脚本 |
 | **AI agent / 自动化友好** | ✅ 退出码语义清晰；切换后子进程自动继承新环境；行为可预测 | ⚠️ 需理解 shims / PATH 模式差异；非交互环境需选择 shims 或 `mise exec`，[使用建议](https://mise.jdx.dev/how-i-use-mise.html#shims-vs-path) | ⚠️ Shell 函数，跨进程不自动生效 | ⚠️ 切换仅当前 Shell，跨进程不可见；需额外脚本适配 |
