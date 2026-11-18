@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.5.8 - 2026-11-18
+
+
+### ✨ Features
+
+- manage unix shell env via dedicated env file (#18) — [`6faade2`](https://github.com/borenchan/sdkmate/commit/6faade2)
+- add tomcat sdk and multi-vendor java support — [`c1da506`](https://github.com/borenchan/sdkmate/commit/c1da506)
+
+### ⚡ Performance
+
+- shrink release binaries with opt-level=s and single-thread runtime — [`492ba3d`](https://github.com/borenchan/sdkmate/commit/492ba3d)
+
+### ♻️ Refactor
+
+- move tokio runtime ownership to cli and gui — [`93cccd2`](https://github.com/borenchan/sdkmate/commit/93cccd2)
+
+### 📝 Documentation
+
+- require single scope in commit convention — [`f27a69f`](https://github.com/borenchan/sdkmate/commit/f27a69f)
+- point contribution docs to CONTRIBUTING and trim CLAUDE.md — [`1f9d920`](https://github.com/borenchan/sdkmate/commit/1f9d920)
+- remove gui perf audit — [`f3cc57b`](https://github.com/borenchan/sdkmate/commit/f3cc57b)
+- add contributing guide and scoped commit convention — [`a24d522`](https://github.com/borenchan/sdkmate/commit/a24d522)
+
+### 👷 CI / Build
+
+- add issue priority labels and filter changelog noise — [`34a123b`](https://github.com/borenchan/sdkmate/commit/34a123b)
+- run CI for fork PRs and add claim workflow — [`c9b00f4`](https://github.com/borenchan/sdkmate/commit/c9b00f4)
+
+### 🙌 Contributors
+
+- <a href="https://github.com/borenchan"><img src="https://avatars.githubusercontent.com/u/96477641?v=4" width="32" height="32" alt="borenchan" /> borenchan</a>
+
+**Full Changelog**: https://github.com/borenchan/sdkmate/compare/v0.5.7...v0.5.8
+
+
+
+
 ## v0.5.7 - 2026-11-13
 
 
