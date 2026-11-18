@@ -42,8 +42,18 @@ pub const PATH_LIST_SEPARATOR: &str = if cfg!(windows) { ";" } else { ":" };
 /// 会话层版本覆盖的环境变量前缀（SDKM_ACTIVE_JAVA 等，非持久 → 新 shell 丢失）
 pub const SDKM_SESSION_ENV_PREFIX: &str = "SDKM_ACTIVE_";
 
-/// init 往 profile 注入 hook 块时的固定注释（inject.rs 写入；unix.rs 插 PATH 行时用它向上回溯到 hook 块之上）
+/// init 往 profile 注入 hook 块时的固定注释（inject.rs 写入；插 PATH/source 行时用它向上回溯到 hook 块之上）
 pub const HOOK_COMMENT_LINE: &str = "# sdkm project-level version hook";
+
+/// 托管环境文件名主干（Unix：<home>/sdkm_env.sh | sdkm_env.fish）
+pub const SDKM_ENV_FILE_BASE: &str = "sdkm_env";
+
+/// 托管环境文件块的起止标记：自定义 env_file 指向用户自有文件时只改块内内容
+pub const ENV_BLOCK_BEGIN: &str = "# >>> sdkm env >>>";
+pub const ENV_BLOCK_END: &str = "# <<< sdkm env <<<";
+
+/// profile 中 source 托管环境文件的固定注释（作为注入去重标记）
+pub const ENV_SOURCE_COMMENT_LINE: &str = "# sdkm environment (managed by sdkm, do not edit)";
 
 /// 目录树中各目录的用途说明
 pub const DIR_DESC_STORE: &str = "SDK versions storage";

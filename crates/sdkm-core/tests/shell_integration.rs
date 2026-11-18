@@ -143,6 +143,7 @@ fn make_version_dir(env: &TestEnv, sdk: &str, ver: &str) -> PathBuf {
 fn use_session_version_four_shells() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -170,6 +171,7 @@ fn use_session_version_four_shells() {
 fn use_session_version_uninstalled_bails() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -188,6 +190,7 @@ fn use_session_version_uninstalled_bails() {
 fn env_script_with_project_pin() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -222,6 +225,7 @@ fn env_script_with_project_pin() {
 fn env_script_no_project_config() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -244,6 +248,7 @@ fn env_script_no_project_config() {
 fn env_script_cached_idempotent() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -272,6 +277,7 @@ fn env_script_cached_idempotent() {
 fn env_script_recomputes_when_session_var_set() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -358,6 +364,7 @@ impl Drop for PathEnvGuard {
 fn env_script_layered_priority_with_venv() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -426,6 +433,7 @@ fn env_script_layered_priority_with_venv() {
 fn hook_cache_cross_shell_miss() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };
@@ -465,6 +473,7 @@ fn hook_cache_cross_shell_miss() {
 fn hook_cache_schema_mismatch_miss() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![java_config()],
     };

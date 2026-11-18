@@ -1,7 +1,7 @@
 use crate::CommandHandler;
 use crate::runtime::runtime;
 use crate::terminal::prompt_confirm;
-use crate::terminal_sink::manager;
+use crate::terminal_sink::{manager, manager_for_uninstall};
 use clap::{Parser, Subcommand};
 
 /// `sdkm self` 子命令组：管理 sdkm 自身
@@ -55,7 +55,8 @@ impl CommandHandler for SelfUninstallHandler {
     fn run(&self) -> anyhow::Result<()> {
         // 破坏性操作，强制交互确认，不可跳过
         let confirmed = prompt_confirm(concat!(
-            "This will clean up ALL managed SDK environments (symlink/PATH/env/current)\n",
+            "This will clean up ALL managed SDK environments (symlink/PATH/env/current),\n",
+            "remove sdkm shell hook lines and legacy sdkm PATH entries from your shell profile,\n",
             "and remove the sdkm home directory (store/links/config/cache).\n",
             "The sdkm binary itself must be removed manually.\n",
             "Continue?",
@@ -63,7 +64,8 @@ impl CommandHandler for SelfUninstallHandler {
         if !confirmed {
             anyhow::bail!("Self-uninstall cancelled by user");
         }
-        let mut manager = manager()?;
+        // config 已缺失（此前卸载过/未 init）不再直接失败：降级默认配置继续清理残留
+        let mut manager = manager_for_uninstall()?;
         manager.uninstall_self()?;
         Ok(())
     }

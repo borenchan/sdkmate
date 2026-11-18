@@ -58,6 +58,11 @@ fn unset_line(k: &str) -> String {
     format!("set -q {k}; and set -e {k}")
 }
 
+/// profile 中 source 托管环境文件的行（fish 无 `&&`，用 `test ...; and source ...`）
+fn source_env_line(path: &str) -> String {
+    format!("test -f \"{path}\"; and source \"{path}\"")
+}
+
 /// 匹配 profile 现有行的前缀（`set -gx KEY `）
 fn export_prefix(k: &str) -> String {
     format!("set -gx {k} ")
@@ -88,6 +93,7 @@ pub const SYNTAX: ShellSyntax = ShellSyntax {
     path_line,
     export_line,
     unset_line,
+    source_env_line,
 };
 
 pub const PERSISTENCE: ProfilePersistence = ProfilePersistence {

@@ -104,6 +104,12 @@ impl SdkManager {
             .map_err(|e| anyhow::anyhow!("Failed to add sdkm to system PATH: {}", e))?;
         report_env_actions(sink.as_ref(), &actions);
 
+        // Unix：profile 只 source 托管 env 文件（PATH/export 本体写在 env 文件里）；
+        // 注入失败不阻断 init——用户重启终端后仍可手动 source，或重跑 init 自愈
+        if let Err(e) = inject::inject_env_source(sink.as_ref()) {
+            sink.warning(format!("Failed to inject env file source line: {e}"));
+        }
+
         sink.step("3/5".to_string(), "Preparing config file".to_string());
         // 首次 init 或 force 重置：写默认 config；非 force 且已存在：保留用户配置不覆盖
         if !config_existed || force {

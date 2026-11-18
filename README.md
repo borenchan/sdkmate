@@ -330,30 +330,9 @@ cargo clippy --all-targets --all-features              # Lint code
 
 ## 🤝 Contributing
 
-Contributions of any kind are welcome — bug reports, feature ideas, or code. Thank you for helping make sdkm better! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the complete workflow and engineering constraints before opening a PR.
+Contributions of any kind are welcome — bug reports, feature ideas, or code. Thank you for helping make sdkm better!
 
-### 📋 PR checklist
-
-1. Fork the repo and create a branch: `git checkout -b feature/your-feature-name`
-2. Write code and make sure all tests pass: `cargo test`
-3. Keep the code style consistent (required before committing):
-   ```bash
-   cargo fmt                                  # Format code
-   cargo clippy --all-targets --all-features  # Lint code, zero warnings
-   ```
-4. Commit with a clear message: `git commit -m "feat(cli): add xxx"`
-5. Push and open a Pull Request: `git push origin feature/your-feature-name`
-
-### 📖 Conventions
-
-| Type | Convention | Example |
-|:---|:---|:---|
-| Commit message | `type(scope): description` (scope optional) | `feat(cli): add switch command` |
-| Types | feat / fix / perf / refactor / docs / test / ci / chore | — |
-| Scopes | code modules only: cli / core / util / gui | `fix(core): ...` |
-| Branch naming | `feature/xxx` / `fix/xxx` / `docs/xxx` | `feature/add-install-command` |
-
----
+Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md): the full workflow, [commit conventions](./CONTRIBUTING.md#提交规范), and [engineering constraints](./CONTRIBUTING.md#工程约束) live there and are not duplicated here.
 
 ## 📄 License
 

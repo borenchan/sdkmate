@@ -2,18 +2,27 @@
 // sdkmate 配置系统——结构体、序列化、磁盘读写、配置操作 API
 // ──────────────────────────────────────────────────────
 
+#[cfg(unix)]
+use crate::env::migrate_env_file;
 use crate::report::EventSink;
+#[cfg(unix)]
+use crate::shell::inject::inject_env_source;
 use anyhow::{Context, Result, bail};
 use sdkm_util::builtin::{SDK_SEEDS, SdkSeed, is_builtin_sdk};
 use sdkm_util::config_helper::{
     ArchStyle, OsStyle, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
 };
 use sdkm_util::consts::CONFIG_FILE_NAME;
-use sdkm_util::path::{get_default_symlink_dir, get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
+use sdkm_util::path::{
+    expand_tilde, get_default_env_file_path, get_default_symlink_dir, get_installed_sdks_dir, get_sdkm_config_path,
+    get_sdkm_home,
+};
 use sdkm_util::sdk::Sdk;
+use sdkm_util::shell::{Shell, detect_shell};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ── 子模块声明 + 重新导出（pub use 同时满足内部使用和外部访问） ──
@@ -43,6 +52,9 @@ pub struct SdkmConfig {
     //sdkm symlink dir：None = 跟随 home（<home>/links），Some = 用户自定义路径
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symlink_dir: Option<String>,
+    //托管环境变量文件（仅 Unix）：None = 跟随 home（<home>/sdkm_env.sh|fish），Some = 用户自定义路径
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_file: Option<String>,
     //network
     #[serde(default)]
     pub network: NetworkConfig,
@@ -211,6 +223,8 @@ impl Default for SdkmConfig {
         SdkmConfig {
             // None = 跟随 home（运行时 resolve 成 <home>/links）；exe 移动后自动跟随
             symlink_dir: None,
+            // None = 跟随 home（<home>/sdkm_env.sh|fish）；仅 Unix 生效
+            env_file: None,
             network: NetworkConfig::default(),
             sdks: Self::get_default_builtin_sdks(),
         }
@@ -260,6 +274,21 @@ impl SdkmConfig {
         match self.symlink_dir {
             Some(ref s) if !s.is_empty() => Ok(s.clone()),
             _ => Ok(get_default_symlink_dir()?.to_string_lossy().into_owned()),
+        }
+    }
+
+    /// 解析托管环境文件实际路径：None → 跟随 home（`<home>/sdkm_env.sh|fish`）；
+    /// Some → 用户自定义值（展开 `~`）。仅 Unix 生效，Windows 返回空串（注册表机制）。
+    pub fn resolved_env_file(&self) -> Result<String> {
+        match self.env_file {
+            Some(ref s) if !s.is_empty() => Ok(expand_tilde(s)),
+            _ => {
+                if cfg!(windows) {
+                    return Ok(String::new());
+                }
+                let is_fish = detect_shell() == Shell::Fish;
+                Ok(get_default_env_file_path(is_fish)?.to_string_lossy().into_owned())
+            }
         }
     }
 
@@ -336,6 +365,7 @@ impl SdkmConfig {
     fn get_raw_value(&self, key: &ConfigKey) -> Result<String> {
         match key {
             ConfigKey::SymlinkDir => self.resolved_symlink_dir(),
+            ConfigKey::EnvFile => self.resolved_env_file(),
             ConfigKey::NetworkProxy => Ok(self.network.proxy.clone().unwrap_or_default()),
             ConfigKey::NetworkSslVerify => Ok(self.network.ssl_verify.to_string()),
             ConfigKey::NetworkConnectTimeout => Ok(self.network.connect_timeout.to_string()),
@@ -372,6 +402,18 @@ impl SdkmConfig {
     /// 设置配置键的值（修改内存 + 原子写入磁盘 + 回滚保障；回滚告警经 sink 发事件）
     pub fn set_value(&mut self, key: &ConfigKey, validated: ValidatedValue, sink: &dyn EventSink) -> Result<()> {
         let snapshot = take_config_snapshot()?;
+        // env_file 变更前记录旧路径：写盘成功后迁移托管块，避免 PATH/环境变量条目丢失
+        let old_env_file = self.env_file_snapshot(key);
+        // env_file 必须是文件路径：拒绝已存在的目录（空串 = 恢复默认，放行）
+        if matches!(key, ConfigKey::EnvFile) {
+            let raw = validated.as_str_ref();
+            if !raw.is_empty() {
+                let candidate = PathBuf::from(expand_tilde(raw));
+                if candidate.is_dir() {
+                    bail!("`env_file` must be a file path, but `{}` is a directory", candidate.display());
+                }
+            }
+        }
 
         // 修改内存中的配置
         self.apply_set_value(key, validated);
@@ -388,7 +430,44 @@ impl SdkmConfig {
             return Err(sdkm_util::consts::BugReportError::wrap(e));
         }
 
+        self.migrate_env_file_on_change(key, &old_env_file, sink);
         Ok(())
+    }
+
+    /// env_file 变更前捕获旧解析路径（其他键返回空串，变更后跳过迁移）
+    fn env_file_snapshot(&self, key: &ConfigKey) -> String {
+        if matches!(key, ConfigKey::EnvFile) {
+            self.resolved_env_file().unwrap_or_default()
+        } else {
+            String::new()
+        }
+    }
+
+    /// env_file 变更后：迁移托管块内容 + 把 profile 的 source 行重定向到新路径（仅 Unix）。
+    ///
+    /// 两步必须一起做（只迁内容不重定向 = 迁了但没接上；只重定向不迁内容 = 新文件空/旧条目丢失）。
+    /// 失败仅 warning，不阻断配置写入（用户可重跑 `sdkm init` 自愈）。
+    fn migrate_env_file_on_change(&self, key: &ConfigKey, old: &str, sink: &dyn EventSink) {
+        if !matches!(key, ConfigKey::EnvFile) {
+            return;
+        }
+        let new = self.resolved_env_file().unwrap_or_default();
+        if new.is_empty() || new == old {
+            return;
+        }
+        #[cfg(unix)]
+        {
+            if let Err(e) = migrate_env_file(old, &new) {
+                sink.warning(format!("Failed to migrate env file content: {e}"));
+                sink.detail("Re-run `sdkm init` and switch SDKs again to rebuild it.".to_string());
+            }
+            // 重定向 profile source 行（复用 init 的精准注入：删旧 sdkm 块 + 插入新路径块）
+            if let Err(e) = inject_env_source(sink) {
+                sink.warning(format!("Failed to update env file source line in profile: {e}"));
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = sink;
     }
 
     /// 将已校验的值应用到内存中的配置
@@ -396,6 +475,7 @@ impl SdkmConfig {
         let value = validated.into_string();
         match key {
             ConfigKey::SymlinkDir => self.symlink_dir = if value.is_empty() { None } else { Some(value) },
+            ConfigKey::EnvFile => self.env_file = if value.is_empty() { None } else { Some(value) },
             ConfigKey::NetworkProxy => self.network.proxy = Some(value),
             ConfigKey::NetworkSslVerify => self.network.ssl_verify = value == "true",
             ConfigKey::NetworkConnectTimeout => self.network.connect_timeout = value.parse().unwrap_or(30),
@@ -479,6 +559,8 @@ impl SdkmConfig {
         }
 
         let snapshot = take_config_snapshot()?;
+        // env_file 回到默认路径前记录旧路径，写盘成功后迁移托管块
+        let old_env_file = self.env_file_snapshot(key);
 
         // 恢复为默认值
         self.apply_delete_value(key, &meta);
@@ -494,6 +576,7 @@ impl SdkmConfig {
             return Err(sdkm_util::consts::BugReportError::wrap(e));
         }
 
+        self.migrate_env_file_on_change(key, &old_env_file, sink);
         Ok(())
     }
 
@@ -501,6 +584,7 @@ impl SdkmConfig {
     fn apply_delete_value(&mut self, key: &ConfigKey, _meta: &KeyMeta) {
         match key {
             ConfigKey::SymlinkDir => self.symlink_dir = None,
+            ConfigKey::EnvFile => self.env_file = None,
             ConfigKey::NetworkProxy => self.network.proxy = None,
             ConfigKey::NetworkGithubToken => self.network.github_token = None,
             ConfigKey::NetworkGithubDownloadMirror => self.network.github_download_mirror = None,
@@ -555,6 +639,14 @@ impl SdkmConfig {
 
         // 顶层键（symlink_dir 显示 resolved 实际生效路径）
         entries.push(("symlink_dir".to_string(), self.resolved_symlink_dir().unwrap_or_default()));
+        entries.push(("env_file".to_string(), {
+            let resolved = self.resolved_env_file().unwrap_or_default();
+            if resolved.is_empty() {
+                "(unix only)".to_string()
+            } else {
+                resolved
+            }
+        }));
 
         // network 子表
         entries.push((

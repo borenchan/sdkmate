@@ -20,6 +20,22 @@ body:
         - label: 我使用的是最新版本（若非最新，请在问题描述中注明版本号）
           required: true
 
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      description: |
+        提交后按此选择自动打上 p0/p1/p2 标签（维护者可在 review 时调整）。
+        - P0 = 严重 bug：数据丢失 / 崩溃 / 完全无法使用（最高优先级）
+        - P1 = 高优先级：主流程受阻，有临时规避方案
+        - P2 = 普通优先级：一般问题 / 体验优化
+      options:
+        - P0
+        - P1
+        - P2
+    validations:
+      required: false
+
   - type: textarea
     id: doctor
     attributes:

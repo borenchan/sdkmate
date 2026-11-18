@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 pub enum ConfigKey {
     // 顶层键
     SymlinkDir,
+    EnvFile,
     // network 子表键
     NetworkProxy,
     NetworkSslVerify,
@@ -29,6 +30,7 @@ impl ConfigKey {
     pub fn display(&self) -> String {
         match self {
             ConfigKey::SymlinkDir => "symlink_dir".to_string(),
+            ConfigKey::EnvFile => "env_file".to_string(),
             ConfigKey::NetworkProxy => "network.proxy".to_string(),
             ConfigKey::NetworkSslVerify => "network.ssl_verify".to_string(),
             ConfigKey::NetworkConnectTimeout => "network.connect_timeout".to_string(),
@@ -87,6 +89,7 @@ pub fn parse_config_key(key: &str) -> Result<ConfigKey> {
         // 单段键名：顶层字段
         1 => match parts[0] {
             "symlink_dir" => Ok(ConfigKey::SymlinkDir),
+            "env_file" => Ok(ConfigKey::EnvFile),
             _ => bail_invalid_key(key),
         },
 
@@ -189,7 +192,7 @@ fn bail_invalid_key(key: &str) -> Result<ConfigKey> {
     bail!(
         "Invalid config key '{}'.\nValid keys:\n  {}\n  network.proxy, network.ssl_verify, network.connect_timeout, network.cache_ttl_secs, network.github_token, network.github_download_mirror\n  sdk.<name>.version_url, sdk.<name>.download_url, sdk.<name>.current_version, ...\n  sdk.<name>.extra_vars.<KEY>, sdk.<name>.extra_paths.<N>",
         key,
-        "symlink_dir,"
+        "symlink_dir, env_file,"
     )
 }
 
@@ -197,6 +200,7 @@ fn bail_invalid_key(key: &str) -> Result<ConfigKey> {
 pub fn known_keys() -> Vec<&'static str> {
     vec![
         "symlink_dir",
+        "env_file",
         "network.proxy",
         "network.ssl_verify",
         "network.connect_timeout",

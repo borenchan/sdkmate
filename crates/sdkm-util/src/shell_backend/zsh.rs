@@ -39,6 +39,7 @@ pub const SYNTAX: ShellSyntax = ShellSyntax {
     path_line: bash::path_line,
     export_line: bash::export_line,
     unset_line: bash::unset_line,
+    source_env_line: bash::source_env_line,
 };
 
 pub const PERSISTENCE: ProfilePersistence = ProfilePersistence {

@@ -129,6 +129,7 @@ fn make_version_dir(temp: &Path, sdk: &str, ver: &str) -> PathBuf {
 fn self_uninstall_cleans_all_and_removes_home() {
     let config = SdkmConfig {
         symlink_dir: None,
+        env_file: None,
         network: NetworkConfig::default(),
         sdks: vec![
             make_sdk("java", "21", "bin", &[("JAVA_HOME", "{sdk_dir}")]),

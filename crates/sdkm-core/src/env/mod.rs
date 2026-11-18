@@ -19,6 +19,10 @@ pub enum EnvAction {
     PathAdded { path: String },
     /// 从 PATH 移除了条目
     PathRemoved { path: String },
+    /// 移除了托管环境文件（self uninstall）
+    EnvFileRemoved { path: String },
+    /// 清扫了 profile 里旧版直写的 sdkm 行（self uninstall）
+    LegacySwept { path: String, removed: usize },
 }
 
 impl EnvAction {
@@ -34,6 +38,10 @@ impl EnvAction {
             EnvAction::PathExists { path } => CoreEvent::Warning(format!("path exists. sdk_path: {path}")),
             EnvAction::PathAdded { path } => CoreEvent::Info(format!("success add `{path}` to path!")),
             EnvAction::PathRemoved { path } => CoreEvent::Detail(format!("removed `{path}` from PATH")),
+            EnvAction::EnvFileRemoved { path } => CoreEvent::Detail(format!("removed env file `{path}`")),
+            EnvAction::LegacySwept { path, removed } => {
+                CoreEvent::Detail(format!("removed {removed} legacy sdkm line(s) from `{path}`"))
+            }
         }
     }
 }
@@ -69,6 +77,27 @@ pub trait EnvOperation: Send + Sync {
     /// 批量恢复环境变量到旧值（用于回滚 set_sdk_envs）
     /// 对于有旧值的变量写回旧值，对于没有旧值的变量（None）调用 unset_sdk_env 删除
     fn restore_sdk_envs(&self, old_envs: &HashMap<String, Option<String>>) -> Result<Vec<EnvAction>>;
+
+    /// 清理托管环境文件及其 profile 中的 source 行（self uninstall 用）。
+    /// 仅 Unix 有实现（env 文件机制）；Windows 环境变量走注册表，默认空操作。
+    fn cleanup_env_file(&self) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
+    }
+
+    /// 清扫 profile 里旧版直写的 sdkm 行（`export PATH=...` 条目 / `fish_add_path` /
+    /// extra_vars 赋值行），self uninstall 用。仅 Unix 有实现；Windows 走注册表，默认空操作。
+    ///
+    /// 精准匹配（宁可漏删不误删）：PATH/赋值行的值必须是 `<home>` 本身或位于 `links_root`
+    /// 目录树内才删；`env_keys` 限定赋值行的变量名。`home`/`links_root` 由调用方在删
+    /// config 之前从配置解析传入。
+    fn cleanup_legacy_profile_lines(
+        &self,
+        _home: &str,
+        _links_root: &str,
+        _env_keys: &[String],
+    ) -> Result<Vec<EnvAction>> {
+        Ok(Vec::new())
+    }
 }
 
 /// PATH 分隔符（Windows 用 ';'，Unix 用 ':'）
@@ -92,4 +121,4 @@ pub use windows::WindowsEnvOperation as OsEnvOperation;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::UnixEnvOperation as OsEnvOperation;
+pub use unix::{UnixEnvOperation as OsEnvOperation, env_file_path, migrate_env_file};

@@ -60,6 +60,12 @@ fn unset_line(k: &str) -> String {
     format!("$env:{k} = $null")
 }
 
+/// profile 中 source 托管环境文件的行（Windows 环境变量走注册表，env 文件不存在；
+/// 保留实现仅为表完备性，实际注入路径会跳过）
+fn source_env_line(path: &str) -> String {
+    format!("if (Test-Path \"{path}\") {{ . \"{path}\" }}")
+}
+
 pub const SYNTAX: ShellSyntax = ShellSyntax {
     shell: Shell::PowerShell,
     parse_names: &["powershell", "pwsh"],
@@ -79,4 +85,5 @@ pub const SYNTAX: ShellSyntax = ShellSyntax {
     path_line,
     export_line,
     unset_line,
+    source_env_line,
 };

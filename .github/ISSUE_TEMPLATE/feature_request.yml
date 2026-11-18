@@ -2,6 +2,22 @@ name: 💡 功能建议
 description: 提出新功能或改进建议
 labels: ["enhancement"]
 body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      description: |
+        期望的优先级，提交后自动打上 p0/p1/p2 标签（最终以维护者评估为准）。
+        - P0 = 紧急：阻塞当前工作
+        - P1 = 高：近期需要
+        - P2 = 普通：锦上添花
+      options:
+        - P0
+        - P1
+        - P2
+    validations:
+      required: false
+
   - type: textarea
     id: scenario
     attributes:

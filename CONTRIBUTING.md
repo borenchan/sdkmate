@@ -52,7 +52,7 @@ docs: clarify claim workflow
 - **scope**（改动所在的代码模块，可选）：`cli`（`crates/sdkm-cli`）/ `core`（`crates/sdkm-core`）/ `util`（`crates/sdkm-util`）/ `gui`（`crates/sdkm-gui`）
 - **type 与 scope 语义不同、不要同名**：type 说「什么性质」，scope 说「哪个模块」，`ci(ci)` 这类重复写法没有意义
 - **scope 何时省略**：`docs` / `ci` / `test` / `style` / `build` 类提交，type 已表明区域，不再带 scope（`ci: ...`、`docs: ...`）；发版用 `chore: release vX.Y.Z`，依赖升级用 `build(deps): bump ...`（与 Vite / Vue / Angular 等主流项目一致）
-- 一次改动跨多个 crate 时用逗号分隔：`feat(cli,core): ...`
+- **只写一个 scope**（或省略），禁止逗号分隔多 scope（`feat(cli,core): ...` 这类写法不允许）。scope 表示「行为变化发生在哪个模块」：改 core 逻辑、GUI/CLI 只是跟随适配时写 `feat(core): ...`；确实跨模块、没有单一主模块（仓库级重构、构建/依赖调整）时省略 scope
 - 不要添加 AI 或工具署名（如 `Co-Authored-By: Claude`）
 - 一个 PR 聚焦一件事：不要夹带无关修改（顺带改格式、别的模块、文档重排等）
 - 不要提交本地生成的临时文件（测试沙箱、日志、本地配置等）
@@ -85,7 +85,7 @@ docs: clarify claim workflow
    - 不要修改根 `Cargo.toml` 的版本号（发版由维护者控制，改版本号会触发发版流程）
    - 不要修改 `.github/workflows/`（CI 与发版链由维护者维护）
 9. **文档克制**：sdkm 内置 SDK 是 40+ 的统一注册表（只是下载逻辑不同），新增普通内置条目不需要在 README / 文档里单独开段落——除非有特别注意事项（本地管理、特殊布局、外部依赖）。文档从读者视角写，不从「本次改了什么」视角写
-10. **`CLAUDE.md` 由维护者维护**：它是维护者与 AI 协作的内部说明，外部 PR 请勿修改；发现过时内容在 PR 描述里指出即可
+10. **`CLAUDE.md` 允许贡献者修改，但仅限「agent 需要关注的原则与注意事项」**：它是维护者与 AI 协作的内部说明，架构、命令表、发布流程等维护者章节请勿改动；每处修改需在 PR 描述中说明原因，便于维护者核对
 
 ## Review 与合并
 

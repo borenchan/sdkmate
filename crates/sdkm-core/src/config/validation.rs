@@ -4,7 +4,8 @@
 
 use anyhow::{Context, Result, bail};
 use regex_lite::Regex;
-use sdkm_util::path::get_default_symlink_dir;
+use sdkm_util::path::{get_default_env_file_path, get_default_symlink_dir};
+use sdkm_util::shell::{Shell, detect_shell};
 
 use super::keys::{ConfigKey, SdkField};
 
@@ -21,6 +22,8 @@ pub enum ValueType {
     U32 { min: u32, max: u32 },
     /// 文件系统路径（不要求存在）→ 基本格式检查
     Path,
+    /// 可选文件系统路径（允许空 = 恢复默认，如 env_file）
+    OptionalPath,
     /// 敏感字符串（非空，输出时脱敏）
     Token,
     /// 自由字符串（非空）
@@ -91,6 +94,7 @@ pub struct KeyMeta {
 pub fn field_type(key: &ConfigKey) -> ValueType {
     match key {
         ConfigKey::SymlinkDir => ValueType::Path,
+        ConfigKey::EnvFile => ValueType::OptionalPath,
         ConfigKey::NetworkProxy => ValueType::Url,
         ConfigKey::NetworkSslVerify => ValueType::Bool,
         ConfigKey::NetworkConnectTimeout => ValueType::U32 { min: 1, max: 600 },
@@ -151,6 +155,18 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
             default_desc: get_default_symlink_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| "<home>/links".to_string()),
+        },
+        ConfigKey::EnvFile => KeyMeta {
+            deletable: true,
+            value_type: ValueType::OptionalPath,
+            // 仅 Unix 生效；默认文件名随 shell（fish 用 .fish）
+            default_desc: if cfg!(windows) {
+                "(unix only)".to_string()
+            } else {
+                get_default_env_file_path(detect_shell() == Shell::Fish)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "<home>/sdkm_env.sh".to_string())
+            },
         },
         ConfigKey::NetworkProxy => KeyMeta {
             deletable: true,
@@ -280,6 +296,8 @@ pub fn validate_by_type(raw: &str, ty: &ValueType) -> Result<ValidatedValue> {
         ValueType::Bool => validate_bool(raw),
         ValueType::U32 { min, max } => validate_u32(raw, *min, *max),
         ValueType::Path => validate_path(raw),
+        ValueType::OptionalPath if raw.is_empty() => Ok(ValidatedValue::Path(String::new())),
+        ValueType::OptionalPath => validate_path(raw),
         ValueType::Token => validate_token(raw),
         ValueType::NonEmptyString => validate_non_empty_string(raw),
         ValueType::FreeString => validate_free_string(raw),
