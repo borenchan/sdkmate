@@ -285,6 +285,8 @@ jobs:
       - name: Append to root CHANGELOG.md and commit back
         env:
           VERSION: ${{ needs.tag.outputs.version }}
+          # 有分支保护 bypass 权限的 PAT（fine-grained，本仓库 Contents:RW）；见下方 push 说明
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -e
           DATE=$(date -u +%Y-%m-%d)
@@ -312,9 +314,12 @@ jobs:
           } > CHANGELOG.md.new
           mv CHANGELOG.md.new CHANGELOG.md
 
-          # commit 回 master（GITHUB_TOKEN push 不触发 workflow 递归，与 tag push 同理）
+          # commit 回 master。必须用带分支保护 bypass 权限的 PAT（RELEASE_TOKEN）：
+          # GITHUB_TOKEN 的 push 不触发 workflow（防递归），required check 永远不会上报，
+          # 会被保护规则拒绝（v0.5.8 实测）；缺省回退 GITHUB_TOKEN（未开保护时仍可用）。
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md
-          git commit -m "docs(changelog): update for v${VERSION}"
-          git push
+          # [skip ci]：PAT push 会触发 workflow（区别于 GITHUB_TOKEN），docs 提交无需再跑 CI
+          git commit -m "docs(changelog): update for v${VERSION} [skip ci]"
+          git push "https://x-access-token:${RELEASE_TOKEN:-${GITHUB_TOKEN}}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:master"
