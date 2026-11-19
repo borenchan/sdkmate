@@ -137,6 +137,8 @@ impl SdkManager {
             .path()
             .read_dir()?
             .filter_map(|entry| entry.ok())
+            // 版本必为目录；隐藏条目（macOS Finder 生成的 .DS_Store 等）跳过
+            .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.') && entry.path().is_dir())
             .map(|sdk_version| {
                 let sdk_version_dir = sdk_version.path();
                 let is_active = sdk_conf

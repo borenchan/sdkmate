@@ -122,6 +122,10 @@ impl SdkManager {
         let mut skipped = Vec::new();
         for entry in get_installed_sdks_dir()?.read_dir()?.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_string();
+            // 隐藏条目（macOS .DS_Store 等）与非目录不参与 SDK 发现，直接跳过不记 skipped
+            if name.starts_with('.') || !entry.path().is_dir() {
+                continue;
+            }
             // store 目录可能含未在 config 注册的子目录(如手动放入或遗留),跳过并记录
             let sdk = match self.match_valid_sdk(&name) {
                 Ok(s) => s,

@@ -263,8 +263,14 @@ impl SdkManager {
     fn cleanup_empty_sdk_store_dir(&self, sdk: &Sdk) -> Result<()> {
         let sdk_store = get_installed_sdks_dir()?.join(sdk.to_string());
         if sdk_store.exists() {
-            let is_empty = fs::read_dir(&sdk_store).map(|mut it| it.next().is_none()).unwrap_or(false);
-            if is_empty && let Err(e) = fs::remove_dir(&sdk_store) {
+            // 判空忽略隐藏条目（macOS .DS_Store 等）：只剩隐藏内容时，
+            // 连同全部隐藏条目（含隐藏目录）一并 remove_dir_all 清理
+            let is_empty = fs::read_dir(&sdk_store)
+                .map(|mut it| {
+                    !it.any(|e| e.map(|en| !en.file_name().to_string_lossy().starts_with('.')).unwrap_or(true))
+                })
+                .unwrap_or(false);
+            if is_empty && let Err(e) = fs::remove_dir_all(&sdk_store) {
                 self.sink
                     .warning(format!("failed to remove empty store dir `{}`: {}", sdk_store.display(), e));
             }

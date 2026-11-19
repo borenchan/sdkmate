@@ -2,7 +2,7 @@ use crate::report::ProgressHandle;
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// 解压下载的压缩包到指定目录，支持进度反馈
 /// - Windows / .zip → 使用 zip crate，逐文件进度
@@ -68,6 +68,16 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path, pb: &dyn ProgressHandle) ->
                 fs::File::create(&out_path).context(format!("Failed to create file: {}", out_path.display()))?;
             io::copy(&mut entry, &mut out_file)
                 .context(format!("Failed to write zip entry to: {}", out_path.display()))?;
+            drop(out_file);
+
+            // 恢复 zip entry 记录的 Unix 权限位（bun/deno 等 mac/Linux zip 分发的可执行文件
+            // 打包时即 755；不恢复则 fs::create 默认 644，运行时 permission denied）
+            #[cfg(unix)]
+            if let Some(mode) = entry.unix_mode() {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&out_path, fs::Permissions::from_mode(mode & 0o7777))
+                    .context(format!("Failed to restore permissions on {}", out_path.display()))?;
+            }
         }
 
         pb.inc(1);
@@ -97,11 +107,14 @@ fn extract_tar_gz(archive_path: &Path, dest_dir: &Path, pb: &dyn ProgressHandle)
     Ok(())
 }
 
-/// 解压后目录调整：如果压缩包内只有一个顶层子目录，将其内容提升到版本目录。
-/// 对双层嵌套（如 python-build-standalone install_only 的 cpython-.../python/），
-/// 会自动提升两次，确保版本目录直接包含 SDK 文件。
+/// 解压后目录调整（布局归一化）：确保版本目录直接包含 SDK 文件、bin_dir 可见。
+/// 依次处理三种已知包形态：
+/// 1. 单层包装目录（node/go/maven...）：顶层子目录内容提升到版本目录
+/// 2. macOS JDK bundle（jdk-x/Contents/Home）：直接取 Home 内容，残壳随 Contents 整体删除
+/// 3. 双层包装目录（python-build-standalone full 包的 cpython-.../python/）：再提升一次
+///
 /// 使用 move_dir 而非直接 fs::rename，确保跨卷/父目录不存在时也能成功
-pub fn normalize_extracted_dir(extracted_dir: &Path, target_dir: &Path) -> Result<()> {
+pub fn normalize_extracted_dir(extracted_dir: &Path, target_dir: &Path, bin_dir: Option<&str>) -> Result<()> {
     let entries: Vec<fs::DirEntry> = fs::read_dir(extracted_dir)
         .context("Failed to read extracted directory")?
         .collect::<io::Result<Vec<_>>>()
@@ -115,7 +128,11 @@ pub fn normalize_extracted_dir(extracted_dir: &Path, target_dir: &Path) -> Resul
         move_dir(extracted_dir, target_dir)?;
     }
 
-    // 第二次提升：处理双层嵌套（如 cpython-...-install_only/python/）
+    // macOS JDK bundle 摊平（bin_dir 锚点驱动；趁 Contents 尚未被提升时处理，
+    // 须在单子目录提升之后、双层提升之前）
+    flatten_macos_bundle(target_dir, bin_dir)?;
+
+    // 双层提升：处理双层嵌套（如 cpython-...-install_only/python/）
     // 如果 target_dir 仍只有一个子目录，提升其内容到 target_dir
     lift_single_inner_dir(target_dir)?;
 
@@ -153,6 +170,76 @@ fn lift_single_inner_dir(target_dir: &Path) -> Result<()> {
     move_dir(&staging_dir, target_dir)?;
 
     Ok(())
+}
+
+/// macOS JDK bundle 摊平。
+/// macOS JDK 包是 .app bundle（jdk-x/Contents/Home）：单子目录提升 jdk-x 后版本目录 = [Contents]，
+/// 直接取 Contents/Home 的子项提升到版本根，bundle 元数据（MacOS/_CodeSignature/Info.plist）
+/// 随 Contents 整体删除——残壳从不进入版本目录。
+/// 以 bin_dir 为锚点：Contents/Home 内 bin_dir 可见才动作，其余形态零动作。
+/// 不做平台 gate：Windows/Linux 包不会出现该布局，结构检测天然安全
+fn flatten_macos_bundle(target_dir: &Path, bin_dir: Option<&str>) -> Result<()> {
+    let Some(dir) = bin_dir else {
+        return Ok(()); // 无锚点（根二进制 SDK）不动作
+    };
+    let contents = target_dir.join("Contents");
+    let home = contents.join("Home");
+    if !home.join(dir).is_dir() {
+        return Ok(()); // 非 bundle 形态（含正常包 bin 已在版本根），交给后续步骤/校验
+    }
+
+    // Home 子项（bin/lib/conf...）与 Contents 不同名，逐项提升安全
+    let entries: Vec<fs::DirEntry> = fs::read_dir(&home)
+        .context("Failed to read macOS bundle Home directory")?
+        .collect::<io::Result<Vec<_>>>()
+        .context("Failed to list macOS bundle Home entries")?;
+    for entry in entries {
+        let src = entry.path();
+        let dst = target_dir.join(entry.file_name());
+        if src.is_dir() {
+            move_dir(&src, &dst)?;
+        } else {
+            // 普通文件（如 JDK 的 release）：move_dir 的 copy 回退仅支持目录，单独处理
+            if fs::rename(&src, &dst).is_ok() {
+                continue;
+            }
+            fs::copy(&src, &dst).context(format!("Failed to copy file: {}", src.display()))?;
+            fs::remove_file(&src).context(format!("Failed to remove source file after copy: {}", src.display()))?;
+        }
+    }
+
+    // bundle 元数据随 Contents 整体删除
+    fs::remove_dir_all(&contents).context(format!("Failed to remove macOS bundle Contents: {}", contents.display()))?;
+
+    Ok(())
+}
+
+/// 限深递归搜索 bin_dir 实际所在目录（相对 version_dir 的路径）。
+/// 供安装校验的软警告做诊断提示（bin_dir 不在版本根时给出实际位置与修正命令）
+pub fn locate_bin_dir(version_dir: &Path, bin_dir: &str) -> Option<PathBuf> {
+    fn search(dir: &Path, rel: &Path, bin_dir: &str, depth: usize) -> Option<PathBuf> {
+        if depth == 0 {
+            return None;
+        }
+        let entries: Vec<fs::DirEntry> = fs::read_dir(dir).ok()?.flatten().collect();
+        // 本层优先：先扫同名目录再深入，bin 通常在浅层
+        for entry in &entries {
+            if entry.file_name() == bin_dir && entry.path().is_dir() {
+                return Some(rel.join(bin_dir));
+            }
+        }
+        for entry in &entries {
+            let name = entry.file_name();
+            if name != bin_dir
+                && entry.path().is_dir()
+                && let Some(hit) = search(&entry.path(), &rel.join(&name), bin_dir, depth - 1)
+            {
+                return Some(hit);
+            }
+        }
+        None
+    }
+    search(version_dir, Path::new(""), bin_dir, 4)
 }
 
 /// 移动目录：优先 fs::rename（快速），失败则回退到 copy + remove（慢但可靠）
@@ -206,11 +293,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 验证解压结果：按 SDK 配置的 bin_dir 期望检查布局
-///
-/// - `Some(dir)`：要求 `<version_dir>/<dir>/` 子目录存在（如 java/go 的 "bin"）
-/// - `None`：二进制应在版本目录根（如 Windows Node、bun），目录非空即可
-pub fn verify_extraction(target_dir: &Path, bin_dir: Option<&str>) -> Result<()> {
+/// 验证解压结果：完整性硬校验（目录存在且非空）。
+/// bin_dir 布局校验归 install 流程（软警告诊断，不回滚）
+pub fn verify_extraction(target_dir: &Path) -> Result<()> {
     if !target_dir.exists() {
         bail!(
             "Extraction verification failed: directory {} does not exist",
@@ -221,17 +306,6 @@ pub fn verify_extraction(target_dir: &Path, bin_dir: Option<&str>) -> Result<()>
     let entries = fs::read_dir(target_dir).context("Failed to read extracted target directory")?;
     if entries.count() == 0 {
         bail!("Extraction verification failed: directory {} is empty", target_dir.display())
-    }
-
-    if let Some(dir) = bin_dir {
-        let bin_path = target_dir.join(dir);
-        if !bin_path.exists() {
-            bail!(
-                "Extraction verification failed: bin directory '{}' not found at {}",
-                dir,
-                bin_path.display()
-            )
-        }
     }
 
     Ok(())

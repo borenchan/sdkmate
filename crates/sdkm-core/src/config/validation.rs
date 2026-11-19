@@ -28,7 +28,7 @@ pub enum ValueType {
     Token,
     /// 自由字符串（非空）
     NonEmptyString,
-    /// 自由字符串（允许空值，如 bin_dir="" 表示二进制在根目录）→ 禁止路径分隔符
+    /// 自由字符串（允许空值，如 bin_dir="" 表示二进制在根目录）→ 允许相对子路径，禁绝对路径/..
     FreeString,
     /// 下载模板 {os} 命名风格 → 枚举白名单（default/short/adoptium）
     OsStyle,
@@ -392,12 +392,22 @@ fn validate_non_empty_string(raw: &str) -> Result<ValidatedValue> {
     Ok(ValidatedValue::NonEmptyString(raw.to_string()))
 }
 
-/// 自由字符串校验（允许空值，禁止路径分隔符）
-/// 空值表示二进制在 SDK 根目录（如 Node.js、Windows Python）
+/// bin_dir 校验（允许空值）
+/// 空 = 二进制在 SDK 根目录（如 Node.js、Windows Python）；
+/// 允许版本目录内的相对子路径（如 `bin`、`Contents/Home/bin`），
+/// 禁止绝对路径（盘符 / 根斜杠 / UNC）与 `..` 上跳，防止指向版本目录之外
 fn validate_free_string(raw: &str) -> Result<ValidatedValue> {
-    if raw.contains('/') || raw.contains('\\') {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(ValidatedValue::FreeString(raw.to_string()));
+    }
+    if trimmed.starts_with('/')
+        || trimmed.starts_with('\\')
+        || trimmed.contains(':')
+        || trimmed.split(['/', '\\']).any(|seg| seg == "..")
+    {
         bail!(
-            "Value must be a simple directory name, not a path with separators. Use empty string for binaries in SDK root."
+            "bin_dir must be a relative sub-path inside the SDK directory (e.g. `bin` or `Contents/Home/bin`), or empty for binaries in SDK root"
         );
     }
     Ok(ValidatedValue::FreeString(raw.to_string()))

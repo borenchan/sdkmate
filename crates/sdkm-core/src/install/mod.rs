@@ -20,7 +20,7 @@ use crate::version::{
 };
 use download_url::build_download_url;
 use downloader::{build_download_client, build_reqwest_client, download_with_retry};
-use extractor::{extract_archive, normalize_extracted_dir, verify_extraction};
+use extractor::{extract_archive, locate_bin_dir, normalize_extracted_dir, verify_extraction};
 use sdkm_util::builtin::find_seed_by_variant;
 
 impl SdkManager {
@@ -307,13 +307,14 @@ impl SdkManager {
             bail!("install cancelled");
         }
 
-        // ── Phase 8: 目录调整 ────────────────────────────────────
+        // ── Phase 8: 目录调整（归一化 + macOS bundle 摊平）─────────
         let move_pb = self
             .sink
             .progress(ProgressKind::Verify, "Verifying installation...".to_string());
         let src = tmp_extracted_path.clone();
         let dst = version_dir.clone();
-        try_bug!(run_blocking(move || normalize_extracted_dir(&src, &dst)).await?);
+        let norm_bin_dir = sdk_conf.bin_dir.clone();
+        try_bug!(run_blocking(move || normalize_extracted_dir(&src, &dst, norm_bin_dir.as_deref())).await?);
         move_pb.finish_with_message(format!("📂 Moved to {}", version_dir.display()));
         if move_pb.is_cancelled() {
             remove_dir_blocking(version_dir.clone()).await;
@@ -321,12 +322,12 @@ impl SdkManager {
         }
 
         // ── Phase 9: 验证安装 ────────────────────────────────────
+        // 9a 完整性硬校验：目录缺失/空 → 回滚（真解压 bug）
         let verify_pb = self
             .sink
             .progress(ProgressKind::Verify, "Verifying installation...".to_string());
         let dir = version_dir.clone();
-        let bin_dir = sdk_conf.bin_dir.clone();
-        let verify = run_blocking(move || verify_extraction(&dir, bin_dir.as_deref())).await;
+        let verify = run_blocking(move || verify_extraction(&dir)).await;
         if let Err(e) = verify {
             remove_dir_blocking(version_dir.clone()).await;
             cleanup_temp_blocking(&tmp_dir).await?;
@@ -336,6 +337,31 @@ impl SdkManager {
         if verify_pb.is_cancelled() {
             remove_dir_blocking(version_dir.clone()).await;
             bail!("install cancelled");
+        }
+
+        // 9b bin_dir 布局软警告：不在版本根时不回滚（中间目录未提升掉 /
+        // bin_dir 配置不匹配 / 不同版本 bin 目录不同），搜出实际位置提前通知，
+        // 用户改配置即可救活，避免 switch 后才发现不可用
+        if let Some(d) = sdk_conf.bin_dir.as_deref() {
+            if !version_dir.join(d).is_dir() {
+                let dir = version_dir.clone();
+                let name = d.to_string();
+                let hit = run_blocking(move || locate_bin_dir(&dir, &name)).await.unwrap_or(None);
+                match hit {
+                    Some(rel) => self.sink.warning(format!(
+                        "bin dir '{}' not at version root, found at '{}' — fix: sdkm config set sdk.{}.bin_dir {}",
+                        d,
+                        rel.display(),
+                        sdk_name,
+                        rel.display()
+                    )),
+                    None => self.sink.warning(format!(
+                        "bin dir '{}' not found in '{}' — unexpected package layout, SDK may be unusable",
+                        d,
+                        version_dir.display()
+                    )),
+                }
+            }
         }
 
         // ── Phase 10: 清理临时文件 ──────────────────────────────

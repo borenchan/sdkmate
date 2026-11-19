@@ -113,6 +113,9 @@ bin_dir = "bin"
 
 ## 已知问题与注意事项
 
+- **SDK 包布局三形态归一化（2026-11-19 决策）**：`normalize_extracted_dir` 以「bin_dir 在版本目录可见」为锚点依次处理三种已知包形态——单层包装（node/go/maven）、双层包装（python-build-standalone）、macOS JDK bundle（`jdk-x/Contents/Home`，摊平 Home 内容并清掉 MacOS/_CodeSignature/Info.plist 残壳；bin_dir 锚点检测驱动、无平台 gate）。**不做通用递归搜索摊平**：第四种形态出现时由 install Phase 9b 的软警告（`locate_bin_dir` 限深搜出 bin 实际位置 + `sdkm config set sdk.<name>.bin_dir` 修正提示）提前暴露。摊平后 sdkm 管的 JDK 不再被 `/usr/libexec/java_home` 识别（sdkm 用户走 PATH+JAVA_HOME，文档已注明）
+- **zip 解压必须恢复 unix_mode 权限位**：bun/deno/pnpm/uv 等 GitHub 引擎 SDK 在 mac/Linux 全是 zip 分发，可执行文件打包即 755；`fs::File::create` 默认 644 → permission denied。`extract_zip` 已按 `entry.unix_mode()` 还原（cfg(unix)；tar.gz 走 `archive.unpack()` 自带恢复）。WSL `/mnt/*`（drvfs）权限位被挂载层抹平全 0777，掩盖此 bug——WSL 测不出，须 mac/原生 ext4 验证
+- **本地版本枚举过滤隐藏条目与文件**：`list_local_sdk_versions`/`effective_versions_all`/`cleanup_empty_sdk_store_dir` 三处均已过滤 `.` 开头条目与非目录（macOS Finder 的 `.DS_Store` 曾被当成版本号）；判空清理用 `remove_dir_all`（忽略隐藏条目后目录可能非空）
 - **Tomcat 分支白名单硬编码**：`TOMCAT_SUPPORTED_FEATURES = [9,10,11]`（`version/discovery.rs`），Apache 新增分支（如 12）需手动加入；版本列表解析的是 HTML 目录索引（自定义 SDK 引擎仍只认 JSON）
 - **Java 供应商 API 均为单源**（无可换镜像）：只有 Adoptium 信息源（major 列表）支持 config 主备，其余四家抓取无备源；Temurin 只有「默认供应商 + 裸大版本」走 `sdk.java.download_url` 模板（可换 Adoptium 镜像），精确版本与其他供应商用各家 API 直链
 - **Tomcat 默认下载源 dlcdn 国内可能卡死**（实测 20s 零数据）：文档（`docs/usage.md`、`skills/SKILL.md`）给华为云镜像一行命令；下载器已加「4xx 不重试直接切备源 + 30s 无数据判卡死」
