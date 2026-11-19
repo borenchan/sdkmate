@@ -378,7 +378,9 @@ fn sdk_detail(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElemen
             )
             .child(
                 // 安装路径：灰 label + 冒号，路径值用正文色区分
-                h_flex().gap_1().min_w_0()
+                h_flex()
+                    .gap_1()
+                    .min_w_0()
                     .child(
                         div()
                             .flex_shrink_0()
@@ -689,33 +691,35 @@ fn remote_rows(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyEleme
                             .truncate()
                             .child(r.full_version.clone()),
                     )
+                    // 状态 pill 跟在版本号后：使用中（绿）/ 已安装（蓝）；未安装不显示 pill
                     .when(r.active, |el| {
                         el.child(pill(t.sdk.active_badge, tks.success_bg, tks.success_fg))
                     })
-                    .child(div().ml_auto().child(btn(
-                        ElementId::NamedInteger("rver-install".into(), i as u64),
-                        BtnVariant::Primary,
-                        BtnSize::Small,
-                        // 已装/使用中按钮显示「已安装」置灰（去掉行内重复 pill）
-                        if installed {
-                            t.overview.status_installed
-                        } else {
-                            t.sdk.btn_confirm_install
-                        },
-                        None,
-                        app.sdk_page.busy || app.sdk_page.resolving || installed,
-                        app.sdk_page.resolving,
-                        cx.listener(move |app, _, _window, cx| {
-                            app.dispatch(
-                                TaskId::SdkInstallResolve {
-                                    name: name.clone(),
-                                    version: version.clone(),
-                                },
-                                cx,
-                            );
-                        }),
-                        cx,
-                    ))),
+                    .when(!r.active && installed, |el| {
+                        el.child(pill(t.overview.status_installed, tks.primary_soft_bg, tks.primary_soft_fg))
+                    })
+                    // 已安装（含使用中）不显示安装按钮，只保留状态 pill
+                    .when(!installed, |el| {
+                        el.child(div().ml_auto().child(btn(
+                            ElementId::NamedInteger("rver-install".into(), i as u64),
+                            BtnVariant::Primary,
+                            BtnSize::Small,
+                            t.sdk.btn_confirm_install,
+                            None,
+                            app.sdk_page.busy || app.sdk_page.resolving,
+                            app.sdk_page.resolving,
+                            cx.listener(move |app, _, _window, cx| {
+                                app.dispatch(
+                                    TaskId::SdkInstallResolve {
+                                        name: name.clone(),
+                                        version: version.clone(),
+                                    },
+                                    cx,
+                                );
+                            }),
+                            cx,
+                        )))
+                    }),
             )
         });
         body = body.child(rows);

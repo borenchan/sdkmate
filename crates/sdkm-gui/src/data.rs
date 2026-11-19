@@ -154,7 +154,7 @@ pub enum TaskOutcome {
     HookInjected(Result<(), String>),
 }
 
-/// 设置页 SDK 源条目（4 个地址）
+/// 设置页 SDK 源条目（4 个地址 + bin/extras，自定义 SDK 编辑用）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdkSourceEntry {
     pub name: String,
@@ -162,6 +162,12 @@ pub struct SdkSourceEntry {
     pub version_fallback_url: Option<String>,
     pub download_url: Option<String>,
     pub download_fallback_url: Option<String>,
+    /// 二进制子目录（None = 根目录）
+    pub bin_dir: Option<String>,
+    /// 环境变量表（如 JAVA_HOME={sdk_dir}）
+    pub extra_vars: Vec<(String, String)>,
+    /// 额外 PATH 条目
+    pub extra_paths: Vec<String>,
 }
 
 /// Shell hook 状态（GUI 展示结构）
@@ -559,6 +565,14 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
                     version_fallback_url: e.version_fallback_url.clone(),
                     download_url: e.download_url.clone(),
                     download_fallback_url: e.download_fallback_url.clone(),
+                    bin_dir: e.bin_dir.clone(),
+                    // HashMap 无序：按变量名排序，保证列表与 config.toml 稳定
+                    extra_vars: {
+                        let mut vars: Vec<_> = e.extra_vars.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        vars.sort();
+                        vars
+                    },
+                    extra_paths: e.extra_paths.clone(),
                 })
                 .collect();
             Ok(TaskOutcome::SdkSources(items))
@@ -572,6 +586,10 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
                     version_fallback_url: e.version_fallback_url,
                     download_url: e.download_url,
                     download_fallback_url: e.download_fallback_url,
+                    // 整表替换语义：GUI 全量提交，草稿即真相
+                    bin_dir: Some(e.bin_dir.unwrap_or_default()),
+                    extra_vars: Some(e.extra_vars.into_iter().collect()),
+                    extra_paths: Some(e.extra_paths),
                 })
                 .collect();
             manager.config.set_sdk_sources(&updates, sink.as_ref())?;
