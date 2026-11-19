@@ -77,3 +77,19 @@ pub fn translate(msg: &str, lang: GuiLang) -> String {
     }
     msg.to_string()
 }
+
+/// 过程性自愈消息识别：源切换/重试/清残留等发生在成功路径上的 Warning。
+///
+/// 这类消息最终成功时只是噪音（CLI 里是终端滚过的一行，GUI 的 toast 却很显眼，
+/// 且易被翻译表误译成误导文案）；最终失败时任务错误已足够诊断，故整体静默。
+pub fn is_process_noise(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    lower.contains("source failed")
+        || lower.contains("secondary source")
+        || lower.contains("stale local cache")
+        || lower.contains("retrying in")
+        || lower.contains("failed to clean stale tmp")
+        // 下载器重试与切备源的过程提示（成功前不应弹 warning）
+        || lower.contains("download attempt #")
+        || lower.contains("trying fallback url")
+}

@@ -363,21 +363,38 @@ fn sdk_detail(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElemen
                     .gap_2()
                     .items_center()
                     .child(
+                        // 长版本号截断，避免顶掉“全局”标签
                         div()
                             .text_size(px(20.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(theme.foreground)
+                            .min_w_0()
+                            .truncate()
                             .child(it.current.clone().unwrap_or_else(|| "—".into())),
                     )
                     .when(it.current.is_some(), |el| {
                         el.child(pill(t.sdk.scope_global, tks.primary_soft_bg, tks.primary_soft_fg))
                     }),
             )
-            .child(div().text_xs().text_color(theme.muted_foreground).truncate().child(format!(
-                "{} {}",
-                t.sdk.install_path,
-                it.current.as_ref().map(|v| format!("{}/{}", it.name, v)).unwrap_or_default()
-            ))),
+            .child(
+                // 安装路径：灰 label + 冒号，路径值用正文色区分
+                h_flex().gap_1().min_w_0()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!("{}:", t.sdk.install_path)),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(theme.foreground)
+                            .truncate()
+                            .child(it.current.as_ref().map(|v| format!("{}/{}", it.name, v)).unwrap_or_default()),
+                    ),
+            ),
     );
 
     // ── 本地版本数 / 占用空间（size 经 SizeCache，OverviewRefresh 已算好缓存）──
@@ -546,10 +563,13 @@ fn version_rows(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElem
                 .border_color(theme.border)
                 .hover(|s| s.bg(theme.muted))
                 .child(
+                    // 版本名可收缩截断：超长自定义版本名不把操作按钮挤出容器
                     div()
                         .text_sm()
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme.foreground)
+                        .min_w_0()
+                        .truncate()
                         .child(ver.clone()),
                 )
                 .when(active, |el| el.child(pill(t.sdk.active_badge, tks.success_bg, tks.success_fg)))
@@ -660,22 +680,23 @@ fn remote_rows(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyEleme
                     .border_1()
                     .border_color(theme.border)
                     .child(
+                        // 版本名可收缩截断：超长版本名不把右侧按钮挤出容器
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.foreground)
+                            .min_w_0()
+                            .truncate()
                             .child(r.full_version.clone()),
                     )
                     .when(r.active, |el| {
                         el.child(pill(t.sdk.active_badge, tks.success_bg, tks.success_fg))
                     })
-                    .when(installed && !r.active, |el| {
-                        el.child(pill(t.overview.status_installed, theme.muted, theme.muted_foreground))
-                    })
                     .child(div().ml_auto().child(btn(
                         ElementId::NamedInteger("rver-install".into(), i as u64),
                         BtnVariant::Primary,
                         BtnSize::Small,
+                        // 已装/使用中按钮显示「已安装」置灰（去掉行内重复 pill）
                         if installed {
                             t.overview.status_installed
                         } else {

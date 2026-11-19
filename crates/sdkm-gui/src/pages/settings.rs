@@ -1250,10 +1250,13 @@ fn custom_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                     .rounded(px(8.))
                     .child(sdk_icon(&it.name, 32., cx))
                     .child(
+                        // SDK 名可收缩截断：长名称不把右侧按钮挤出行
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.foreground)
+                            .min_w_0()
+                            .truncate()
                             .child(it.name.clone()),
                     )
                     .child(

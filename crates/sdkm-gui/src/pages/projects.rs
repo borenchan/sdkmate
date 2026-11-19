@@ -371,9 +371,11 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                                             .text_sm()
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(theme.foreground)
+                                            .min_w_0()
+                                            .truncate()
                                             .child(name.clone()),
                                     )
-                                    .child(div().text_xs().text_color(theme.muted_foreground).child(desc)),
+                                    .child(div().text_xs().text_color(theme.muted_foreground).truncate().child(desc)),
                             )
                             .child(
                                 div()

@@ -711,6 +711,8 @@ fn overview_data(manager: &SdkManager) -> anyhow::Result<OverviewData> {
     let rows = collect_sdk_rows(manager)?;
     let store_dir = sdkm_util::path::get_installed_sdks_dir()?;
     let mut cache = sdkm_core::size_cache::SizeCache::load();
+    // 与 CLI ls 一致：先清卸载残留的孤儿缓存条目
+    cache.prune();
     let mut sizes = Vec::new();
     let mut total = 0u64;
     for row in &rows {

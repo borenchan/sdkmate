@@ -55,6 +55,7 @@ pub struct SdkLang {
     pub progress_verify: &'static str,
     pub progress_self_update_download: &'static str,
     pub progress_self_extract: &'static str,
+    pub progress_eta: &'static str,
 }
 
 /// 简体中文
@@ -63,7 +64,7 @@ pub const ZH: SdkLang = SdkLang {
     subtitle: "管理本机已安装的 SDK 及其版本",
     search_placeholder: "搜索 SDK 名称，例如：java、node、python",
     btn_install_sdk: "安装 SDK",
-    current_active: "当前激活版本",
+    current_active: "当前使用版本",
     scope_global: "全局",
     btn_switch: "切换",
     install_path: "安装路径",
@@ -90,9 +91,9 @@ pub const ZH: SdkLang = SdkLang {
     switch_running: "正在切换",
     uninstall_running: "正在卸载",
     uninstall_confirm_title: "确认卸载",
-    uninstall_confirm_desc: "将删除该版本的本地文件；若它是当前激活版本，sdkm 会按规则清理环境配置。",
+    uninstall_confirm_desc: "将删除该版本的本地文件；若它是当前使用版本，sdkm 会按规则清理环境配置。",
     fuzzy_confirm_title: "模糊版本匹配",
-    active_badge: "已激活",
+    active_badge: "使用中",
     btn_add_custom: "添加自定义 SDK",
     form_name: "SDK 名称",
     form_name_ph: "唯一名称，如 mytool",
@@ -113,6 +114,7 @@ pub const ZH: SdkLang = SdkLang {
     progress_verify: "正在校验安装...",
     progress_self_update_download: "正在下载 sdkm...",
     progress_self_extract: "正在解压 sdkm...",
+    progress_eta: "剩余",
 };
 
 /// English
@@ -121,7 +123,7 @@ pub const EN: SdkLang = SdkLang {
     subtitle: "Manage installed SDKs and their versions",
     search_placeholder: "Search SDKs, e.g. java, node, python",
     btn_install_sdk: "Install SDK",
-    current_active: "Current Active",
+    current_active: "Current in Use",
     scope_global: "Global",
     btn_switch: "Switch",
     install_path: "Install Path",
@@ -148,9 +150,9 @@ pub const EN: SdkLang = SdkLang {
     switch_running: "Switching",
     uninstall_running: "Uninstalling",
     uninstall_confirm_title: "Confirm Uninstall",
-    uninstall_confirm_desc: "This deletes the local files of that version; if it is active, sdkm cleans up environment config by rule.",
+    uninstall_confirm_desc: "This deletes the local files of that version; if it is in use, sdkm cleans up environment config by rule.",
     fuzzy_confirm_title: "Fuzzy Version Match",
-    active_badge: "Active",
+    active_badge: "In use",
     btn_add_custom: "Add Custom SDK",
     form_name: "SDK Name",
     form_name_ph: "unique name, e.g. mytool",
@@ -171,4 +173,5 @@ pub const EN: SdkLang = SdkLang {
     progress_verify: "Verifying installation...",
     progress_self_update_download: "Downloading sdkm...",
     progress_self_extract: "Extracting sdkm...",
+    progress_eta: "ETA",
 };
