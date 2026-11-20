@@ -193,6 +193,15 @@ impl SdkConfig {
         self.add_to_path.unwrap_or(true)
     }
 
+    /// 是否具备远程安装能力（唯一口径：CLI/GUI 判断"能否装版本"一律走这里）
+    ///
+    /// 有下载模板 = 可用模板渲染下载；仅有版本发现源 = 版本发现可产出资产直链
+    /// （GitHub Releases 形态）。两者皆无 = 本地 switch-only，只能托管已有目录。
+    pub fn can_install_remotely(&self) -> bool {
+        let non_empty = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.trim().is_empty());
+        non_empty(&self.download_url) || non_empty(&self.version_url)
+    }
+
     /// 构造 SdkConfig，bin_dir 传 None 表示二进制在 SDK 根目录
     pub fn new(name: String, version_url: String, download_url: String, bin_dir: Option<String>) -> SdkConfig {
         SdkConfig {
@@ -352,11 +361,6 @@ impl SdkmConfig {
     }
     pub fn exist_sdk(&self, sdk: &Sdk) -> bool {
         self.find_sdk(sdk).is_some()
-    }
-
-    /// 判断 SDK 名称是否为内置 SDK（统一注册表判定）
-    pub fn is_builtin_sdk(name: &str) -> bool {
-        is_builtin_sdk(name)
     }
 
     // ── 配置操作 API ──
@@ -654,9 +658,9 @@ impl SdkmConfig {
     /// 获取键名元数据（内置 SDK 字段不可删除）
     pub fn key_meta_for(&self, key: &ConfigKey) -> KeyMeta {
         let is_builtin = match key {
-            ConfigKey::Sdk { name, .. } => SdkmConfig::is_builtin_sdk(name),
-            ConfigKey::SdkExtraVar { name, .. } => SdkmConfig::is_builtin_sdk(name),
-            ConfigKey::SdkExtraPath { name, .. } => SdkmConfig::is_builtin_sdk(name),
+            ConfigKey::Sdk { name, .. } => is_builtin_sdk(name),
+            ConfigKey::SdkExtraVar { name, .. } => is_builtin_sdk(name),
+            ConfigKey::SdkExtraPath { name, .. } => is_builtin_sdk(name),
             _ => false,
         };
         key_meta(key, is_builtin)
@@ -778,7 +782,7 @@ impl SdkmConfig {
     /// 移除 SDK 条目（内置 SDK 不可移除；回滚告警经 sink 发事件）
     pub fn remove_sdk(&mut self, name: &str, sink: &dyn EventSink) -> Result<()> {
         // 内置 SDK 不可移除
-        if SdkmConfig::is_builtin_sdk(name) {
+        if is_builtin_sdk(name) {
             bail!(
                 "Cannot remove built-in SDK '{}'. Use `sdkm config set` to modify its fields.",
                 name

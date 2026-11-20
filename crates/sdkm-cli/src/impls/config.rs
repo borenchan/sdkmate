@@ -378,7 +378,12 @@ impl AddSdkHandler {
         manager.config.add_sdk(sdk_config, manager.sink.as_ref())?;
 
         success!("SDK '{}' added to config.", self.name);
-        if self.download_url.is_some() {
+        // 能否远程安装统一走 core 口径（版本发现源可直接产出资产直链，不强制要求下载模板）
+        let can_install = manager
+            .config
+            .find_sdk_by_name(&self.name)
+            .is_ok_and(|conf| conf.can_install_remotely());
+        if can_install {
             detail!("Run `sdkm install {} <version>` to download and install a version.", self.name);
         } else {
             detail!(

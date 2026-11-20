@@ -348,15 +348,19 @@ impl SdkManager {
                 let name = d.to_string();
                 let hit = run_blocking(move || locate_bin_dir(&dir, &name)).await.unwrap_or(None);
                 match hit {
+                    // 前缀 "bin dir mismatch for `<sdk>`" 是 GUI 翻译层的解析锚点（取 SDK 名），
+                    // 改动前缀时同步更新 sdkm-gui 的 errors::translate
                     Some(rel) => self.sink.warning(format!(
-                        "bin dir '{}' not at version root, found at '{}' — fix: sdkm config set sdk.{}.bin_dir {}",
+                        "bin dir mismatch for `{}`: '{}' not at version root (found at '{}') — fix: sdkm config set sdk.{}.bin_dir {}",
+                        sdk_name,
                         d,
                         rel.display(),
                         sdk_name,
                         rel.display()
                     )),
                     None => self.sink.warning(format!(
-                        "bin dir '{}' not found in '{}' — unexpected package layout, SDK may be unusable",
+                        "bin dir mismatch for `{}`: '{}' not found in '{}' — unexpected package layout, SDK may be unusable",
+                        sdk_name,
                         d,
                         version_dir.display()
                     )),
