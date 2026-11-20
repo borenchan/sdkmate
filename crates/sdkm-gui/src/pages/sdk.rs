@@ -66,6 +66,8 @@ pub struct SdkPageState {
     pub resolving: bool,
     /// 导入本地版本：目录选择中（禁用导入按钮，避免叠加系统弹窗）
     pub import_picking: bool,
+    /// 导入本地版本：点击导入时锁定的 SDK 名（选择框期间切换选中不影响目标）
+    pub import_sdk: Option<String>,
     /// 当前页（每页 8 条）
     pub page: usize,
     /// 远程版本搜索框
@@ -90,6 +92,7 @@ impl SdkPageState {
             busy: false,
             resolving: false,
             import_picking: false,
+            import_sdk: None,
             page: 0,
             remote_search: cx.new(|cx| InputState::new(window, cx).placeholder(lang.sdk.remote_search_placeholder)),
             remote_keyword: String::new(),
@@ -867,6 +870,8 @@ fn open_import_pick(app: &mut GuiApp, _: &ClickEvent, _window: &mut Window, cx: 
     if app.sdk_page.import_picking || app.sdk_page.busy {
         return;
     }
+    // 锁定发起时的选中 SDK：选择框期间用户切了选中项，导入仍然落在原 SDK 上
+    app.sdk_page.import_sdk = selected_sdk_name(app);
     app.sdk_page.import_picking = true;
     app.dispatch(
         TaskId::PickImportDir {
@@ -879,7 +884,9 @@ fn open_import_pick(app: &mut GuiApp, _: &ClickEvent, _window: &mut Window, cx: 
 /// 导入确认弹窗（源目录只读展示 + 版本名输入，预填源目录名；版本名唯一性由 core 校验）
 pub(crate) fn open_import_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>, src_dir: String) {
     let t = app.lang;
-    let Some(name) = selected_sdk_name(app) else {
+    // 优先用点击导入时锁定的 SDK，缺失才回退当前选中
+    let name = app.sdk_page.import_sdk.take().or_else(|| selected_sdk_name(app));
+    let Some(name) = name else {
         app.sdk_page.import_picking = false;
         return;
     };
@@ -942,6 +949,12 @@ pub(crate) fn open_import_confirm(app: &mut GuiApp, window: &mut Window, cx: &mu
                 move |_, window, cx| {
                     let version = onok_input.read(cx).value().trim().to_string();
                     if version.is_empty() {
+                        return false;
+                    }
+                    // 选择框打开期间可能已发起别的操作：派发前复查，忙碌则提示并保留弹窗
+                    if view.read(cx).sdk_page.busy {
+                        let hint = view.read(cx).lang.common.busy_hint;
+                        view.update(cx, |app, cx| app.notify_warning(hint, window, cx));
                         return false;
                     }
                     view.update(cx, |app, cx| {

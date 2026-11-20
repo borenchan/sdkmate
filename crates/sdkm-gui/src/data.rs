@@ -7,6 +7,7 @@
 use crate::sink::{GuiEvent, GuiSink};
 use sdkm_core::manager::SdkManager;
 use sdkm_core::self_update::SelfUpdateOutcome;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -405,7 +406,7 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
         TaskId::SdkImportLocal { name, version, src_dir } => {
             let sdk = parse_sdk(&name)?;
             // 目录移动（跨盘时是 copy+delete）是本地重段，走阻塞线程池
-            spawn_blocking(move || manager.import_local_version(&sdk, std::path::Path::new(&src_dir), &version))
+            spawn_blocking(move || manager.import_local_version(&sdk, Path::new(&src_dir), &version))
                 .await
                 .map_err(|e| anyhow::anyhow!("{e}"))??;
             Ok(TaskOutcome::Done)
@@ -581,9 +582,25 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
             }
             Ok(TaskOutcome::Done)
         }
-        TaskId::PickDirectory { title } => Ok(TaskOutcome::DirectoryPicked(pick_directory(&title))),
-        TaskId::PickSymlinkDir { title } => Ok(TaskOutcome::SymlinkDirPicked(pick_directory(&title))),
-        TaskId::PickImportDir { title } => Ok(TaskOutcome::ImportDirPicked(pick_directory(&title))),
+        TaskId::PickDirectory { title } => {
+            // 系统弹窗是用户驱动的阻塞等待，走阻塞线程池，避免占住 runtime worker
+            let picked = spawn_blocking(move || pick_directory(&title))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(TaskOutcome::DirectoryPicked(picked))
+        }
+        TaskId::PickSymlinkDir { title } => {
+            let picked = spawn_blocking(move || pick_directory(&title))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(TaskOutcome::SymlinkDirPicked(picked))
+        }
+        TaskId::PickImportDir { title } => {
+            let picked = spawn_blocking(move || pick_directory(&title))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(TaskOutcome::ImportDirPicked(picked))
+        }
         TaskId::ConfigSaveSymlink { path } => {
             manager.config.set_value(
                 &sdkm_core::config::ConfigKey::SymlinkDir,

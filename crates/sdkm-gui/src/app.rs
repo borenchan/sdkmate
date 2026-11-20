@@ -4,6 +4,7 @@
 //! 处理拆分到 pages/ 模块；core 调用全部走后台线程（spawn_task），事件经单一
 //! channel 泵回 UI 线程分发。
 
+use crate::components::fmt_bytes;
 use crate::data::{TaskId, TaskOutcome, spawn_task};
 use crate::i18n::Lang;
 use crate::i18n::errors::{is_process_noise, translate};
@@ -27,6 +28,7 @@ use gpui_kit::*;
 use sdkm_core::report::CoreEvent;
 use sdkm_core::self_update::SelfUpdateOutcome;
 use std::env;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -135,6 +137,9 @@ pub struct GuiApp {
     /// 自更新已完成替换，等待重启生效（Some = 目标版本号）：
     /// 运行中进程仍是旧版，版本差异属预期，展示重启入口而非"版本不一致"
     pub restart_required: Option<String>,
+    /// 启动时的 exe 路径（重启用）：自更新替换后 Linux 的 current_exe 会指向
+    /// 已被改名/删除的 .discard 副本，必须用启动时记录的原始路径重新拉起
+    pub exe_path: Option<PathBuf>,
     /// 订阅句柄（保持存活；搜索框 Change → 关键字等）
     pub _subscriptions: Vec<Subscription>,
 }
@@ -224,6 +229,7 @@ impl GuiApp {
             toasts: Vec::new(),
             next_toast_id: 1,
             restart_required: None,
+            exe_path: env::current_exe().ok(),
             _subscriptions: Vec::new(),
         };
 
@@ -786,9 +792,14 @@ impl GuiApp {
         }
     }
 
-    /// 重启应用到磁盘上的新版本：拉起同路径新进程后退出当前进程
+    /// 重启应用到磁盘上的新版本：往启动时的原始路径拉起新进程后退出当前进程
+    /// （不用 current_exe：Linux 上自更新替换后它指向 .discard 副本，spawn 会 ENOENT）
     pub fn restart_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let spawned = env::current_exe().and_then(|exe| Command::new(exe).spawn().map(|_| ()));
+        let target = self.exe_path.clone().or_else(|| env::current_exe().ok());
+        let spawned = match target {
+            Some(exe) => Command::new(exe).spawn().map(|_| ()),
+            None => Err(std::io::Error::other("cannot locate sdkm-gui executable")),
+        };
         match spawned {
             Ok(()) => cx.quit(),
             Err(e) => self.notify_error(format!("restart failed: {e}"), window, cx),
@@ -953,17 +964,16 @@ impl GuiApp {
             GuiEvent::Task {
                 outcome: TaskOutcome::CleanDone(result),
                 ..
-            } => match result {
-                Ok(bytes) => {
-                    let msg = self
-                        .lang
-                        .diagnostics
-                        .clean_done
-                        .replace("{size}", &crate::components::fmt_bytes(bytes));
-                    self.notify_success(msg, window, cx);
+            } => {
+                self.diagnostics.cleaning = false;
+                match result {
+                    Ok(bytes) => {
+                        let msg = self.lang.diagnostics.clean_done.replace("{size}", &fmt_bytes(bytes));
+                        self.notify_success(msg, window, cx);
+                    }
+                    Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
                 }
-                Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
-            },
+            }
             GuiEvent::Task {
                 outcome: TaskOutcome::ShellStatus(result),
                 ..
@@ -1114,7 +1124,7 @@ impl GuiApp {
                     self.notify_success(msg, window, cx);
                 }
             }
-            // 导入目录选择完成：选中则弹版本名确认弹窗
+            // 导入目录选择完成：选中则弹版本名确认弹窗（取消则清掉锁定的 SDK）
             GuiEvent::Task {
                 outcome: TaskOutcome::ImportDirPicked(picked),
                 ..
@@ -1122,6 +1132,8 @@ impl GuiApp {
                 self.sdk_page.import_picking = false;
                 if let Some(dir) = picked {
                     sdk::open_import_confirm(self, window, cx, dir);
+                } else {
+                    self.sdk_page.import_sdk = None;
                 }
             }
             // 操作成功：关进度弹窗 + 解除忙碌态 + 刷新列表 + 重拉远程（若开着）+ 成功轻提示

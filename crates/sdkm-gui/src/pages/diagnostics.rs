@@ -28,6 +28,8 @@ pub struct DiagnosticsState {
     /// Shell 详情（profile 列表）展开
     pub details_open: bool,
     pub updating: bool,
+    /// 缓存/临时目录清理中（与更新、SDK 操作互斥：clean 会删 .tmp，与下载/解压并发会互相破坏）
+    pub cleaning: bool,
     /// 最近一次检查到的最新版本号
     pub latest: Option<String>,
 }
@@ -43,6 +45,7 @@ impl DiagnosticsState {
             injecting: false,
             details_open: false,
             updating: false,
+            cleaning: false,
             latest: None,
         }
     }
@@ -643,7 +646,7 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                 BtnSize::Medium,
                 t.diagnostics.btn_update_now,
                 Some(IconName::Download),
-                state.updating,
+                state.updating || state.cleaning,
                 state.updating,
                 cx.listener(|app, _, window, cx| {
                     app.diagnostics.updating = true;
@@ -666,7 +669,7 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                 BtnSize::Medium,
                 t.diagnostics.btn_check_update,
                 Some(IconName::RefreshCw),
-                state.updating,
+                state.updating || state.cleaning,
                 state.updating,
                 cx.listener(|app, _, _, cx| {
                     app.diagnostics.updating = true;
@@ -680,7 +683,7 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                 BtnSize::Medium,
                 t.diagnostics.btn_rollback,
                 Some(IconName::Undo),
-                state.updating,
+                state.updating || state.cleaning,
                 state.updating,
                 cx.listener(|app, _, _, cx| {
                     // 先查询回退目标版本，确认弹窗里展示具体版本号
@@ -794,8 +797,18 @@ fn advanced_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                     IconName::Eraser,
                     t.diagnostics.adv_clean,
                     t.diagnostics.adv_clean_desc,
-                    cx.listener(|app, _, _, cx| {
-                        // 只清 .cache/.tmp，不影响已安装 SDK；完成走成功轻提示
+                    cx.listener(|app, _, window, cx| {
+                        // 与更新/SDK 操作互斥：clean 会删 .tmp（安装/自更新临时区）
+                        if app.diagnostics.cleaning
+                            || app.diagnostics.updating
+                            || app.diagnostics.checking
+                            || app.sdk_page.busy
+                        {
+                            let hint = app.lang.common.busy_hint;
+                            app.notify_warning(hint, window, cx);
+                            return;
+                        }
+                        app.diagnostics.cleaning = true;
                         app.dispatch(TaskId::CleanData, cx);
                     }),
                     cx,
