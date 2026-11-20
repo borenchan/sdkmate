@@ -7,13 +7,16 @@
 // bug 报告入口）；敏感字段（proxy/token）只报是否设置，不打印内容。
 
 use crate::config::SdkmConfig;
+#[cfg(unix)]
+use crate::env::env_file_path;
 use crate::manager::SdkManager;
+use crate::shell::check_shell_hook;
 use anyhow::Result;
 use sdkm_util::diagnostics::{os_version, platform_info};
 use sdkm_util::path::{get_installed_sdks_dir, get_sdkm_config_path, get_sdkm_home};
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{MAIN_SEPARATOR, Path};
 use std::process::Command;
 
 /// 诊断报告数据（渲染归前端；行的先后顺序即展示顺序，节标题也是 Info 行）
@@ -42,6 +45,7 @@ pub fn collect_doctor_report(manager: &SdkManager) -> Result<DoctorReport> {
     let mut lines = Vec::new();
     section_version_and_platform(&mut lines);
     section_paths(&manager.config, &mut lines);
+    section_shell_env(&mut lines);
     section_config_summary(&manager.config, &mut lines);
     section_installed_sdks(manager, &mut lines);
     section_health_check(&manager.config, &mut lines);
@@ -55,110 +59,169 @@ fn line(level: DoctorLevel, text: impl Into<String>) -> DoctorLine {
     }
 }
 
-/// 版本与平台
+/// 键值行：键列按 `width` 左对齐、后接两空格（同一小节的值列对齐，方便扫读）
+fn kv_line(key: &str, value: impl std::fmt::Display, width: usize) -> String {
+    format!("{key:<width$}  {value}")
+}
+
+/// 版本与平台（同一组：sdkm 版本 / 平台 / 系统版本各占一行）
 fn section_version_and_platform(lines: &mut Vec<DoctorLine>) {
-    lines.push(line(DoctorLevel::Info, "sdkm version"));
+    lines.push(line(DoctorLevel::Info, "version & platform"));
     lines.push(line(DoctorLevel::Detail, env!("CARGO_PKG_VERSION")));
-    lines.push(line(DoctorLevel::Info, "platform"));
     lines.push(line(DoctorLevel::Detail, platform_info()));
-    lines.push(line(DoctorLevel::Info, "OS version"));
     lines.push(line(DoctorLevel::Detail, os_version()));
 }
 
-/// Home 与路径
+/// Home 与路径（键列宽 = symlink）
 fn section_paths(config: &SdkmConfig, lines: &mut Vec<DoctorLine>) {
+    const W: usize = 7;
     lines.push(line(DoctorLevel::Info, "home & paths"));
     match get_sdkm_home() {
         Ok(home) => {
             let overridden = env::var("SDKM_HOME").map(|v| !v.is_empty()).unwrap_or(false);
+            let text = kv_line("home", home.display(), W);
             if overridden {
-                lines.push(line(
-                    DoctorLevel::Warning,
-                    format!("home: {} (overridden by SDKM_HOME)", home.display()),
-                ));
+                lines.push(line(DoctorLevel::Warning, format!("{text} (overridden by SDKM_HOME)")));
             } else {
-                lines.push(line(DoctorLevel::Detail, format!("home: {}", home.display())));
+                lines.push(line(DoctorLevel::Detail, text));
             }
             match get_installed_sdks_dir() {
                 Ok(store) => lines.push(line(
                     DoctorLevel::Detail,
-                    format!(
-                        "store dir: {} ({})",
-                        store.display(),
-                        if store.is_dir() { "exists" } else { "missing" }
+                    kv_line(
+                        "store",
+                        format!("{} ({})", store.display(), if store.is_dir() { "exists" } else { "missing" }),
+                        W,
                     ),
                 )),
-                Err(e) => {
-                    lines.push(line(DoctorLevel::Error, format!("store dir: resolve failed: {e:#}")));
-                }
+                Err(e) => lines.push(line(DoctorLevel::Error, kv_line("store", format!("resolve failed: {e:#}"), W))),
             }
             match config.resolved_symlink_dir() {
                 Ok(links) => lines.push(line(
                     DoctorLevel::Detail,
-                    format!(
-                        "symlink dir: {} ({})",
-                        links,
-                        if Path::new(&links).is_dir() {
-                            "exists"
-                        } else {
-                            "missing"
-                        }
+                    kv_line(
+                        "symlink",
+                        format!(
+                            "{links} ({})",
+                            if Path::new(&links).is_dir() {
+                                "exists"
+                            } else {
+                                "missing"
+                            }
+                        ),
+                        W,
                     ),
                 )),
-                Err(e) => {
-                    lines.push(line(DoctorLevel::Error, format!("symlink dir: resolve failed: {e:#}")));
-                }
+                Err(e) => lines.push(line(
+                    DoctorLevel::Error,
+                    kv_line("symlink", format!("resolve failed: {e:#}"), W),
+                )),
             }
             match get_sdkm_config_path() {
                 Ok(p) => lines.push(line(
                     DoctorLevel::Detail,
-                    format!("config: {} ({})", p.display(), if p.is_file() { "ok" } else { "missing" }),
+                    kv_line(
+                        "config",
+                        format!("{} ({})", p.display(), if p.is_file() { "ok" } else { "missing" }),
+                        W,
+                    ),
                 )),
-                Err(e) => {
-                    lines.push(line(DoctorLevel::Error, format!("config: resolve failed: {e:#}")));
-                }
+                Err(e) => lines.push(line(DoctorLevel::Error, kv_line("config", format!("resolve failed: {e:#}"), W))),
             }
         }
-        Err(e) => {
-            lines.push(line(DoctorLevel::Error, format!("home: resolve failed: {e:#}")));
-        }
+        Err(e) => lines.push(line(DoctorLevel::Error, kv_line("home", format!("resolve failed: {e:#}"), W))),
     }
 }
 
-/// 配置摘要
+/// shell 与持久化状态：诊断"环境变量/切换不生效"类问题的入口（键列宽 = env file）
+fn section_shell_env(lines: &mut Vec<DoctorLine>) {
+    const W: usize = 8;
+    lines.push(line(DoctorLevel::Info, "shell & env persistence"));
+    match check_shell_hook() {
+        Ok(status) => {
+            lines.push(line(DoctorLevel::Detail, kv_line("shell", status.shell.display_name(), W)));
+            if status.profiles.is_empty() {
+                lines.push(line(DoctorLevel::Warning, kv_line("profile", "not found", W)));
+            }
+            for p in &status.profiles {
+                let (level, hint) = if p.registered {
+                    (DoctorLevel::Detail, "hook registered")
+                } else {
+                    (DoctorLevel::Warning, "hook missing, run `sdkm init`")
+                };
+                lines.push(line(level, kv_line("profile", format!("{} ({hint})", p.path.display()), W)));
+            }
+        }
+        Err(e) => lines.push(line(DoctorLevel::Error, kv_line("shell", format!("detect failed: {e:#}"), W))),
+    }
+    // 托管 env 文件仅 unix（Windows 走注册表）
+    #[cfg(unix)]
+    match env_file_path() {
+        Ok(p) => lines.push(line(
+            DoctorLevel::Detail,
+            kv_line(
+                "env file",
+                format!("{} ({})", p.display(), if p.is_file() { "ok" } else { "missing" }),
+                W,
+            ),
+        )),
+        Err(e) => lines.push(line(
+            DoctorLevel::Error,
+            kv_line("env file", format!("resolve failed: {e:#}"), W),
+        )),
+    }
+}
+
+/// 配置摘要（键列宽 = connect_timeout）
 fn section_config_summary(config: &SdkmConfig, lines: &mut Vec<DoctorLine>) {
+    const W: usize = 15;
     let n = &config.network;
     lines.push(line(DoctorLevel::Info, "network config"));
-    lines.push(line(DoctorLevel::Detail, format!("proxy: {}", mark_set(n.proxy.is_some()))));
-    lines.push(line(DoctorLevel::Detail, format!("ssl_verify: {}", n.ssl_verify)));
-    lines.push(line(DoctorLevel::Detail, format!("connect_timeout: {}s", n.connect_timeout)));
-    lines.push(line(DoctorLevel::Detail, format!("cache_ttl: {}s", n.cache_ttl_secs)));
+    lines.push(line(DoctorLevel::Detail, kv_line("proxy", mark_set(n.proxy.is_some()), W)));
+    lines.push(line(DoctorLevel::Detail, kv_line("ssl_verify", n.ssl_verify, W)));
     lines.push(line(
         DoctorLevel::Detail,
-        format!("github_token: {}", mark_set(n.github_token.is_some())),
+        kv_line("connect_timeout", format!("{}s", n.connect_timeout), W),
+    ));
+    lines.push(line(
+        DoctorLevel::Detail,
+        kv_line("cache_ttl", format!("{}s", n.cache_ttl_secs), W),
+    ));
+    lines.push(line(
+        DoctorLevel::Detail,
+        kv_line("github_token", mark_set(n.github_token.is_some()), W),
     ));
 }
 
 /// 已安装 SDK 概览（复用 list_registered_sdks）
+///
+/// 只列已安装项：未安装的注册项对诊断无价值，几十行 `installed=no` 纯噪音；
+/// 注册总数放进标题做上下文（区分"没装"和"没注册"）。
 fn section_installed_sdks(manager: &SdkManager, lines: &mut Vec<DoctorLine>) {
-    lines.push(line(DoctorLevel::Info, "registered SDKs"));
-    match manager.list_registered_sdks() {
-        Ok(items) => {
-            for it in &items {
-                lines.push(line(
-                    DoctorLevel::Detail,
-                    format!(
-                        "{:<10} installed={} current={}",
-                        it.name,
-                        if it.installed { "yes" } else { "no " },
-                        it.current.as_deref().unwrap_or("-")
-                    ),
-                ));
-            }
-        }
+    let mut items = match manager.list_registered_sdks() {
+        Ok(items) => items,
         Err(e) => {
             lines.push(line(DoctorLevel::Error, format!("installed SDKs: list failed: {e:#}")));
+            return;
         }
+    };
+    let total = items.len();
+    items.retain(|it| it.installed);
+    lines.push(line(
+        DoctorLevel::Info,
+        format!("installed SDKs ({} / {} registered)", items.len(), total),
+    ));
+    if items.is_empty() {
+        lines.push(line(DoctorLevel::Detail, "(none)"));
+        return;
+    }
+    // 列宽按最长名字对齐（golangci-lint 等长名字不撑歪）
+    let width = items.iter().map(|it| it.name.len()).max().unwrap_or_default();
+    for it in &items {
+        lines.push(line(
+            DoctorLevel::Detail,
+            format!("{:<width$}  {}", it.name, it.current.as_deref().unwrap_or("-")),
+        ));
     }
 }
 
@@ -201,25 +264,25 @@ fn section_health_check(config: &SdkmConfig, lines: &mut Vec<DoctorLine>) {
     }
 
     // 2. PATH 中是否有 <links>/ 前缀条目（switch 注入的是 links/<sdk>/bin 等子目录，不是 links 本体；
-    //    分隔符用 MAIN_SEPARATOR 兼容 Windows 反斜杠与 Unix 正斜杠）
+    //    两侧都过 normalize_path 归一——Windows 上 `/` 与 `\`、盘符大小写差异不算两条不同路径）
     if let Ok(links) = config.resolved_symlink_dir() {
-        let links_norm = format!("{}{}", Path::new(&links).to_string_lossy(), std::path::MAIN_SEPARATOR);
-        let in_path = env::var("PATH")
-            .map(|p| env::split_paths(&p).any(|seg| seg.to_string_lossy().starts_with(&links_norm)))
-            .unwrap_or(false);
+        let prefix = format!("{}{}", normalize_path(Path::new(&links)), MAIN_SEPARATOR);
+        let in_path = env::var_os("PATH")
+            .is_some_and(|p| env::split_paths(&p).any(|seg| normalize_path(&seg).starts_with(&prefix)));
         if in_path {
-            lines.push(line(DoctorLevel::Success, "PATH: sdkm links entries present"));
+            lines.push(line(DoctorLevel::Success, "PATH: sdkm links entries present (current session)"));
         } else {
             lines.push(line(
                 DoctorLevel::Warning,
-                "PATH: no sdkm links entries (run `sdkm switch` to add, or reopen shell)",
+                "PATH: no sdkm links entries in current session (run `sdkm switch` to add, or reopen shell)",
             ));
         }
     }
 
-    // 3. 各 SDK 配置的 extra_vars 当前环境值（如 JAVA_HOME）
+    // 3. 已安装 SDK 的 extra_vars 当前环境值（如 JAVA_HOME）；未安装的跳过（伪告警）
+    let store = get_installed_sdks_dir().ok();
     for s in &config.sdks {
-        if s.extra_vars.is_empty() {
+        if s.extra_vars.is_empty() || !store.as_ref().is_some_and(|d| d.join(&s.name).is_dir()) {
             continue;
         }
         for var in s.extra_vars.keys() {
