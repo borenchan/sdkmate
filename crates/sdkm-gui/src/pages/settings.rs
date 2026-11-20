@@ -22,6 +22,9 @@ use sdkm_util::builtin::find_seed;
 /// 每页条数
 const PAGE_SIZE: usize = 10;
 
+/// 自定义 SDK 占位符文档（环境变量值支持的 {sdk_dir} 等占位符说明）
+const PLACEHOLDER_DOC_URL: &str = "https://github.com/borenchan/sdkmate/blob/master/docs/custom-sdk.md#%E8%B7%AF%E5%BE%84%E7%B1%BB%E5%8D%A0%E4%BD%8D%E7%AC%A6%E7%94%A8%E4%BA%8E%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E5%80%BC";
+
 /// SDK 源草稿（弹窗修改，列表底部统一保存）
 #[derive(Debug, Clone)]
 pub struct SourceDraft {
@@ -31,6 +34,12 @@ pub struct SourceDraft {
     pub version_fallback_url: String,
     pub download_url: String,
     pub download_fallback_url: String,
+    /// 二进制子目录（空串 = 根目录，仅自定义 SDK 可编辑）
+    pub bin_dir: String,
+    /// 环境变量表（仅自定义 SDK 可编辑）
+    pub extra_vars: Vec<(String, String)>,
+    /// 额外 PATH 条目（仅自定义 SDK 可编辑）
+    pub extra_paths: Vec<String>,
 }
 
 /// 设置页状态
@@ -57,6 +66,11 @@ pub struct SettingsState {
     pub edit_vfb: Entity<InputState>,
     pub edit_d: Entity<InputState>,
     pub edit_dfb: Entity<InputState>,
+    pub edit_bin: Entity<InputState>,
+    /// 环境变量行缓冲（key/value 各一个输入框；仅自定义 SDK 弹窗显示）
+    pub edit_vars: Vec<(Entity<InputState>, Entity<InputState>)>,
+    /// 额外 PATH 行缓冲
+    pub edit_paths: Vec<Entity<InputState>>,
     /// 分区滚动句柄（tab 点击锚点跳转）
     pub scroll: ScrollHandle,
     /// 当前 tab 高亮（只影响样式，内容始终全部渲染）
@@ -81,6 +95,7 @@ impl SettingsState {
         let edit_vfb = cx.new(|cx| InputState::new(window, cx));
         let edit_d = cx.new(|cx| InputState::new(window, cx));
         let edit_dfb = cx.new(|cx| InputState::new(window, cx));
+        let edit_bin = cx.new(|cx| InputState::new(window, cx).placeholder("bin"));
         let new_name = cx.new(|cx| InputState::new(window, cx).placeholder(lang.settings.new_name_placeholder));
         let new_version_url = cx.new(|cx| InputState::new(window, cx).placeholder("https://.../releases"));
         let new_download_url = cx.new(|cx| InputState::new(window, cx).placeholder("https://.../{version}/..."));
@@ -103,6 +118,9 @@ impl SettingsState {
             edit_vfb,
             edit_d,
             edit_dfb,
+            edit_bin,
+            edit_vars: Vec::new(),
+            edit_paths: Vec::new(),
             scroll: ScrollHandle::new(),
             tab: 0,
             add_open: false,
@@ -148,6 +166,9 @@ impl SettingsState {
                 version_fallback_url: e.version_fallback_url.unwrap_or_default(),
                 download_url: e.download_url.unwrap_or_default(),
                 download_fallback_url: e.download_fallback_url.unwrap_or_default(),
+                bin_dir: e.bin_dir.unwrap_or_default(),
+                extra_vars: e.extra_vars,
+                extra_paths: e.extra_paths,
             })
             .collect();
         self.source_keyword.clear();
@@ -924,63 +945,8 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         ));
     }
 
-    // 底部提示 + 重新加载 + 统一保存
-    content = content.child(
-        h_flex()
-            .justify_between()
-            .items_center()
-            .pt_2()
-            .border_t_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(t.settings.sources_hint.to_string()),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(btn(
-                        "sources-reload",
-                        BtnVariant::Outline,
-                        BtnSize::Small,
-                        t.settings.btn_reload,
-                        Some(IconName::RefreshCw),
-                        false,
-                        false,
-                        cx.listener(|app, _, _, cx| {
-                            app.dispatch(TaskId::SdkSourcesLoad, cx);
-                        }),
-                        cx,
-                    ))
-                    .child(btn(
-                        "sources-save",
-                        BtnVariant::Primary,
-                        BtnSize::Small,
-                        t.settings.btn_save_sources,
-                        Some(IconName::Save),
-                        false,
-                        false,
-                        cx.listener(|app, _, _, cx| {
-                            let entries = app
-                                .settings
-                                .sources
-                                .iter()
-                                .map(|d| SdkSourceEntry {
-                                    name: d.name.clone(),
-                                    version_url: ne_opt(d.version_url.clone()),
-                                    version_fallback_url: ne_opt(d.version_fallback_url.clone()),
-                                    download_url: ne_opt(d.download_url.clone()),
-                                    download_fallback_url: ne_opt(d.download_fallback_url.clone()),
-                                })
-                                .collect();
-                            app.dispatch(TaskId::SdkSourcesSaveFull { entries }, cx);
-                        }),
-                        cx,
-                    )),
-            ),
-    );
+    // 底部提示 + 重新加载 + 统一保存（与自定义 SDK 卡共用同一份草稿）
+    content = content.child(sources_footer("sources", app, cx));
 
     section_card(
         "settings-sources",
@@ -992,6 +958,69 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
     )
 }
 
+/// 草稿底部操作条（提示 + 重新加载 + 保存）：SDK 源卡与自定义 SDK 卡共用同一份草稿数据
+fn sources_footer(id: &'static str, app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
+    let t = app.lang;
+    let theme = cx.theme();
+    h_flex()
+        .justify_between()
+        .items_center()
+        .pt_2()
+        .border_t_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(t.settings.sources_hint.to_string()),
+        )
+        .child(
+            h_flex()
+                .gap_2()
+                .child(btn(
+                    format!("{id}-reload"),
+                    BtnVariant::Outline,
+                    BtnSize::Small,
+                    t.settings.btn_reload,
+                    Some(IconName::RefreshCw),
+                    false,
+                    false,
+                    cx.listener(|app, _, _, cx| {
+                        app.dispatch(TaskId::SdkSourcesLoad, cx);
+                    }),
+                    cx,
+                ))
+                .child(btn(
+                    format!("{id}-save"),
+                    BtnVariant::Primary,
+                    BtnSize::Small,
+                    t.settings.btn_save_sources,
+                    Some(IconName::Save),
+                    false,
+                    false,
+                    cx.listener(|app, _, _, cx| {
+                        let entries = app
+                            .settings
+                            .sources
+                            .iter()
+                            .map(|d| SdkSourceEntry {
+                                name: d.name.clone(),
+                                version_url: ne_opt(d.version_url.clone()),
+                                version_fallback_url: ne_opt(d.version_fallback_url.clone()),
+                                download_url: ne_opt(d.download_url.clone()),
+                                download_fallback_url: ne_opt(d.download_fallback_url.clone()),
+                                bin_dir: ne_opt(d.bin_dir.clone()),
+                                extra_vars: d.extra_vars.clone(),
+                                extra_paths: d.extra_paths.clone(),
+                            })
+                            .collect();
+                        app.dispatch(TaskId::SdkSourcesSaveFull { entries }, cx);
+                    }),
+                    cx,
+                )),
+        )
+}
+
 fn ne_opt(s: String) -> Option<String> {
     if s.trim().is_empty() {
         None
@@ -1000,7 +1029,7 @@ fn ne_opt(s: String) -> Option<String> {
     }
 }
 
-/// 打开 SDK 源编辑弹窗（4 个地址；确定后只写草稿，底部保存统一生效）
+/// 打开 SDK 源编辑弹窗（4 个地址；自定义 SDK 附带 bin_dir/环境变量/额外 PATH；确定后只写草稿，底部保存统一生效）
 fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>, idx: usize) {
     let t = app.lang;
     let Some(d) = app.settings.sources.get(idx).cloned() else {
@@ -1014,6 +1043,28 @@ fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiA
     app.settings
         .edit_dfb
         .update(cx, |s, cx| s.set_value(&d.download_fallback_url, window, cx));
+    app.settings.edit_bin.update(cx, |s, cx| s.set_value(&d.bin_dir, window, cx));
+    // 环境变量/额外 PATH 行缓冲按草稿重建
+    app.settings.edit_vars = d
+        .extra_vars
+        .iter()
+        .map(|(k, v)| {
+            let ke = cx.new(|cx| InputState::new(window, cx).placeholder(t.settings.var_key_ph));
+            let ve = cx.new(|cx| InputState::new(window, cx).placeholder(t.settings.var_val_ph));
+            ke.update(cx, |s, cx| s.set_value(k, window, cx));
+            ve.update(cx, |s, cx| s.set_value(v, window, cx));
+            (ke, ve)
+        })
+        .collect();
+    app.settings.edit_paths = d
+        .extra_paths
+        .iter()
+        .map(|p| {
+            let pe = cx.new(|cx| InputState::new(window, cx).placeholder(t.settings.path_ph));
+            pe.update(cx, |s, cx| s.set_value(p, window, cx));
+            pe
+        })
+        .collect();
 
     let view = cx.entity();
     let content_view = view.clone();
@@ -1025,16 +1076,52 @@ fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiA
             .title(title.clone())
             .content({
                 let view = content_view.clone();
+                let is_custom = !d.is_builtin;
                 move |content, _, cx| {
-                    let st = &view.read(cx).settings;
+                    // Entity 先克隆释放 cx 借用，后续 extra_rows_card 需要可变借用
+                    let (edit_v, edit_vfb, edit_d, edit_dfb, edit_bin, edit_vars, edit_paths) = {
+                        let st = &view.read(cx).settings;
+                        (
+                            st.edit_v.clone(),
+                            st.edit_vfb.clone(),
+                            st.edit_d.clone(),
+                            st.edit_dfb.clone(),
+                            st.edit_bin.clone(),
+                            st.edit_vars.clone(),
+                            st.edit_paths.clone(),
+                        )
+                    };
                     content.child(
                         v_flex()
                             .gap_3()
                             .w_full()
-                            .child(form_field(t.settings.lbl_version_primary, Input::new(&st.edit_v), 580., cx))
-                            .child(form_field(t.settings.lbl_version_fallback, Input::new(&st.edit_vfb), 580., cx))
-                            .child(form_field(t.settings.lbl_download_primary, Input::new(&st.edit_d), 580., cx))
-                            .child(form_field(t.settings.lbl_download_fallback, Input::new(&st.edit_dfb), 580., cx))
+                            .child(form_field(t.settings.lbl_version_primary, Input::new(&edit_v), 580., cx))
+                            .child(form_field(t.settings.lbl_version_fallback, Input::new(&edit_vfb), 580., cx))
+                            .child(form_field(t.settings.lbl_download_primary, Input::new(&edit_d), 580., cx))
+                            .child(form_field(t.settings.lbl_download_fallback, Input::new(&edit_dfb), 580., cx))
+                            .when(is_custom, |el| {
+                                let link_fg = cx.theme().link;
+                                let hover_fg = cx.theme().foreground;
+                                el.child(form_field(t.settings.lbl_bin_dir, Input::new(&edit_bin), 580., cx))
+                                    .child(extra_rows_card(t, &edit_vars, &edit_paths, &view, cx))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(t.settings.edit_extra_hint.to_string()),
+                                    )
+                                    .child(
+                                        // 占位符文档外链（点击打开浏览器）
+                                        div()
+                                            .id("extra-placeholder-doc")
+                                            .text_xs()
+                                            .text_color(link_fg)
+                                            .cursor_pointer()
+                                            .hover(move |s| s.text_color(hover_fg))
+                                            .on_click(|_, _, cx| cx.open_url(PLACEHOLDER_DOC_URL))
+                                            .child(t.settings.placeholder_doc_link.to_string()),
+                                    )
+                            })
                             .child(
                                 div()
                                     .text_xs()
@@ -1053,11 +1140,36 @@ fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiA
                     let values = {
                         let app = view.read(cx);
                         let st = &app.settings;
+                        let vars = st
+                            .edit_vars
+                            .iter()
+                            .map(|(k, v)| {
+                                (k.read(cx).value().trim().to_string(), v.read(cx).value().trim().to_string())
+                            })
+                            .filter(|(k, _)| !k.is_empty())
+                            // 同名变量保留最后一行，与落库 HashMap 语义一致，避免草稿显示与实际保存不一致
+                            .fold(Vec::new(), |mut acc: Vec<(String, String)>, (k, v)| {
+                                if let Some(slot) = acc.iter_mut().find(|(ek, _)| *ek == k) {
+                                    slot.1 = v;
+                                } else {
+                                    acc.push((k, v));
+                                }
+                                acc
+                            });
+                        let paths = st
+                            .edit_paths
+                            .iter()
+                            .map(|p| p.read(cx).value().trim().to_string())
+                            .filter(|p| !p.is_empty())
+                            .collect::<Vec<_>>();
                         (
                             st.edit_v.read(cx).value().to_string(),
                             st.edit_vfb.read(cx).value().to_string(),
                             st.edit_d.read(cx).value().to_string(),
                             st.edit_dfb.read(cx).value().to_string(),
+                            st.edit_bin.read(cx).value().trim().to_string(),
+                            vars,
+                            paths,
                         )
                     };
                     view.update(cx, |app, _cx| {
@@ -1066,12 +1178,149 @@ fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiA
                             d.version_fallback_url = values.1;
                             d.download_url = values.2;
                             d.download_fallback_url = values.3;
+                            d.bin_dir = values.4;
+                            d.extra_vars = values.5;
+                            d.extra_paths = values.6;
                         }
                     });
                     true
                 }
             })
     });
+}
+
+/// 环境变量/额外 PATH 的动态行编辑区（弹窗内；增删行直接改草稿缓冲 Vec）
+fn extra_rows_card(
+    t: &crate::i18n::Lang,
+    vars: &[(Entity<InputState>, Entity<InputState>)],
+    paths: &[Entity<InputState>],
+    view: &Entity<GuiApp>,
+    cx: &mut App,
+) -> AnyElement {
+    // 词条值本身是 &'static str，提前提出供 'static 闭包捕获
+    let add_label = t.settings.btn_add_row;
+    let var_key_ph = t.settings.var_key_ph;
+    let var_val_ph = t.settings.var_val_ph;
+    let path_ph = t.settings.path_ph;
+    v_flex()
+        .gap_2()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(cx.theme().border)
+        .p_2()
+        .child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .child(t.settings.lbl_extra_vars.to_string()),
+        )
+        .children(
+            vars.iter()
+                .enumerate()
+                .map(|(i, (k, v))| {
+                    let view = view.clone();
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Input::new(k).small().flex_1())
+                        .child(Input::new(v).small().flex_1())
+                        .child(btn(
+                            ("var-del", i),
+                            BtnVariant::Danger,
+                            BtnSize::Small,
+                            "",
+                            Some(IconName::Trash),
+                            false,
+                            false,
+                            move |_, _, cx| {
+                                view.update(cx, |app, cx| {
+                                    if i < app.settings.edit_vars.len() {
+                                        app.settings.edit_vars.remove(i);
+                                    }
+                                    cx.notify();
+                                });
+                            },
+                            cx,
+                        ))
+                })
+                .collect::<Vec<_>>(),
+        )
+        .child({
+            let view = view.clone();
+            btn(
+                "var-add",
+                BtnVariant::Outline,
+                BtnSize::Small,
+                add_label,
+                Some(IconName::Plus),
+                false,
+                false,
+                move |_, window, cx| {
+                    let ke = cx.new(|cx| InputState::new(window, cx).placeholder(var_key_ph));
+                    let ve = cx.new(|cx| InputState::new(window, cx).placeholder(var_val_ph));
+                    view.update(cx, |app, cx| {
+                        app.settings.edit_vars.push((ke, ve));
+                        cx.notify();
+                    });
+                },
+                cx,
+            )
+        })
+        .child(
+            div()
+                .mt_2()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .child(t.settings.lbl_extra_paths.to_string()),
+        )
+        .children(
+            paths
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let view = view.clone();
+                    h_flex().gap_2().items_center().child(Input::new(p).small().flex_1()).child(btn(
+                        ("path-del", i),
+                        BtnVariant::Danger,
+                        BtnSize::Small,
+                        "",
+                        Some(IconName::Trash),
+                        false,
+                        false,
+                        move |_, _, cx| {
+                            view.update(cx, |app, cx| {
+                                if i < app.settings.edit_paths.len() {
+                                    app.settings.edit_paths.remove(i);
+                                }
+                                cx.notify();
+                            });
+                        },
+                        cx,
+                    ))
+                })
+                .collect::<Vec<_>>(),
+        )
+        .child({
+            let view = view.clone();
+            btn(
+                "path-add",
+                BtnVariant::Outline,
+                BtnSize::Small,
+                add_label,
+                Some(IconName::Plus),
+                false,
+                false,
+                move |_, window, cx| {
+                    let pe = cx.new(|cx| InputState::new(window, cx).placeholder(path_ph));
+                    view.update(cx, |app, cx| {
+                        app.settings.edit_paths.push(pe);
+                        cx.notify();
+                    });
+                },
+                cx,
+            )
+        })
+        .into_any_element()
 }
 
 /// 自定义 SDK 卡（列表 + 编辑/移除 + 新增表单）
@@ -1250,10 +1499,13 @@ fn custom_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                     .rounded(px(8.))
                     .child(sdk_icon(&it.name, 32., cx))
                     .child(
+                        // SDK 名可收缩截断：长名称不把右侧按钮挤出行
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.foreground)
+                            .min_w_0()
+                            .truncate()
                             .child(it.name.clone()),
                     )
                     .child(
@@ -1302,6 +1554,9 @@ fn custom_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             .collect::<Vec<_>>();
         content = content.child(v_flex().gap_1().children(rows));
     }
+
+    // 底部提示 + 重新加载 + 保存（与 SDK 源卡共用同一份草稿）
+    content = content.child(sources_footer("custom", app, cx));
 
     section_card(
         "settings-custom",

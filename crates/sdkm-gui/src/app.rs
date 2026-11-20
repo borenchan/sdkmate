@@ -6,7 +6,7 @@
 
 use crate::data::{TaskId, TaskOutcome, spawn_task};
 use crate::i18n::Lang;
-use crate::i18n::errors::translate;
+use crate::i18n::errors::{is_process_noise, translate};
 use crate::pages::diagnostics::DiagnosticsState;
 use crate::pages::overview::OverviewState;
 use crate::pages::projects::ProjectsState;
@@ -18,7 +18,9 @@ use crate::sink::GuiEvent;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _, DropdownButton};
 use gpui_kit::component::input::InputEvent;
+use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -138,6 +140,49 @@ pub struct ProgressState {
     pub kind: sdkm_core::report::ProgressKind,
     pub pos: u64,
     pub total: u64,
+    /// 平滑速度（字节或条目/秒，EMA）；0 = 尚无采样（如刚开始下载）
+    pub speed: f64,
+    last_pos: u64,
+    last_t: std::time::Instant,
+}
+
+impl ProgressState {
+    fn new(kind: sdkm_core::report::ProgressKind) -> Self {
+        Self {
+            kind,
+            pos: 0,
+            total: 0,
+            speed: 0.,
+            last_pos: 0,
+            last_t: std::time::Instant::now(),
+        }
+    }
+
+    /// 位置采样：位置总是更新；速度按 ≥0.5s 窗口算瞬时值 EMA 平滑（α=0.3，首样本直采）
+    fn sample(&mut self, pos: u64) {
+        self.pos = pos;
+        let now = std::time::Instant::now();
+        let dt = now.duration_since(self.last_t).as_secs_f64();
+        if dt < 0.5 {
+            return;
+        }
+        let inst = (pos.saturating_sub(self.last_pos)) as f64 / dt;
+        self.speed = if self.speed <= 0. {
+            inst
+        } else {
+            self.speed * 0.7 + inst * 0.3
+        };
+        self.last_pos = pos;
+        self.last_t = now;
+    }
+
+    /// 预估剩余秒数（速度未知时返回 None）
+    fn eta_secs(&self) -> Option<u64> {
+        if self.speed <= 0. || self.total <= self.pos {
+            return None;
+        }
+        Some(((self.total - self.pos) as f64 / self.speed).ceil() as u64)
+    }
 }
 
 impl GuiApp {
@@ -251,7 +296,7 @@ impl GuiApp {
 
         // 首屏数据加载（概览 + SDK 列表）；未初始化时由引导页接管，避免无意义的报错请求
         if !app.needs_init {
-            spawn_task(tx.clone(), TaskId::OverviewRefresh);
+            app.refresh_overview();
             spawn_task(tx.clone(), TaskId::SdkListRefresh);
 
             // 默认页直达设置/诊断时同样要触发首屏数据（navigate 不会被调用）
@@ -298,6 +343,11 @@ impl GuiApp {
     /// 页面导航（保留各页状态）
     pub fn navigate(&mut self, page: Page, cx: &mut Context<Self>) {
         self.active = page;
+        // 概览页每次进入都重拉：SizeCache 缓存优先（命中毫秒级），
+        // 保证安装/卸载/切换后的存储占用与状态列不陈旧
+        if page == Page::Overview {
+            self.refresh_overview();
+        }
         // SDK 管理页进入时若无数据则拉取
         if page == Page::Sdk && self.sdk_rows.is_none() {
             spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
@@ -316,6 +366,26 @@ impl GuiApp {
             spawn_task(self.tx.clone(), TaskId::SdkSourcesLoad);
         }
         cx.notify();
+    }
+
+    /// 概览刷新统一入口：置 loading 态 + 后台重拉（行数据 + 存储统计）
+    fn refresh_overview(&mut self) {
+        // 已有刷新在途：只登记补刷，避免并发全量扫描互相覆盖旧结果
+        if self.overview.refreshing {
+            self.overview.refresh_pending = true;
+            return;
+        }
+        self.overview.refreshing = true;
+        self.overview.sizes_loading = true;
+        spawn_task(self.tx.clone(), TaskId::OverviewRefresh);
+    }
+
+    /// 概览刷新结束后补跑在途期间登记的刷新（多次请求合并为一次）
+    fn flush_overview_pending(&mut self) {
+        if self.overview.refresh_pending {
+            self.overview.refresh_pending = false;
+            self.refresh_overview();
+        }
     }
 
     /// 顶部居中轻提示（自动消失；多条按顺序垂直堆叠）
@@ -508,6 +578,67 @@ impl GuiApp {
                     None => t.sdk.processing,
                 };
                 let cancel_view = cancel_view.clone();
+                let st = progress.as_ref();
+                let has_total = st.is_some_and(|p| p.total > 0);
+                // 详情行：下载显示「已下载 / 总大小 · 速度 · 预估剩余」，解压显示条目计数
+                let detail = st.and_then(|p| {
+                    if matches!(
+                        p.kind,
+                        sdkm_core::report::ProgressKind::Download | sdkm_core::report::ProgressKind::SelfUpdateDownload
+                    ) && has_total
+                    {
+                        let mut parts = vec![format!(
+                            "{} / {}",
+                            crate::components::fmt_bytes(p.pos),
+                            crate::components::fmt_bytes(p.total)
+                        )];
+                        if p.speed > 0. {
+                            parts.push(format!("{}/s", crate::components::fmt_bytes(p.speed as u64)));
+                        }
+                        if let Some(s) = p.eta_secs() {
+                            let eta = if s >= 60 {
+                                format!("{}m{}s", s / 60, s % 60)
+                            } else {
+                                format!("{s}s")
+                            };
+                            parts.push(format!("{} {eta}", t.sdk.progress_eta));
+                        }
+                        Some(parts.join(" · "))
+                    } else if has_total {
+                        Some(format!("{} / {}", p.pos, p.total))
+                    } else {
+                        None
+                    }
+                });
+                let bar_color = crate::theme::tokens(cx).primary_soft_fg;
+                // 有总量：精确百分比进度条（主题蓝）+ 大小/速度/剩余时长；
+                // 无总量（解析/校验等）：Spinner + 阶段文案，不显示闪烁进度条
+                let content: AnyElement = if has_total {
+                    v_flex()
+                        .gap_2()
+                        .p_1()
+                        .child(
+                            h_flex().justify_between().child(div().text_sm().child(phase)).child(
+                                div()
+                                    .text_sm()
+                                    .text_color(gpui_kit::rgb(0x64748b))
+                                    .child(format!("{:.0}%", pct * 100.)),
+                            ),
+                        )
+                        .child(Progress::new("task-progress").value(pct * 100.).color(bar_color))
+                        .when_some(detail, |el, d| {
+                            el.child(div().text_xs().text_color(gpui_kit::rgb(0x64748b)).child(d))
+                        })
+                        .into_any_element()
+                } else {
+                    h_flex()
+                        .gap_2()
+                        .p_1()
+                        .items_center()
+                        .child(Spinner::new().small())
+                        .child(div().text_sm().child(phase))
+                        .into_any_element()
+                };
                 dialog
                     .on_close(move |_, _, cx| {
                         // 用户关闭进度弹窗 = 取消安装：置取消标志并立即恢复页面
@@ -528,28 +659,7 @@ impl GuiApp {
                         });
                     })
                     .title(title)
-                    .child(
-                        v_flex()
-                            .gap_3()
-                            .p_1()
-                            .child(
-                                h_flex().justify_between().child(div().text_sm().child(phase)).child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(gpui_kit::rgb(0x64748b))
-                                        .child(format!("{:.0}%", pct * 100.)),
-                                ),
-                            )
-                            .child(
-                                div().h(px(6.)).rounded_full().w_full().bg(gpui_kit::rgb(0xe2e8f0)).child(
-                                    div()
-                                        .h_full()
-                                        .rounded_full()
-                                        .bg(gpui_kit::rgb(0x3b82f6))
-                                        .w(gpui_kit::relative(pct)),
-                                ),
-                            ),
-                    )
+                    .child(content)
             });
         }
     }
@@ -595,14 +705,16 @@ impl GuiApp {
                 CoreEvent::Error(msg) => {
                     self.notify_error(translate(&msg, self.prefs.lang), window, cx);
                 }
-                CoreEvent::Warning(msg) => {
+                // 过程性自愈消息（切备源/重试/清残留）不弹 toast：成功路径上它是
+                // 噪音且易被误译（"HTTP 404 Not Found" → 未找到目标资源）误导用户
+                CoreEvent::Warning(msg) if !is_process_noise(&msg) => {
                     self.notify_warning(translate(&msg, self.prefs.lang), window, cx);
                 }
                 _ => {}
             },
             // ── 进度事件（操作串行，单槽）──
             GuiEvent::ProgressStart { kind, .. } => {
-                self.progress = Some(ProgressState { kind, pos: 0, total: 0 });
+                self.progress = Some(ProgressState::new(kind));
             }
             GuiEvent::ProgressLength { total, .. } => {
                 if let Some(p) = &mut self.progress {
@@ -611,7 +723,7 @@ impl GuiApp {
             }
             GuiEvent::ProgressPosition { pos, .. } => {
                 if let Some(p) = &mut self.progress {
-                    p.pos = pos;
+                    p.sample(pos);
                 }
             }
             // 进度文案由前端按 kind 本地化展示，忽略 core 的英文过程文案
@@ -625,13 +737,21 @@ impl GuiApp {
                 outcome: TaskOutcome::Overview(result),
             } => match result {
                 Ok(data) => {
+                    self.overview.refreshing = false;
+                    self.overview.sizes_loading = false;
                     self.overview.total_size = data.total_size;
                     self.overview.init_ok = data.init_ok;
                     self.overview.sizes = data.sizes.into_iter().collect();
                     self.sdk_rows = Some(data.rows);
                     self.on_sdk_rows_ready(window, cx);
+                    self.flush_overview_pending();
                 }
-                Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                Err(e) => {
+                    self.overview.refreshing = false;
+                    self.overview.refresh_pending = false;
+                    self.overview.sizes_loading = false;
+                    self.notify_error(translate(&e, self.prefs.lang), window, cx)
+                }
             },
             GuiEvent::Task {
                 id: TaskId::SdkListRefresh,
@@ -810,8 +930,8 @@ impl GuiApp {
                         self.init_error = None;
                         if was_onboarding {
                             self.notify_success(self.lang.onboarding.init_done.to_string(), window, cx);
+                            // navigate 进入概览页时已触发刷新，无需再调一次
                             self.navigate(Page::Overview, cx);
-                            spawn_task(self.tx.clone(), TaskId::OverviewRefresh);
                         } else {
                             self.notify_success(self.lang.diagnostics.repair_done.to_string(), window, cx);
                             self.diagnostics.env = None;
@@ -868,8 +988,8 @@ impl GuiApp {
             }
             // 操作完成：关进度弹窗 + 解除忙碌态 + 刷新列表 + 重拉远程（若开着）
             GuiEvent::Task {
+                id,
                 outcome: TaskOutcome::Done,
-                ..
             } => {
                 // 安装完成/取消：先清取消标志，再关弹窗（避免 on_close 误判为用户取消）
                 self.install_cancel = None;
@@ -878,9 +998,24 @@ impl GuiApp {
                 self.close_progress_dialog(window, cx);
                 self.sdk_page.busy = false;
                 self.projects.picking = false;
-                spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
-                if let Some(name) = self.last_remote.clone() {
-                    spawn_task(self.tx.clone(), TaskId::SdkRemoteList { name });
+                // 仅 SDK 状态真正变化的任务才刷新列表/概览；设置页等其他 Done 不做无意义全量扫描
+                let affects_sdks = matches!(
+                    id,
+                    TaskId::SdkSwitch { .. }
+                        | TaskId::SdkUninstall { .. }
+                        | TaskId::SdkInstallExec { .. }
+                        | TaskId::ConfigAddSdk { .. }
+                        | TaskId::ConfigRemoveSdk { .. }
+                        | TaskId::ConfigSaveSymlink { .. }
+                );
+                if affects_sdks {
+                    spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
+                    // 安装/卸载/切换/SDK 注册变化都会影响概览（存储占用、当前版本、状态列），同步刷新
+                    self.refresh_overview();
+                    // 远程列表的「已安装/使用中」标记同样需要重拉
+                    if let Some(name) = self.last_remote.clone() {
+                        spawn_task(self.tx.clone(), TaskId::SdkRemoteList { name });
+                    }
                 }
             }
             _ => {}

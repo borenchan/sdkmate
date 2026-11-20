@@ -36,7 +36,8 @@ pub use validation::{
     KeyMeta, ValidatedValue, ValueType, field_type, key_meta, mask_by_type, mask_token, validate_by_type,
 };
 
-/// SDK 源地址批量更新（None 或空串 = 清空该字段）
+/// SDK 源地址批量更新（URL 四项：None 或空串 = 清空该字段；bin/extras：None = 不改，
+/// Some = 整体替换，空串/空键过滤后落库）
 #[derive(Debug, Clone, Default)]
 pub struct SdkSourceUpdate {
     pub name: String,
@@ -44,6 +45,12 @@ pub struct SdkSourceUpdate {
     pub version_fallback_url: Option<String>,
     pub download_url: Option<String>,
     pub download_fallback_url: Option<String>,
+    /// 二进制子目录（空串归一为 None = 根目录）
+    pub bin_dir: Option<String>,
+    /// 环境变量表（如 JAVA_HOME={sdk_dir}），整表替换
+    pub extra_vars: Option<HashMap<String, String>>,
+    /// 额外 PATH 条目（相对 symlink 目录），整表替换
+    pub extra_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -523,6 +530,14 @@ impl SdkmConfig {
             if self.find_sdk_by_name(&u.name).is_err() {
                 bail!("SDK '{}' not found in config", u.name);
             }
+            // bin_dir 与 CLI 一致：只允许单级目录名（禁止路径分隔符），空串 = SDK 根目录
+            if let Some(bin) = &u.bin_dir {
+                let trimmed = bin.trim();
+                if !trimmed.is_empty() {
+                    validate_by_type(trimmed, &ValueType::FreeString)
+                        .with_context(|| format!("Invalid bin_dir '{}' for SDK '{}'", trimmed, u.name))?;
+                }
+            }
         }
         let snapshot = take_config_snapshot()?;
         let norm = |v: &Option<String>| v.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
@@ -532,6 +547,20 @@ impl SdkmConfig {
                 sdk.version_fallback_url = norm(&u.version_fallback_url);
                 sdk.download_url = norm(&u.download_url);
                 sdk.download_fallback_url = norm(&u.download_fallback_url);
+                if let Some(bin) = &u.bin_dir {
+                    let b = Some(bin.clone());
+                    sdk.bin_dir = norm(&b);
+                }
+                if let Some(vars) = &u.extra_vars {
+                    sdk.extra_vars = vars
+                        .iter()
+                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                        .filter(|(k, _)| !k.is_empty())
+                        .collect();
+                }
+                if let Some(paths) = &u.extra_paths {
+                    sdk.extra_paths = paths.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+                }
             }
         }
         if let Err(e) = self.atomic_write_to_disk() {

@@ -11,6 +11,7 @@ use crate::prefs::card_pad;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::chart::PieChart;
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -38,6 +39,12 @@ pub struct OverviewState {
     /// sdk_name -> 存储字节数（后台线程算完一次性回传）
     pub sizes: std::collections::HashMap<String, u64>,
     pub total_size: u64,
+    /// 存储统计计算中（首次冷算耗时，占位反馈避免误读为空白）
+    pub sizes_loading: bool,
+    /// 概览全量刷新在途（同时只允许一个，避免并发扫描结果互相覆盖）
+    pub refreshing: bool,
+    /// 在途期间又收到的刷新请求（结束后合并补跑一次）
+    pub refresh_pending: bool,
     /// 当前页（每页 10 条）
     pub page: usize,
     /// 初始化状态（config + store 目录存在性，真实检查）
@@ -53,6 +60,9 @@ impl OverviewState {
             filter: OverviewFilter::All,
             sizes: Default::default(),
             total_size: 0,
+            sizes_loading: false,
+            refreshing: false,
+            refresh_pending: false,
             page: 0,
             init_ok: true,
         }
@@ -103,10 +113,16 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         .as_ref()
         .map(|rows| rows.iter().filter(|r| r.current.is_some()).count())
         .unwrap_or(0);
-    let storage = if state.total_size > 0 {
-        fmt_bytes(state.total_size)
+    // 存储统计加载中：数值位置换 Spinner 动画反馈（后台扫描目录大小）
+    let storage_value: AnyElement = if state.sizes_loading {
+        div().child(Spinner::new().small()).into_any_element()
     } else {
-        "—".into()
+        let storage = if state.total_size > 0 {
+            fmt_bytes(state.total_size)
+        } else {
+            "—".into()
+        };
+        div().child(storage).into_any_element()
     };
 
     // ── 统计卡片行（flex_1 均分弹性；图标蓝=数据/绿=健康，soft 底随主题）──
@@ -118,7 +134,7 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             tks.icon_blue,
             tks.primary_soft_bg,
             t.overview.installed_sdks,
-            &v.to_string(),
+            div().child(v.to_string()).into_any_element(),
             t.overview.unit_tools,
             cx,
         ))
@@ -128,7 +144,7 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             tks.icon_green,
             tks.success_bg,
             t.overview.active_versions,
-            &a.to_string(),
+            div().child(a.to_string()).into_any_element(),
             t.overview.unit_sdks,
             cx,
         ))
@@ -138,7 +154,7 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             tks.icon_blue,
             tks.primary_soft_bg,
             t.overview.storage_used,
-            &storage,
+            storage_value,
             t.overview.unit_total,
             cx,
         ))
@@ -419,6 +435,17 @@ fn storage_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         .gap_3()
         .child(card_header(t.overview.storage_chart, cx));
 
+    if app.overview.sizes_loading {
+        // 首次冷算（无缓存全量扫描）耗时，给出计算中反馈而非空白
+        return card_el.child(
+            h_flex().gap_2().items_center().py_6().child(Spinner::new().small()).child(
+                div()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(t.common.loading.to_string()),
+            ),
+        );
+    }
     if items.is_empty() {
         return card_el.child(
             div()

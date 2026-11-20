@@ -35,13 +35,14 @@ pub fn card_header(title: impl Into<SharedString>, cx: &App) -> Div {
 }
 
 /// 统计卡片（概览页顶部 4 卡：图标 + 标签 + 大数字 + 副文本；图标 soft 色由调用方按 token 传入）
+/// value 收任意元素：常规传文本 div，加载中可传 Spinner
 pub fn stat_card(
     id: impl Into<ElementId>,
     icon: IconName,
     icon_fg: Hsla,
     icon_bg: Hsla,
     label: &str,
-    value: &str,
+    value: AnyElement,
     sub: &str,
     cx: &App,
 ) -> impl IntoElement {
@@ -78,11 +79,14 @@ pub fn stat_card(
         )
         .child(
             div()
+                .h(px(34.))
+                .flex()
+                .items_center()
                 .text_size(px(26.))
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme.foreground)
                 .truncate()
-                .child(value.to_string()),
+                .child(value),
         )
         .child(
             div()
