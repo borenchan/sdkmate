@@ -17,6 +17,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::path::Path;
 
 // 安装对话框确认动作（Dialog 内确认按钮触发，根视图捕获后派发解析任务）
 actions!(sdkm_gui, [SubmitInstallDialog]);
@@ -63,6 +64,10 @@ pub struct SdkPageState {
     pub busy: bool,
     /// 网络解析中（只禁用安装入口，不禁用其他操作）
     pub resolving: bool,
+    /// 导入本地版本：目录选择中（禁用导入按钮，避免叠加系统弹窗）
+    pub import_picking: bool,
+    /// 导入本地版本：点击导入时锁定的 SDK 名（选择框期间切换选中不影响目标）
+    pub import_sdk: Option<String>,
     /// 当前页（每页 8 条）
     pub page: usize,
     /// 远程版本搜索框
@@ -86,6 +91,8 @@ impl SdkPageState {
             remote_loading: false,
             busy: false,
             resolving: false,
+            import_picking: false,
+            import_sdk: None,
             page: 0,
             remote_search: cx.new(|cx| InputState::new(window, cx).placeholder(lang.sdk.remote_search_placeholder)),
             remote_keyword: String::new(),
@@ -477,18 +484,36 @@ fn sdk_detail(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElemen
             }),
     );
 
-    // ── 安装新版本 ──
-    col = col.child(btn(
-        "install-new",
-        BtnVariant::Primary,
-        BtnSize::Large,
-        t.sdk.btn_install_version,
-        Some(IconName::Download),
-        app.sdk_page.busy || app.sdk_page.resolving,
-        app.sdk_page.resolving,
-        cx.listener(open_install_dialog),
-        cx,
-    ));
+    // ── 底部操作行：安装新版本（可远程安装才有）+ 导入本地版本 ──
+    // 两种来源皆无的 SDK（switch-only）只能导入已有目录，安装入口按 core 统一口径隐藏
+    col = col.child(
+        h_flex()
+            .gap_2()
+            .when(it.can_install, |el| {
+                el.child(btn(
+                    "install-new",
+                    BtnVariant::Primary,
+                    BtnSize::Large,
+                    t.sdk.btn_install_version,
+                    Some(IconName::Download),
+                    app.sdk_page.busy || app.sdk_page.resolving,
+                    app.sdk_page.resolving,
+                    cx.listener(open_install_dialog),
+                    cx,
+                ))
+            })
+            .child(btn(
+                "import-local",
+                BtnVariant::Outline,
+                BtnSize::Large,
+                t.sdk.btn_import_local,
+                Some(IconName::FolderDown),
+                app.sdk_page.busy || app.sdk_page.import_picking,
+                app.sdk_page.import_picking,
+                cx.listener(open_import_pick),
+                cx,
+            )),
+    );
 
     col.into_any_element()
 }
@@ -545,7 +570,13 @@ fn version_rows(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElem
     let tks = crate::theme::tokens(cx);
 
     if it.versions.is_empty() {
-        return empty_state(IconName::PackageOpen, t.sdk.local_empty, t.sdk.local_empty_desc, cx).into_any_element();
+        // switch-only SDK 没有远程安装入口，引导导入本地目录
+        let desc = if it.can_install {
+            t.sdk.local_empty_desc
+        } else {
+            t.sdk.local_empty_desc_import
+        };
+        return empty_state(IconName::PackageOpen, t.sdk.local_empty, desc, cx).into_any_element();
     }
 
     let rows = it.versions.iter().enumerate().fold(v_flex().gap_1(), |acc, (i, ver)| {
@@ -777,7 +808,7 @@ fn open_install_dialog(app: &mut GuiApp, _: &ClickEvent, window: &mut Window, cx
     });
 }
 
-/// 卸载确认弹窗（统一居中弹窗；on_ok 直接派发卸载任务）
+/// 卸载确认弹窗（统一居中弹窗；确认后开进度弹窗并派发卸载任务——删目录可能秒级）
 fn open_uninstall_confirm(
     app: &mut GuiApp,
     window: &mut Window,
@@ -786,7 +817,7 @@ fn open_uninstall_confirm(
     version: String,
 ) {
     let t = app.lang;
-    let tx = app.tx.clone();
+    let view = cx.entity();
     let title = format!("{}: {name} {version}", t.sdk.uninstall_confirm_title);
     let desc = t.sdk.uninstall_confirm_desc;
     let ok_text = t.sdk.btn_uninstall;
@@ -799,17 +830,156 @@ fn open_uninstall_confirm(
             .cancel_text(t.common.btn_cancel)
             .ok_variant(ButtonVariant::Danger)
             .on_ok({
-                let tx = tx.clone();
+                let view = view.clone();
                 let name = name.clone();
                 let version = version.clone();
-                move |_, _, _| {
-                    crate::data::spawn_task(
-                        tx.clone(),
-                        TaskId::SdkUninstall {
-                            name: name.clone(),
-                            version: version.clone(),
-                        },
-                    );
+                move |_, window, cx| {
+                    view.update(cx, |app, cx| {
+                        app.dispatch(
+                            TaskId::SdkUninstall {
+                                name: name.clone(),
+                                version: version.clone(),
+                            },
+                            cx,
+                        );
+                    });
+                    // 进度弹窗在确认框退出后再开：on_ok 里直接开会被确认框的
+                    // 延迟关闭（关的是最顶层弹窗）连带关掉
+                    let deferred = view.clone();
+                    let d_name = name.clone();
+                    let d_ver = version.clone();
+                    window.defer(cx, move |window, cx| {
+                        deferred.update(cx, |app, cx| {
+                            // 瞬时操作可能已完成：已完成不再弹窗（避免残留）
+                            if !app.sdk_page.busy {
+                                return;
+                            }
+                            let title = format!("{} {d_name} {d_ver}", app.lang.sdk.uninstall_running);
+                            let processing = app.lang.sdk.processing;
+                            app.open_progress_dialog(title, processing, window, cx);
+                        });
+                    });
+                    true
+                }
+            })
+    });
+}
+
+/// 「导入本地版本」入口：先选目录（系统弹窗），选中后由 ImportDirPicked 事件弹版本名确认框
+fn open_import_pick(app: &mut GuiApp, _: &ClickEvent, _window: &mut Window, cx: &mut Context<GuiApp>) {
+    if app.sdk_page.import_picking || app.sdk_page.busy {
+        return;
+    }
+    // 锁定发起时的选中 SDK：选择框期间用户切了选中项，导入仍然落在原 SDK 上
+    app.sdk_page.import_sdk = selected_sdk_name(app);
+    app.sdk_page.import_picking = true;
+    app.dispatch(
+        TaskId::PickImportDir {
+            title: app.lang.sdk.btn_import_local.to_string(),
+        },
+        cx,
+    );
+}
+
+/// 导入确认弹窗（源目录只读展示 + 版本名输入，预填源目录名；版本名唯一性由 core 校验）
+pub(crate) fn open_import_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>, src_dir: String) {
+    let t = app.lang;
+    // 优先用点击导入时锁定的 SDK，缺失才回退当前选中
+    let name = app.sdk_page.import_sdk.take().or_else(|| selected_sdk_name(app));
+    let Some(name) = name else {
+        app.sdk_page.import_picking = false;
+        return;
+    };
+    // 版本名预填源目录最后一段，用户可改
+    let preset = Path::new(&src_dir)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let input = cx.new(|cx| InputState::new(window, cx).placeholder(t.sdk.import_version_ph));
+    input.update(cx, |s, cx| s.set_value(preset, window, cx));
+
+    let view = cx.entity();
+    let title = format!("{} · {name}", t.sdk.btn_import_local);
+    let desc = t.sdk.import_confirm_desc;
+    let ok_text = t.sdk.btn_confirm_import;
+    window.open_alert_dialog(cx, move |alert, _, _| {
+        let content_input = input.clone();
+        let onok_input = input.clone();
+        alert
+            .width(px(560.))
+            .title(title.clone())
+            .content({
+                let src_dir = src_dir.clone();
+                move |content, _, _| {
+                    content.child(
+                        v_flex()
+                            .gap_3()
+                            .p_1()
+                            .w_full()
+                            .child(
+                                v_flex()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .child(t.sdk.import_source_dir.to_string()),
+                                    )
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .truncate()
+                                            .text_xs()
+                                            .text_color(gpui_kit::rgb(0x64748b))
+                                            .child(src_dir.clone()),
+                                    ),
+                            )
+                            .child(form_field(t.sdk.import_version_label, Input::new(&content_input)))
+                            .child(div().text_xs().text_color(gpui_kit::rgb(0x64748b)).child(desc.to_string())),
+                    )
+                }
+            })
+            .confirm()
+            .ok_text(ok_text)
+            .cancel_text(t.common.btn_cancel)
+            .on_ok({
+                let view = view.clone();
+                let src_dir = src_dir.clone();
+                let name = name.clone();
+                move |_, window, cx| {
+                    let version = onok_input.read(cx).value().trim().to_string();
+                    if version.is_empty() {
+                        return false;
+                    }
+                    // 选择框打开期间可能已发起别的操作：派发前复查，忙碌则提示并保留弹窗
+                    if view.read(cx).sdk_page.busy {
+                        let hint = view.read(cx).lang.common.busy_hint;
+                        view.update(cx, |app, cx| app.notify_warning(hint, window, cx));
+                        return false;
+                    }
+                    view.update(cx, |app, cx| {
+                        app.dispatch(
+                            TaskId::SdkImportLocal {
+                                name: name.clone(),
+                                version: version.clone(),
+                                src_dir: src_dir.clone(),
+                            },
+                            cx,
+                        );
+                    });
+                    // 进度弹窗延后到确认框退出后（同卸载：避免被延迟关闭连带关掉）
+                    let deferred = view.clone();
+                    let d_name = name.clone();
+                    window.defer(cx, move |window, cx| {
+                        deferred.update(cx, |app, cx| {
+                            if !app.sdk_page.busy {
+                                return;
+                            }
+                            let title = format!("{} {d_name} {version}", app.lang.sdk.importing);
+                            let processing = app.lang.sdk.processing;
+                            app.open_progress_dialog(title, processing, window, cx);
+                        });
+                    });
                     true
                 }
             })

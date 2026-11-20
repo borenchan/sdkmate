@@ -7,6 +7,7 @@
 use crate::sink::{GuiEvent, GuiSink};
 use sdkm_core::manager::SdkManager;
 use sdkm_core::self_update::SelfUpdateOutcome;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,6 +32,14 @@ pub enum TaskId {
     SdkInstallResolve { name: String, version: String },
     /// SDK 管理页：执行安装（版本已确认，内部再精确解析后安装）
     SdkInstallExec { name: String, version: String },
+    /// SDK 管理页：导入本地版本目录（移动进 store 托管）
+    SdkImportLocal {
+        name: String,
+        version: String,
+        src_dir: String,
+    },
+    /// 选择要导入的本地版本目录（系统目录选择弹窗）
+    PickImportDir { title: String },
     /// 注册自定义 SDK（表单字段）
     ConfigAddSdk {
         name: String,
@@ -87,6 +96,8 @@ pub enum TaskId {
     SdkSourcesSaveFull { entries: Vec<SdkSourceEntry> },
     /// 环境健康检查（PATH / CLI / 配置 / 存储 / 链接）
     DiagEnv,
+    /// 清理缓存与临时目录（诊断页「清除缓存数据」）
+    CleanData,
     /// Shell hook 注册状态检测
     ShellStatus,
     /// 注入 Shell hook
@@ -108,8 +119,12 @@ pub enum TaskOutcome {
         full_version: String,
         fuzzy: bool,
     },
-    /// 操作类任务完成（成败看过程事件；UI 端收到后刷新）
+    /// 操作类任务完成且成功（失败走 Failed；错误文案由 Core Error 事件展示）
     Done,
+    /// 操作类任务失败（错误已由 Core Error 事件提示；UI 只做解除忙碌 + 刷新）
+    Failed,
+    /// 导入目录选择结果
+    ImportDirPicked(Option<String>),
     /// 项目 pins（path = .sdkm.toml 完整路径）
     ProjectPins {
         dir: String,
@@ -148,6 +163,8 @@ pub enum TaskOutcome {
     InitResult(Result<(), String>),
     /// 环境健康检查结果
     EnvStatus(Result<sdkm_core::doctor::EnvironmentStatus, String>),
+    /// 缓存/临时目录清理结果（Ok = 释放字节数）
+    CleanDone(Result<u64, String>),
     /// Shell hook 状态
     ShellStatus(Result<ShellStatus, String>),
     /// Shell hook 注入结果
@@ -196,6 +213,8 @@ pub struct SdkListItem {
     pub installed: bool,
     pub current: Option<String>,
     pub has_version_url: bool,
+    /// 是否具备远程安装能力（core 统一口径：下载模板或版本发现源至少有一个）
+    pub can_install: bool,
     /// 种子表内置（含引擎型内置）；不在种子表的才是用户自定义
     pub is_builtin: bool,
     /// 本地已安装版本列表（未安装为空）
@@ -266,41 +285,45 @@ async fn build_outcome(
     match result {
         Ok(outcome) => Some(outcome),
         Err(e) => {
-            // 失败：错误经 Core Error 事件展示；操作类回 Done 让 UI 解除忙碌态并刷新
+            // 失败：错误经 Core Error 事件展示；操作类回 Failed 让 UI 解除忙碌态并刷新（不弹成功提示）
             // 用户主动取消不提示错误（避免取消后弹红色提示）
             if !cancel.is_some_and(|c| c.load(Ordering::SeqCst)) {
                 let _ = tx.send(GuiEvent::Core(sdkm_core::report::CoreEvent::Error(format!("{e:#}"))));
             }
             match id {
-                TaskId::SdkSwitch { .. } => Some(TaskOutcome::Done),
-                TaskId::SdkUninstall { .. } => Some(TaskOutcome::Done),
-                TaskId::SdkInstallResolve { .. } => Some(TaskOutcome::Done),
-                TaskId::SdkInstallExec { .. } => Some(TaskOutcome::Done),
-                TaskId::ConfigAddSdk { .. } => Some(TaskOutcome::Done),
-                TaskId::ConfigRemoveSdk { .. } => Some(TaskOutcome::Done),
-                TaskId::ConfigSaveNetwork { .. } => Some(TaskOutcome::Done),
+                TaskId::SdkSwitch { .. }
+                | TaskId::SdkUninstall { .. }
+                | TaskId::SdkInstallResolve { .. }
+                | TaskId::SdkInstallExec { .. }
+                | TaskId::SdkImportLocal { .. }
+                | TaskId::ConfigAddSdk { .. }
+                | TaskId::ConfigRemoveSdk { .. }
+                | TaskId::ConfigSaveNetwork { .. }
+                | TaskId::ConfigSaveSymlink { .. }
+                | TaskId::ProjectSave { .. }
+                | TaskId::UninstallSelf
+                | TaskId::ConfigLoad
+                | TaskId::OpenConfigPath
+                | TaskId::OpenFile { .. }
+                | TaskId::SdkSourcesSaveFull { .. } => Some(TaskOutcome::Failed),
                 TaskId::ProjectLoad { dir } => Some(TaskOutcome::ProjectPins {
                     dir: dir.clone(),
                     path: String::new(),
                     pins: Vec::new(),
                 }),
-                TaskId::ProjectSave { .. } => Some(TaskOutcome::Done),
                 TaskId::ProjectAutoLoad => Some(TaskOutcome::ProjectAutoMiss),
                 TaskId::DiagEnv => Some(TaskOutcome::EnvStatus(Err(format!("{e:#}")))),
+                TaskId::CleanData => Some(TaskOutcome::CleanDone(Err(format!("{e:#}")))),
                 TaskId::ShellStatus => Some(TaskOutcome::ShellStatus(Err(format!("{e:#}")))),
                 TaskId::HookInject => Some(TaskOutcome::HookInjected(Err(format!("{e:#}")))),
-                TaskId::ConfigLoad => Some(TaskOutcome::Done),
                 TaskId::UpdateCheck => Some(TaskOutcome::LatestVersion(Err(format!("{e:#}")))),
                 TaskId::UpdatePreviousVersion => Some(TaskOutcome::PreviousVersion(Err(format!("{e:#}")))),
                 TaskId::UpdateRun | TaskId::UpdateRollback => Some(TaskOutcome::UpdateFailed),
                 TaskId::InitRun | TaskId::Reinit => Some(TaskOutcome::InitResult(Err(format!("{e:#}")))),
-                TaskId::UninstallSelf => Some(TaskOutcome::Done),
                 TaskId::PickDirectory { .. } => Some(TaskOutcome::DirectoryPicked(None)),
                 TaskId::PickSymlinkDir { .. } => Some(TaskOutcome::SymlinkDirPicked(None)),
-                TaskId::ConfigSaveSymlink { .. } => Some(TaskOutcome::Done),
-                TaskId::OpenConfigPath | TaskId::OpenFile { .. } => Some(TaskOutcome::Done),
+                TaskId::PickImportDir { .. } => Some(TaskOutcome::ImportDirPicked(None)),
                 TaskId::SdkSourcesLoad => Some(TaskOutcome::SdkSources(Vec::new())),
-                TaskId::SdkSourcesSaveFull { .. } => Some(TaskOutcome::Done),
                 TaskId::OverviewRefresh => Some(TaskOutcome::Overview(Err(format!("{e:#}")))),
                 TaskId::SdkListRefresh => Some(TaskOutcome::SdkList(Err(format!("{e:#}")))),
                 TaskId::SdkRemoteList { .. } => Some(TaskOutcome::RemoteList {
@@ -376,6 +399,14 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
             let sdk = parse_sdk(&name)?;
             // 删除版本目录（秒级磁盘操作）走阻塞线程池
             spawn_blocking(move || manager.uninstall_sdk(&sdk, &version))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))??;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::SdkImportLocal { name, version, src_dir } => {
+            let sdk = parse_sdk(&name)?;
+            // 目录移动（跨盘时是 copy+delete）是本地重段，走阻塞线程池
+            spawn_blocking(move || manager.import_local_version(&sdk, Path::new(&src_dir), &version))
                 .await
                 .map_err(|e| anyhow::anyhow!("{e}"))??;
             Ok(TaskOutcome::Done)
@@ -487,6 +518,13 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
         TaskId::DiagEnv => Ok(TaskOutcome::EnvStatus(Ok(sdkm_core::doctor::collect_environment_status(
             &manager.config,
         )))),
+        TaskId::CleanData => {
+            // 体积统计 + 删除是本地重段，走阻塞线程池
+            let report = spawn_blocking(move || manager.clean(true, true))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))??;
+            Ok(TaskOutcome::CleanDone(Ok(report.total())))
+        }
         TaskId::ShellStatus => {
             let status = sdkm_core::shell::check_shell_hook().map(|st| ShellStatus {
                 shell: st.shell.display_name().to_string(),
@@ -544,8 +582,25 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
             }
             Ok(TaskOutcome::Done)
         }
-        TaskId::PickDirectory { title } => Ok(TaskOutcome::DirectoryPicked(pick_directory(&title))),
-        TaskId::PickSymlinkDir { title } => Ok(TaskOutcome::SymlinkDirPicked(pick_directory(&title))),
+        TaskId::PickDirectory { title } => {
+            // 系统弹窗是用户驱动的阻塞等待，走阻塞线程池，避免占住 runtime worker
+            let picked = spawn_blocking(move || pick_directory(&title))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(TaskOutcome::DirectoryPicked(picked))
+        }
+        TaskId::PickSymlinkDir { title } => {
+            let picked = spawn_blocking(move || pick_directory(&title))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(TaskOutcome::SymlinkDirPicked(picked))
+        }
+        TaskId::PickImportDir { title } => {
+            let picked = spawn_blocking(move || pick_directory(&title))
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(TaskOutcome::ImportDirPicked(picked))
+        }
         TaskId::ConfigSaveSymlink { path } => {
             manager.config.set_value(
                 &sdkm_core::config::ConfigKey::SymlinkDir,
@@ -634,8 +689,11 @@ fn open_path(path: &str) {
 fn pick_directory(title: &str) -> Option<String> {
     #[cfg(windows)]
     {
+        // 强制 UTF-8 输出：PowerShell 5.1 重定向 stdout 默认用 OEM 代码页（中文系统 GBK），
+        // 中文路径按 UTF-8 解码会失败 → 整个选择结果丢失（表现为"选了没反应"）
         let script = format!(
-            r#"Add-Type -AssemblyName System.Windows.Forms | Out-Null;
+            r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+Add-Type -AssemblyName System.Windows.Forms | Out-Null;
 $f = New-Object System.Windows.Forms.FolderBrowserDialog;
 $f.Description = '{title}';
 if ($f.ShowDialog() -eq 'OK') {{ $f.SelectedPath }} else {{ '' }}"#
@@ -650,8 +708,8 @@ if ($f.ShowDialog() -eq 'OK') {{ $f.SelectedPath }} else {{ '' }}"#
         }
         cmd.output()
             .ok()
-            .and_then(|out| String::from_utf8(out.stdout).ok())
-            .map(|s| s.trim().to_string())
+            // 兜底 lossy 解码：编码仍异常时给核心层一个可诊断的路径（后续会报目录不存在）
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .filter(|s| !s.is_empty())
     }
     #[cfg(target_os = "macos")]
@@ -715,6 +773,7 @@ fn collect_sdk_rows(manager: &SdkManager) -> anyhow::Result<Vec<SdkListItem>> {
             installed: it.installed,
             current: it.current,
             has_version_url: it.has_version_url,
+            can_install: it.can_install,
             is_builtin,
             versions,
         });

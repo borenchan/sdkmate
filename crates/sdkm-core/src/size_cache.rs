@@ -125,8 +125,8 @@ fn current_mtime_secs(path: &Path) -> Option<u64> {
 /// 并行递归计算目录总大小（jwalk + rayon 工作窃取）
 ///
 /// 不跟随符号链接（follow_links=false）；符号链接条目 is_file()=false 不计入。
-/// 仅 size_cache 内部使用（冷路径未命中时触发）。
-fn dir_size_parallel(path: &Path) -> Result<u64> {
+/// size_cache 冷路径与 `clean` 清理前统计共用。
+pub(crate) fn dir_size_parallel(path: &Path) -> Result<u64> {
     use jwalk::WalkDir;
     let total: u64 = WalkDir::new(path)
         .follow_links(false)

@@ -67,6 +67,24 @@ const PATTERNS: &[(&str, &str, &str)] = &[
 /// 尝试翻译 core 错误文案；未命中模式时返回原文（英文原样展示）
 pub fn translate(msg: &str, lang: GuiLang) -> String {
     let lower = msg.to_lowercase();
+    // bin_dir 布局警告（install 校验 / 导入本地版本共用）：文案需带具体 SDK 名，
+    // 从 core 的 `bin dir mismatch for \`<sdk>\`` 锚点解析；不能进固定文案表（会丢名字/被"not found"泛化）
+    if lower.contains("bin dir mismatch") {
+        return match (lang, sdk_name_after_for(msg)) {
+            (GuiLang::Zh, Some(name)) => format!(
+                "{name} 的bin目录和当前版本目录结构不匹配，切换后命令可能不可用；请检查bin_dir配置或者版本目录"
+            ),
+            (GuiLang::Zh, None) => {
+                "SDK 的bin目录和当前版本目录结构不匹配，切换后命令可能不可用；请检查bin_dir配置或者版本目录".to_string()
+            }
+            (GuiLang::En, Some(name)) => format!(
+                "`{name}` bin dir does not match the version directory layout; commands may not work — check the bin_dir config or the version directory"
+            ),
+            (GuiLang::En, None) => {
+                "SDK bin dir does not match the version directory layout; commands may not work — check the bin_dir config or the version directory".to_string()
+            }
+        };
+    }
     for (pattern, zh, en) in PATTERNS {
         if lower.contains(pattern) {
             return match lang {
@@ -76,6 +94,15 @@ pub fn translate(msg: &str, lang: GuiLang) -> String {
         }
     }
     msg.to_string()
+}
+
+/// 从 "bin dir mismatch for `<sdk>`" 中取出 SDK 名
+fn sdk_name_after_for(msg: &str) -> Option<&str> {
+    let start = msg.find("for `")? + "for `".len();
+    let rest = &msg[start..];
+    let end = rest.find('`')?;
+    let name = &rest[..end];
+    (!name.is_empty()).then_some(name)
 }
 
 /// 过程性自愈消息识别：源切换/重试/清残留等发生在成功路径上的 Warning。

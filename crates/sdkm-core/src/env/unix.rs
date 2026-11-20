@@ -25,6 +25,8 @@ use sdkm_util::shell::{PathModel, ProfilePersistence, Shell, detect_shell};
 
 use crate::config::SdkmConfig;
 use crate::env::{EnvAction, EnvOperation};
+use crate::report::EventSink;
+use crate::shell::inject;
 
 /// RebuildLine 模型（bash/zsh）的 PATH 行行首前缀——两者共用同一 `export PATH=` 形态
 const REBUILD_PATH_PREFIX: &str = "export PATH=";
@@ -568,6 +570,11 @@ impl EnvOperation for UnixEnvOperation {
             }
         }
         Ok(actions)
+    }
+
+    /// shell profile 的 hook 行移除（self uninstall 用；Unix profile 归本实现管）
+    fn remove_shell_hook(&self, sink: &dyn EventSink) -> Result<()> {
+        inject::remove_shell_hook(sink)
     }
 }
 

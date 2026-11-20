@@ -246,7 +246,8 @@ pub fn locate_bin_dir(version_dir: &Path, bin_dir: &str) -> Option<PathBuf> {
 /// 处理 Windows 特有问题：
 ///   1. 目标父目录不存在时 rename 失败 → 先 create_dir_all
 ///   2. 文件被锁/跨卷 rename 失败 → 回退 copy_dir_recursive + remove_dir_all
-fn move_dir(src: &Path, dst: &Path) -> Result<()> {
+/// 移动目录（同卷 rename，跨卷/失败回退递归拷贝；目标已存在则先删除）
+pub(crate) fn move_dir(src: &Path, dst: &Path) -> Result<()> {
     // 1. 确保目标父目录存在（Windows rename 要求目标父目录必须存在）
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent)

@@ -98,6 +98,15 @@ pub trait EnvOperation: Send + Sync {
     ) -> Result<Vec<EnvAction>> {
         Ok(Vec::new())
     }
+
+    /// 移除 shell profile 中的 sdkm hook 行（self uninstall 用）。
+    ///
+    /// 走 trait 而非直接调 `shell::inject`：集成测试用 MockEnv 构造 Manager，
+    /// 默认空操作保证测试永不触碰真实 profile（历史教训：self_uninstall 测试
+    /// 曾直接删掉用户真实 PowerShell profile 的 hook 行）
+    fn remove_shell_hook(&self, _sink: &dyn EventSink) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// PATH 分隔符（Windows 用 ';'，Unix 用 ':'）

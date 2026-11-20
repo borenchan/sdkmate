@@ -7,7 +7,6 @@
 
 use crate::env::report_env_actions;
 use crate::manager::SdkManager;
-use crate::shell::inject;
 use anyhow::Result;
 use sdkm_util::consts::{CONFIG_FILE_NAME, SDKM_CACHE_DIR, SDKM_LINKS_DIR, SDKM_STORE_DIR, SDKM_TMP_DIR};
 use sdkm_util::path::get_sdkm_home;
@@ -43,8 +42,9 @@ impl SdkManager {
             }
         }
 
-        // hook 行：当前 shell 精确移除（固定注释行 + hook 调用行 + legacy 形态）
-        if let Err(e) = inject::remove_shell_hook(self.sink.as_ref()) {
+        // hook 行：当前 shell 精确移除（固定注释行 + hook 调用行 + legacy 形态）。
+        // 走 env_operation：测试用 MockEnv 默认空操作，绝不触碰真实 profile
+        if let Err(e) = self.env_operation.remove_shell_hook(self.sink.as_ref()) {
             self.sink.warning(format!("failed to remove shell hook lines: {e}"));
         }
 
