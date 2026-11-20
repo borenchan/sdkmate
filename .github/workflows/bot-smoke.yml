@@ -1,0 +1,53 @@
+name: Bot smoke test
+
+# GitHub App 机器人冒烟测试（手动触发）：验证 App 身份与安装权限，
+# 跑通「建分支 → 提交文件 → 开 PR → 关 PR → 删分支」全链路。
+# 通过后 bot 具备自动开 PR 的完整能力；本文件可留作回归或删掉。
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      # 用 App 私钥换 installation token（bot 身份，1 小时有效）
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Show bot identity
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          echo "bot login: $(gh api user --jq .login)"
+
+      # 全链路：不动 master，只在一次性分支上验证 Contents + Pull requests 权限
+      - name: Branch and PR round-trip
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          SHA=$(gh api repos/{owner}/{repo}/git/ref/heads/master --jq .object.sha)
+          gh api repos/{owner}/{repo}/git/refs \
+            -f ref="refs/heads/bot/smoke-test" -f sha="$SHA" >/dev/null
+          CONTENT=$(printf 'ok' | base64)
+          gh api repos/{owner}/{repo}/contents/.bot-smoke \
+            -f message="chore: bot smoke test" \
+            -f branch="bot/smoke-test" \
+            -f content="$CONTENT" >/dev/null
+          PR_URL=$(gh api repos/{owner}/{repo}/pulls \
+            -f title="chore(bot): smoke test (auto-closed)" \
+            -f head="bot/smoke-test" \
+            -f base="master" \
+            -f body="bot 冒烟测试自动创建，验证权限后自动关闭。" --jq .html_url)
+          echo "PR created: $PR_URL"
+          PR_NUM=$(gh api "repos/{owner}/{repo}/pulls?head={owner}:bot/smoke-test" --jq '.[0].number')
+          gh pr close "$PR_NUM" --comment "smoke test passed"
+          gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/bot/smoke-test" >/dev/null
+          echo "round-trip OK"
