@@ -219,6 +219,13 @@ impl SdkManager {
         let work_dir = home.join(SDKM_TMP_DIR).join("self_update");
         fs::create_dir_all(&work_dir).context("Failed to create self_update work directory")?;
         let archive_path = work_dir.join(asset_name);
+        let extract_dir = work_dir.join("extract");
+        // 兜底清理：下载/解压中途失败（? 提前返回）时半截包与解压目录不留到下次
+        let mut cleanup = TempGuard {
+            archive: &archive_path,
+            extract: &extract_dir,
+            armed: true,
+        };
 
         self.sink.info(format!("downloading {}...", asset_name));
         let pb = self
@@ -229,7 +236,6 @@ impl SdkManager {
         pb.finish_with_message("download complete".to_string());
 
         // ── 解压取包内 .sdkm/ 下的二进制 ──
-        let extract_dir = work_dir.join("extract");
         if extract_dir.exists() {
             let dir = extract_dir.clone();
             let _ = run_blocking(move || fs::remove_dir_all(dir)).await;
@@ -267,6 +273,7 @@ impl SdkManager {
         swap_binaries(&pairs, &target_version)?;
 
         // 清理下载/解压临时文件（discard 残留交给下次 clean_leftovers）
+        cleanup.armed = false;
         let _ = fs::remove_file(&archive_path);
         let dir = extract_dir.clone();
         let _ = run_blocking(move || fs::remove_dir_all(dir)).await;
@@ -289,6 +296,23 @@ impl SdkManager {
 }
 
 // ───────────────────────────── 替换 / 恢复 ─────────────────────────────
+
+/// 自更新临时文件兜底：任何提前返回（下载/解压/替换失败）都会在 Drop 时清理；
+/// 成功路径 disarm 后走异步清理（保持长阻塞段不进 runtime worker）
+struct TempGuard<'a> {
+    archive: &'a Path,
+    extract: &'a Path,
+    armed: bool,
+}
+
+impl Drop for TempGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_file(self.archive);
+            let _ = fs::remove_dir_all(self.extract);
+        }
+    }
+}
 
 /// 待替换的一对：当前路径 + 新二进制路径 + 临时挪走的原文件
 struct Staged {
