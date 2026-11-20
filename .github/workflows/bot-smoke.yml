@@ -5,6 +5,10 @@ name: Bot smoke test
 # 通过后 bot 具备自动开 PR 的完整能力；本文件可留作回归或删掉。
 on:
   workflow_dispatch:
+  # 本文件变更时自动跑一次（改完即时验证，验证通过后此触发器可移除）
+  push:
+    branches: [master]
+    paths: ['.github/workflows/bot-smoke.yml']
 
 permissions: {}
 
@@ -34,6 +38,8 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # 幂等：上次异常退出可能残留同分支，先删再建（不存在时 DELETE 返回 422/404，忽略）
+          gh api -X DELETE "repos/${REPO}/git/refs/heads/bot/smoke-test" >/dev/null 2>&1 || true
           BASE_SHA=$(gh api "repos/${REPO}/git/ref/heads/master" --jq .object.sha)
           gh api "repos/${REPO}/git/refs"             -f ref="refs/heads/bot/smoke-test" -f sha="$BASE_SHA" >/dev/null
           # Contents API 建文件必须用 PUT
