@@ -1,0 +1,66 @@
+name: Bot issue smoke test
+
+# 一次性验证 GitHub App 的 Issues 权限：在已关闭的 issue #33 上
+# 评论 → 删评论 → 建临时标签 → 打标 → 去标 → 删标签，全程不留痕迹。
+# 失败时把错误写进 bot/issue-smoke 分支上的文件（公开可读，无需管理员权限看日志）。
+on:
+  workflow_dispatch:
+  # 本文件变更时自动跑一次（验证通过后随文件一起删除）
+  push:
+    branches: [master]
+    paths: ['.github/workflows/bot-issue-smoke.yml']
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Issues API round-trip
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: "33"
+        run: |
+          set -euo pipefail
+          error_report() {
+            local sha
+            gh api -X DELETE "repos/${REPO}/git/refs/heads/bot/issue-smoke" >/dev/null 2>&1 || true
+            sha=$(gh api "repos/${REPO}/git/ref/heads/master" --jq .object.sha 2>/dev/null || true)
+            if [ -n "$sha" ]; then
+              gh api "repos/${REPO}/git/refs" -f ref="refs/heads/bot/issue-smoke" -f sha="$sha" >/dev/null 2>&1 || true
+              gh api -X PUT "repos/${REPO}/contents/.issue-smoke-error" \
+                -f message="chore: issue smoke error" \
+                -f branch="bot/issue-smoke" \
+                -f content="$(printf '%s' "$1" | base64 -w0)" >/dev/null 2>&1 || true
+            fi
+          }
+          api() {
+            local out
+            if ! out=$(gh api "$@" 2>&1); then
+              error_report "gh api $* => $out"
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+
+          echo "bot login: $(api user --jq .login)"
+          # 清理上次残留（不存在时报错，忽略）
+          api -X DELETE "repos/${REPO}/labels/bot-smoke" >/dev/null 2>&1 || true
+          # 1. 评论 → 删评论
+          CID=$(api "repos/${REPO}/issues/${ISSUE}/comments" \
+            -f body="🤖 bot 权限冒烟测试（自动删除）" | jq -r .id)
+          echo "comment created: ${CID}"
+          api -X DELETE "repos/${REPO}/issues/comments/${CID}" >/dev/null
+          # 2. 建临时标签 → 打标 → 去标 → 删标签
+          api "repos/${REPO}/labels" -f name="bot-smoke" -f color="ededed" >/dev/null
+          api "repos/${REPO}/issues/${ISSUE}/labels" -f "labels[]=bot-smoke" >/dev/null
+          api -X DELETE "repos/${REPO}/issues/${ISSUE}/labels/bot-smoke" >/dev/null
+          api -X DELETE "repos/${REPO}/labels/bot-smoke" >/dev/null
+          echo "issue round-trip OK"
