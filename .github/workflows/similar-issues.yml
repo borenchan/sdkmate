@@ -37,13 +37,10 @@ jobs:
           # 无相似项时评论一条收到确认 + 排障信息清单（固定文案，零成本）
           if [ ! -s /tmp/similar.md ]; then
             {
-              echo '感谢反馈！这个 issue 已经收到，维护者会尽快查看。'
+              echo '感谢反馈，问题已收到，维护者会尽快查看。'
               echo
-              echo '为了更快定位问题，建议补充：'
-              echo '- `sdkm --version` 和 `sdkm doctor` 的完整输出'
-              echo '- 复现用的命令与完整报错'
-              echo
-              echo '如果发现已有相同 issue，直接关闭本 issue 并说明即可。'
+              echo '如果方便，请补充 `sdkm --version`、`sdkm doctor` 的输出，以及复现命令和完整报错。'
+              echo '如发现已有相同 issue，直接关闭本 issue 并说明即可。'
             } > /tmp/similar.md
           fi
           cat /tmp/similar.md

@@ -1,0 +1,39 @@
+name: Bot mention reply
+
+# 评论里 @sdkmate-bot 时自动回复一条确认（固定文案，无 AI）。
+# 跳过机器人的评论避免自触发；只处理 issue，不处理 PR 评论。
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  reply:
+    # 临时放开 Bot 过滤：冒烟测试完成后恢复为
+    # github.event.comment.user.type != 'Bot' &&
+    if: >-
+      !github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@sdkmate-bot')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Reply
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          {
+            echo '感谢反馈，问题已收到，维护者会尽快查看。'
+            echo
+            echo '本消息为自动回复。'
+          } > /tmp/reply.md
+          gh api "repos/${REPO}/issues/${ISSUE}/comments" -F body=@/tmp/reply.md >/dev/null
+          echo "replied"

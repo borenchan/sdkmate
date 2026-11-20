@@ -1,0 +1,61 @@
+name: Bot mention smoke test
+
+# 一次性验证 @ 提及自动回复：bot 发一条带 @sdkmate-bot 的评论 →
+# 等回复出现 → 删除回复与 ping 评论。全程不留痕，验证后删除本文件。
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ['.github/workflows/bot-mention-smoke.yml']
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Ping bot and verify reply
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: "33"
+        run: |
+          set -euo pipefail
+          api() {
+            local out
+            if ! out=$(gh api "$@" 2>&1); then
+              echo "FAILED: gh api $* => $out"
+              return 1
+            fi
+            printf '%s' "$out"
+          }
+          bot_ids() {
+            python3 -c 'import json,sys; d=json.load(open("/tmp/comments.json")); print(" ".join(str(c["id"]) for c in d if c["user"]["login"]=="sdkmate-bot[bot]" and c["id"]>int(sys.argv[1])))' "$1"
+          }
+
+          PING_ID=$(api "repos/${REPO}/issues/${ISSUE}/comments" \
+            -f body="@sdkmate-bot smoke ping $(date +%s)" | jq -r .id)
+          echo "ping comment id: ${PING_ID}"
+
+          sleep 20
+          REPLIED=""
+          for _ in $(seq 1 10); do
+            api "repos/${REPO}/issues/${ISSUE}/comments?per_page=100" > /tmp/comments.json
+            IDS=$(bot_ids "$PING_ID")
+            echo "bot replies so far: ${IDS:-none}"
+            if [ -n "$IDS" ]; then REPLIED=1; break; fi
+            sleep 5
+          done
+
+          # 清理：先删 bot 回复，再删 ping 评论
+          for id in $(bot_ids "$PING_ID"); do api -X DELETE "repos/${REPO}/issues/comments/${id}" >/dev/null; done
+          api -X DELETE "repos/${REPO}/issues/comments/${PING_ID}" >/dev/null
+
+          [ -n "$REPLIED" ] || { echo "no reply within ~70s"; exit 1; }
+          echo "mention reply OK"
