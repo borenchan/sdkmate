@@ -1,0 +1,43 @@
+name: Similar issue suggestions
+
+# 新 issue 创建后自动检索相似 issue 并评论列出，提示可能重复。
+# 相似度算法见 .github/scripts/similar_issues.py（中文二元组 + 英文单词，通用词停用）。
+# 无相似项时不评论，避免噪音。
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read # actions/checkout 拉脚本用
+
+jobs:
+  similar:
+    # 跳过机器人创建的 issue，避免自触发循环
+    if: ${{ github.event.issue.user.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Search similar issues and comment
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          # 拉全量 issue（--paginate 每页一个数组，jq 合并成一个列表）
+          gh api --paginate "repos/${REPO}/issues?state=all&per_page=100" | jq -s 'add' > /tmp/issues.json
+          python3 .github/scripts/similar_issues.py /tmp/issues.json "$ISSUE" > /tmp/similar.md
+          if [ ! -s /tmp/similar.md ]; then
+            echo "no similar issues, skip comment"
+            exit 0
+          fi
+          cat /tmp/similar.md
+          gh api "repos/${REPO}/issues/${ISSUE}/comments" -F body=@/tmp/similar.md >/dev/null
+          echo "comment posted"
