@@ -1,4 +1,6 @@
 use crate::env::{EnvAction, EnvOperation};
+use crate::report::EventSink;
+use crate::shell::inject;
 use anyhow::Result;
 use sdkm_util::consts::ENV_PATH;
 use std::collections::HashMap;
@@ -107,6 +109,11 @@ impl EnvOperation for WindowsEnvOperation {
         }
         broadcast_env_change();
         Ok(actions)
+    }
+
+    /// PowerShell profile 的 hook 行移除（self uninstall 用；Windows 上 profile 归本实现管）
+    fn remove_shell_hook(&self, sink: &dyn EventSink) -> Result<()> {
+        inject::remove_shell_hook(sink)
     }
 }
 
