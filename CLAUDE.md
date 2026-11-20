@@ -149,8 +149,8 @@ bin_dir = "bin"
 
 ### 要点
 - **changelog 自动生成**：来自「上个 tag..HEAD」的 conventional commits，按 `feat`/`fix`/`refactor`/`docs`/`ci` 等前缀分类（`.github/scripts/gen_changelog.sh`）。保持约定式 commit message
-- **release body 中英双语**：upload-release 里 `translate_changelog_zh.py` 走谷歌翻译免费网页端点（`client=gtx`，无需 key）只翻 commit 描述，分组标题查固定映射表，反引号/专名占位符保护；翻译失败/限流自动兜底纯英文，不阻塞发版。根 `CHANGELOG.md` 仍纯英文
-- **根 `CHANGELOG.md` 由 CI 维护**：发版后 upload-release job 把版本正文 prepend 到根 `CHANGELOG.md` 并 commit 回 master。**本地不要手改**，会被下次发版覆盖；GITHUB_TOKEN push 不触发 workflow 递归
+- **release body 中英双语**：upload-release 里 `translate_changelog_zh.py` 走谷歌翻译免费网页端点（`client=gtx`，无需 key）只翻 commit 描述，分组标题查固定映射表；反引号/专名占位符保护；翻译失败/限流自动兜底纯英文，不阻塞发版
+- **不维护根 `CHANGELOG.md`**（2026-11-20 决策）：变更记录只存在于 GitHub Release 正文（双语）。CI 回写 master 需要带 bypass 的 PAT 且会被分支保护反复咬（v0.5.8/v0.5.9 两次 GH006），收益又低——Release 页本身就是按版本倒序的时间线。发版不再向 master 产生任何 commit
 - **版本号只能递增、不可复用**：已发版本 tag 已存在，再 push 同版本会被跳过。重发同版本需先删 tag+release 再 push；或直接 bump 到下一版本（推荐）
 - **不发 crates.io**：所有 crate `publish = false`，发布物为 GitHub Release 上七产物二进制（Linux x86 gnu/musl + ARM64 gnu/musl、macOS ARM/Intel、Windows）
 - **七产物矩阵**：Linux×4 = `ubuntu-24.04(-arm)` runner + `ubuntu:22.04` **容器**（容器锁 glibc 2.35，产物兼容性由容器基座决定与 runner 解耦——runner 退役只换 runs-on 不动产物；裸容器无 git/sudo，apt 装 deps 先于 checkout 且去 sudo）+ `macos-15`×2（ARM 原生 aarch64 + ARM 上交叉编译 x86_64；macos-14 池已被 GitHub 下线，报 `'macos-14-arm64-us-default' is not supported` 0 step 取消）+ `windows-latest`。ARM64 走原生 arm runner（避开 QEMU 交叉与 aws-lc-rs 找交叉 gcc 的坑）；musl 全静态通吃老系统/Alpine/树莓派；macOS 必须设 `MACOSX_DEPLOYMENT_TARGET=11.0`（否则 runner SDK 升高会编出老 macOS 跑不了的二进制）；Windows 保持 latest。**固定 runner label 的代价是镜像退役要手动跟进**——GitHub 在 Changelog 和 actions/runner-images 仓库提前公告 + brownout 缓冲期，不会无声挂
