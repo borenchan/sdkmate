@@ -10,10 +10,9 @@ permissions: {}
 
 jobs:
   reply:
-    # 临时放开 Bot 过滤：冒烟测试完成后恢复为
-    # github.event.comment.user.type != 'Bot' &&
     if: >-
       !github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
       contains(github.event.comment.body, '@sdkmate-bot')
     runs-on: ubuntu-latest
     steps:
