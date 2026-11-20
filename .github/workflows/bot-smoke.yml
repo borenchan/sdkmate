@@ -30,24 +30,18 @@ jobs:
       - name: Branch and PR round-trip
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
-          GH_REPO: ${{ github.repository }}
+          # gh api 的 {owner}/{repo} 占位符需要 git 上下文，无 checkout 时不会替换——这里用显式路径
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          SHA=$(gh api repos/{owner}/{repo}/git/ref/heads/master --jq .object.sha)
-          gh api repos/{owner}/{repo}/git/refs \
-            -f ref="refs/heads/bot/smoke-test" -f sha="$SHA" >/dev/null
-          CONTENT=$(printf 'ok' | base64)
-          gh api repos/{owner}/{repo}/contents/.bot-smoke \
-            -f message="chore: bot smoke test" \
-            -f branch="bot/smoke-test" \
-            -f content="$CONTENT" >/dev/null
-          PR_URL=$(gh api repos/{owner}/{repo}/pulls \
-            -f title="chore(bot): smoke test (auto-closed)" \
-            -f head="bot/smoke-test" \
-            -f base="master" \
-            -f body="bot 冒烟测试自动创建，验证权限后自动关闭。" --jq .html_url)
-          echo "PR created: $PR_URL"
-          PR_NUM=$(gh api "repos/{owner}/{repo}/pulls?head={owner}:bot/smoke-test" --jq '.[0].number')
-          gh pr close "$PR_NUM" --comment "smoke test passed"
-          gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/bot/smoke-test" >/dev/null
+          BASE_SHA=$(gh api "repos/${REPO}/git/ref/heads/master" --jq .object.sha)
+          gh api "repos/${REPO}/git/refs"             -f ref="refs/heads/bot/smoke-test" -f sha="$BASE_SHA" >/dev/null
+          # Contents API 建文件必须用 PUT
+          gh api -X PUT "repos/${REPO}/contents/.bot-smoke"             -f message="chore: bot smoke test"             -f branch="bot/smoke-test"             -f content="$(printf ok | base64)" >/dev/null
+          PR=$(gh api "repos/${REPO}/pulls"             -f title="chore(bot): smoke test (auto-closed)"             -f head="bot/smoke-test"             -f base="master"             -f body="bot 冒烟测试自动创建，验证权限后自动关闭。")
+          PR_NUM=$(jq -r .number <<<"$PR")
+          echo "PR created: $(jq -r .html_url <<<"$PR")"
+          gh api -X PATCH "repos/${REPO}/pulls/${PR_NUM}" -f state=closed >/dev/null
+          gh api "repos/${REPO}/issues/${PR_NUM}/comments" -f body="smoke test passed" >/dev/null
+          gh api -X DELETE "repos/${REPO}/git/refs/heads/bot/smoke-test" >/dev/null
           echo "round-trip OK"
