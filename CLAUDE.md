@@ -104,6 +104,7 @@ bin_dir = "bin"
 | `sdkm hook [SHELL]` | — | cli/HookHandler |
 | `sdkm current [SDK]` | `c` | cli/CurrentHandler |
 | `sdkm config` | — | cli/ConfigHandler |
+| `sdkm clean [--cache] [--tmp]` | — | cli/CleanHandler（无参=全清；core `SdkManager::clean` 与 GUI 诊断页「清除缓存数据」共用） |
 | `sdkm self uninstall` | — | cli/self_cmd::SelfUninstallHandler |
 | `sdkm self update`（`--check`/`--rollback`） | `u` | cli/self_cmd::SelfUpdateHandler |
 
@@ -113,6 +114,13 @@ bin_dir = "bin"
 
 ## 已知问题与注意事项
 
+- **集成测试禁止触碰真实 shell profile（2026-11-20 事故）**：`uninstall_self` 的 hook 行移除必须走 `EnvOperation::remove_shell_hook`（trait 默认空操作，测试 MockEnv 天然隔离）；历史上它直接调真实 `shell::inject::remove_shell_hook`，`tests/self_uninstall.rs` 每跑一次 `cargo test` 都会删掉用户真实 PowerShell profile 的 hook 行（已修复）。**新增任何操作 profile/注册表/PATH 的路径都必须经过 EnvOperation**，否则测试会污染真实环境
+- **gpui-kit 确认框 `on_ok` 里不能直接开新弹窗**：确认框的延迟关闭（`defer_close_dialog`）关的是"最顶层非关闭弹窗"——`on_ok` 里新开的进度窗会被它连带关掉（表现为"点确认后没有进度反馈"）。必须在 `on_ok` 里 `window.defer` 延后开，并检查忙碌标志（瞬时操作的 Done 可能先到，防残留弹窗）
+- **bin_dir 布局警告文案是跨层契约**：core 侧前缀 `bin dir mismatch for \`<sdk>\`` 是 GUI 翻译层（`errors::translate`）解析 SDK 名的锚点，改动前缀必须同步改 `errors.rs`；install 校验与 `import_local_version` 两处同口径
+- **SDK 能否远程安装统一口径（2026-11-20 决策）**：一律走 `SdkConfig::can_install_remotely()`（download_url 或 version_url 至少一个非空；GitHub Releases 形态仅填 version_url 也能装，版本发现会产出资产直链），`RegisteredSdkItem.can_install` 透传 GUI。**CLI/GUI 禁止自行按单字段判断**——历史错误：CLI 按 `download_url.is_some()` 把 GitHub 引擎型 SDK 误报成 switch-only，GUI 按 `has_version_url` 会误隐藏 Maven 的精确版本安装入口。两者皆无 = 本地 switch-only，GUI 隐藏"安装新版本"、改用"导入本地版本"
+- **导入本地版本 = 移动语义（2026-11-20 决策）**：`import_local_version` 把用户既有版本目录整体移入 `store/<sdk>/<version>`（跨盘自动 copy+delete），**不做 store 内软链**——uninstall 用 `remove_dir_all`、size 统计/空目录清理全按"目录在 store 内"假设，软链会误删用户源目录；且 `symlink_dir/<sdk>` 本身已是指向 store 的软链，再套一层无收益。导入不改目录内部布局（用户选的目录即版本根），bin_dir 不可见只发软警告（同 install Phase 9b）；版本名即目录名，须唯一且无路径分隔符（防路径穿越），目标已存在直接拒绝
+- **自更新临时文件兜底**：`self_update.rs` 用 `TempGuard`（Drop 清理）保证下载/解压中途失败（`?` 提前返回）不留半截包与解压目录；成功路径 disarm 后走 `run_blocking` 异步清理。运行中 GUI 的旧副本（`.discard`）Windows 删不掉，留给下次 `clean_leftovers`
+- **自更新完成后的 GUI 状态**：磁盘二进制已替换但进程仍是旧版，`GuiApp.restart_required` 进入"待重启"态——诊断页显示"立即重启"按钮并抑制 CLI/GUI 版本不一致报警（两者差异属预期），重启成功后自然消失。回退（Rollback）与"磁盘已最新但进程落后（UpToDate）"同样进入该状态
 - **SDK 包布局三形态归一化（2026-11-19 决策）**：`normalize_extracted_dir` 以「bin_dir 在版本目录可见」为锚点依次处理三种已知包形态——单层包装（node/go/maven）、双层包装（python-build-standalone）、macOS JDK bundle（`jdk-x/Contents/Home`，摊平 Home 内容并清掉 MacOS/_CodeSignature/Info.plist 残壳；bin_dir 锚点检测驱动、无平台 gate）。**不做通用递归搜索摊平**：第四种形态出现时由 install Phase 9b 的软警告（`locate_bin_dir` 限深搜出 bin 实际位置 + `sdkm config set sdk.<name>.bin_dir` 修正提示）提前暴露。摊平后 sdkm 管的 JDK 不再被 `/usr/libexec/java_home` 识别（sdkm 用户走 PATH+JAVA_HOME，文档已注明）
 - **zip 解压必须恢复 unix_mode 权限位**：bun/deno/pnpm/uv 等 GitHub 引擎 SDK 在 mac/Linux 全是 zip 分发，可执行文件打包即 755；`fs::File::create` 默认 644 → permission denied。`extract_zip` 已按 `entry.unix_mode()` 还原（cfg(unix)；tar.gz 走 `archive.unpack()` 自带恢复）。WSL `/mnt/*`（drvfs）权限位被挂载层抹平全 0777，掩盖此 bug——WSL 测不出，须 mac/原生 ext4 验证
 - **本地版本枚举过滤隐藏条目与文件**：`list_local_sdk_versions`/`effective_versions_all`/`cleanup_empty_sdk_store_dir` 三处均已过滤 `.` 开头条目与非目录（macOS Finder 的 `.DS_Store` 曾被当成版本号）；判空清理用 `remove_dir_all`（忽略隐藏条目后目录可能非空）

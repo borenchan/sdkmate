@@ -87,7 +87,64 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                 .child(update_card(app, cx))
                 .child(advanced_card(app, cx)),
         )
+        .child(star_card(app, cx))
         .child(faq_card(app, cx))
+}
+
+/// Star 引导卡（FAQ 下方：小 logo + 标题 + 描述 + GitHub Star 按钮）
+fn star_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
+    let t = app.lang;
+    let theme = cx.theme();
+    let tks = crate::theme::tokens(cx);
+
+    card("diag-star", cx)
+        .flex()
+        .items_center()
+        .gap_3()
+        .p(px(card_pad()))
+        .bg(tks.primary_soft_bg)
+        .border_color(theme.primary)
+        .child(
+            // 品牌小 logo（嵌入二进制）
+            div()
+                .size(px(40.))
+                .flex_shrink_0()
+                .rounded(px(10.))
+                .overflow_hidden()
+                .child(img("app-icon.png").size(px(40.))),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_0p5()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(tks.primary_soft_fg)
+                        .child(t.diagnostics.star_title.to_string()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(t.diagnostics.star_desc.to_string()),
+                ),
+        )
+        .child(btn(
+            "star-github",
+            BtnVariant::Primary,
+            BtnSize::Medium,
+            t.diagnostics.btn_star,
+            Some(IconName::Star),
+            false,
+            false,
+            cx.listener(|_, _, _, cx| {
+                cx.open_url("https://github.com/borenchan/sdkmate");
+            }),
+            cx,
+        ))
 }
 
 /// 卡片标题行（图标 + 标题 + 可选右侧元素）
@@ -519,8 +576,10 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         .or_else(|| state.env.as_ref().and_then(|e| e.cli_version.clone()));
     let gui_ver = Some(app.sys_info.version.clone());
     let latest = state.latest.clone();
+    // 磁盘二进制刚被替换、进程尚未重启：版本差异是预期状态，展示重启入口而非报警
+    let restart_required = app.restart_required.clone();
 
-    let mismatch = matches!((&cli_ver, &gui_ver), (Some(c), Some(g)) if c != g);
+    let mismatch = restart_required.is_none() && matches!((&cli_ver, &gui_ver), (Some(c), Some(g)) if c != g);
     let latest_newer = latest.as_deref().is_some_and(|v| {
         cli_ver.as_deref().is_some_and(|c| sdkm_core::self_update::is_newer(v, c))
             || gui_ver.as_deref().is_some_and(|g| sdkm_core::self_update::is_newer(v, g))
@@ -548,68 +607,89 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             )
     };
 
-    let status_pill = latest.as_ref().map(|_| {
-        if mismatch {
-            pill(t.diagnostics.tag_version_mismatch, tks.danger_bg, tks.danger_fg).into_any_element()
-        } else if need_update {
-            pill(t.diagnostics.tag_new_avail, tks.primary_soft_bg, tks.primary_soft_fg).into_any_element()
-        } else {
-            pill(t.diagnostics.tag_up_to_date, tks.success_bg, tks.success_fg).into_any_element()
-        }
-    });
+    let status_pill = if restart_required.is_some() {
+        Some(pill(t.diagnostics.tag_restart_pending, theme.warning.opacity(0.15), theme.warning).into_any_element())
+    } else {
+        latest.as_ref().map(|_| {
+            if mismatch {
+                pill(t.diagnostics.tag_version_mismatch, tks.danger_bg, tks.danger_fg).into_any_element()
+            } else if need_update {
+                pill(t.diagnostics.tag_new_avail, tks.primary_soft_bg, tks.primary_soft_fg).into_any_element()
+            } else {
+                pill(t.diagnostics.tag_up_to_date, tks.success_bg, tks.success_fg).into_any_element()
+            }
+        })
+    };
 
     let mut buttons = h_flex().gap_2();
-    if need_update {
+    if restart_required.is_some() {
+        // 更新/回退已完成：唯一动作是重启（新二进制已在磁盘上，重启即可生效）
         buttons = buttons.child(btn(
-            "update-run",
+            "app-restart",
             BtnVariant::Primary,
             BtnSize::Medium,
-            t.diagnostics.btn_update_now,
-            Some(IconName::Download),
-            state.updating,
-            state.updating,
-            cx.listener(|app, _, window, cx| {
-                app.diagnostics.updating = true;
-                app.open_progress_dialog(window, cx);
-                app.dispatch(TaskId::UpdateRun, cx);
-            }),
-            cx,
-        ));
-    }
-    buttons = buttons
-        .child(btn(
-            "update-check",
-            if need_update {
-                BtnVariant::Outline
-            } else {
-                BtnVariant::Primary
-            },
-            BtnSize::Medium,
-            t.diagnostics.btn_check_update,
+            t.diagnostics.btn_restart,
             Some(IconName::RefreshCw),
-            state.updating,
-            state.updating,
-            cx.listener(|app, _, _, cx| {
-                app.diagnostics.updating = true;
-                app.dispatch(TaskId::UpdateCheck, cx);
-            }),
-            cx,
-        ))
-        .child(btn(
-            "update-rollback",
-            BtnVariant::Outline,
-            BtnSize::Medium,
-            t.diagnostics.btn_rollback,
-            Some(IconName::Undo),
-            state.updating,
-            state.updating,
-            cx.listener(|app, _, _, cx| {
-                // 先查询回退目标版本，确认弹窗里展示具体版本号
-                app.diagnostics.updating = true;
-                app.dispatch(TaskId::UpdatePreviousVersion, cx);
-            }),
+            false,
+            false,
+            cx.listener(|app, _, window, cx| app.restart_app(window, cx)),
             cx,
         ));
+    } else {
+        if need_update {
+            buttons = buttons.child(btn(
+                "update-run",
+                BtnVariant::Primary,
+                BtnSize::Medium,
+                t.diagnostics.btn_update_now,
+                Some(IconName::Download),
+                state.updating,
+                state.updating,
+                cx.listener(|app, _, window, cx| {
+                    app.diagnostics.updating = true;
+                    let updating = app.lang.sdk.updating;
+                    let processing = app.lang.sdk.processing;
+                    app.open_progress_dialog(updating, processing, window, cx);
+                    app.dispatch(TaskId::UpdateRun, cx);
+                }),
+                cx,
+            ));
+        }
+        buttons = buttons
+            .child(btn(
+                "update-check",
+                if need_update {
+                    BtnVariant::Outline
+                } else {
+                    BtnVariant::Primary
+                },
+                BtnSize::Medium,
+                t.diagnostics.btn_check_update,
+                Some(IconName::RefreshCw),
+                state.updating,
+                state.updating,
+                cx.listener(|app, _, _, cx| {
+                    app.diagnostics.updating = true;
+                    app.dispatch(TaskId::UpdateCheck, cx);
+                }),
+                cx,
+            ))
+            .child(btn(
+                "update-rollback",
+                BtnVariant::Outline,
+                BtnSize::Medium,
+                t.diagnostics.btn_rollback,
+                Some(IconName::Undo),
+                state.updating,
+                state.updating,
+                cx.listener(|app, _, _, cx| {
+                    // 先查询回退目标版本，确认弹窗里展示具体版本号
+                    app.diagnostics.updating = true;
+                    app.dispatch(TaskId::UpdatePreviousVersion, cx);
+                }),
+                cx,
+            ));
+    }
 
     card("diag-update", cx)
         .flex()
@@ -637,7 +717,11 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         ))
         .child(ver_row(
             t.diagnostics.lbl_latest_ver,
-            latest.as_ref().map(|v| format!("v{v}")).unwrap_or_else(|| "—".into()),
+            restart_required
+                .as_ref()
+                .or(latest.as_ref())
+                .map(|v| format!("v{v}"))
+                .unwrap_or_else(|| "—".into()),
             status_pill,
         ))
         .when(mismatch, |this| {
@@ -646,6 +730,14 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                     .text_xs()
                     .text_color(tks.danger_fg)
                     .child(t.diagnostics.version_mismatch_desc.to_string()),
+            )
+        })
+        .when(restart_required.is_some(), |this| {
+            this.child(
+                div()
+                    .text_xs()
+                    .text_color(tks.success_fg)
+                    .child(t.diagnostics.restart_hint.to_string()),
             )
         })
         .child(buttons)
@@ -694,6 +786,17 @@ fn advanced_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                     t.diagnostics.adv_open_config_desc,
                     cx.listener(|app, _, _, cx| {
                         app.dispatch(TaskId::OpenConfigPath, cx);
+                    }),
+                    cx,
+                )))
+                .child(div().w(px(136.)).child(action_tile(
+                    "adv-clean",
+                    IconName::Eraser,
+                    t.diagnostics.adv_clean,
+                    t.diagnostics.adv_clean_desc,
+                    cx.listener(|app, _, _, cx| {
+                        // 只清 .cache/.tmp，不影响已安装 SDK；完成走成功轻提示
+                        app.dispatch(TaskId::CleanData, cx);
                     }),
                     cx,
                 )))
@@ -831,10 +934,21 @@ pub(crate) fn open_rollback_confirm(app: &mut GuiApp, window: &mut Window, cx: &
                 let view = view.clone();
                 move |_, window, cx| {
                     view.update(cx, |app, cx| {
-                        // 确认后打开进度弹窗，再走与升级相同的下载/替换流程
+                        // 确认后走与升级相同的下载/替换流程
                         app.diagnostics.updating = true;
-                        app.open_progress_dialog(window, cx);
                         app.dispatch(TaskId::UpdateRollback, cx);
+                    });
+                    // 进度弹窗延后到确认框退出后（on_ok 里直接开会被延迟关闭连带关掉）
+                    let deferred = view.clone();
+                    window.defer(cx, move |window, cx| {
+                        deferred.update(cx, |app, cx| {
+                            if !app.diagnostics.updating {
+                                return;
+                            }
+                            let updating = app.lang.sdk.updating;
+                            let processing = app.lang.sdk.processing;
+                            app.open_progress_dialog(updating, processing, window, cx);
+                        });
                     });
                     true
                 }

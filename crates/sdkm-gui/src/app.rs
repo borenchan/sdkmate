@@ -26,6 +26,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sdkm_core::report::CoreEvent;
 use sdkm_core::self_update::SelfUpdateOutcome;
+use std::env;
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -130,6 +132,9 @@ pub struct GuiApp {
     /// 顶部轻提示（垂直堆叠，自动消失）
     pub toasts: Vec<Toast>,
     next_toast_id: u64,
+    /// 自更新已完成替换，等待重启生效（Some = 目标版本号）：
+    /// 运行中进程仍是旧版，版本差异属预期，展示重启入口而非"版本不一致"
+    pub restart_required: Option<String>,
     /// 订阅句柄（保持存活；搜索框 Change → 关键字等）
     pub _subscriptions: Vec<Subscription>,
 }
@@ -218,6 +223,7 @@ impl GuiApp {
             init_error: None,
             toasts: Vec::new(),
             next_toast_id: 1,
+            restart_required: None,
             _subscriptions: Vec::new(),
         };
 
@@ -284,6 +290,14 @@ impl GuiApp {
                 }
             },
         ));
+
+        // 窗口尺寸变化：强制整窗重绘 + 视图重渲染。绕过 gpui-pre 在特定
+        // Windows 场景（DPI 切换/最大化还原）下布局停留在旧尺寸、窗口外溢区域
+        // 未绘制的问题（症状：元素按旧尺寸排布，右下角透明）
+        app._subscriptions.push(cx.observe_window_bounds(window, |_app, window, cx| {
+            window.refresh();
+            cx.notify();
+        }));
 
         // 默认页面（偏好持久化）
         app.active = match app.prefs.default_page.as_str() {
@@ -523,7 +537,6 @@ impl GuiApp {
                     let full_version = full_version.clone();
                     move |_, window, cx| {
                         view.update(cx, |app, cx| {
-                            app.open_progress_dialog(window, cx);
                             app.dispatch(
                                 TaskId::SdkInstallExec {
                                     name: name.clone(),
@@ -532,19 +545,43 @@ impl GuiApp {
                                 cx,
                             );
                         });
+                        // 进度弹窗延后到确认框退出后：on_ok 里直接开会被确认框的延迟关闭连带关掉
+                        let deferred = view.clone();
+                        window.defer(cx, move |window, cx| {
+                            deferred.update(cx, |app, cx| {
+                                // 瞬时操作可能已完成：已完成不再弹窗
+                                if !app.sdk_page.busy {
+                                    return;
+                                }
+                                let installing = app.lang.sdk.installing;
+                                let processing = app.lang.sdk.processing;
+                                app.open_progress_dialog(installing, processing, window, cx);
+                            });
+                        });
                         true
                     }
                 })
         });
     }
 
-    /// 进度弹窗（安装等长任务；内容实时读 app.progress，Done 时关闭）
-    pub fn open_progress_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 进度弹窗（安装/更新/卸载/导入等长任务；内容实时读 app.progress，Done/Failed 时关闭）
+    ///
+    /// `title` 为弹窗标题（各操作传入，如"正在卸载 java 21.0.5"）；
+    /// `default_phase` 是无进度事件时的阶段文案（有 kind 时按场景覆盖）
+    pub fn open_progress_dialog(
+        &self,
+        title: impl Into<SharedString>,
+        default_phase: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title: SharedString = title.into();
         let view = cx.entity();
         {
             let cancel_view = view.clone();
             window.open_dialog(cx, move |dialog, _, cx: &mut App| {
                 let t = view.read(cx).lang;
+                let title = title.clone();
                 let progress = view.read(cx).progress.clone();
                 let kind = progress.as_ref().map(|p| p.kind);
                 let pct = progress
@@ -557,16 +594,6 @@ impl GuiApp {
                         }
                     })
                     .unwrap_or(0.);
-                let is_self_update = matches!(
-                    kind,
-                    Some(sdkm_core::report::ProgressKind::SelfUpdateDownload)
-                        | Some(sdkm_core::report::ProgressKind::SelfUpdateExtract)
-                );
-                let title = if is_self_update {
-                    t.sdk.updating
-                } else {
-                    t.sdk.installing
-                };
                 let phase = match kind {
                     Some(sdkm_core::report::ProgressKind::Download) => t.sdk.progress_download,
                     Some(sdkm_core::report::ProgressKind::ExtractZip)
@@ -575,7 +602,7 @@ impl GuiApp {
                     Some(sdkm_core::report::ProgressKind::Verify) => t.sdk.progress_verify,
                     Some(sdkm_core::report::ProgressKind::SelfUpdateDownload) => t.sdk.progress_self_update_download,
                     Some(sdkm_core::report::ProgressKind::SelfUpdateExtract) => t.sdk.progress_self_extract,
-                    None => t.sdk.processing,
+                    None => default_phase,
                 };
                 let cancel_view = cancel_view.clone();
                 let st = progress.as_ref();
@@ -689,13 +716,83 @@ impl GuiApp {
                 self.sdk_page.resolving = true;
                 spawn_task(self.tx.clone(), id);
             }
-            TaskId::SdkSwitch { .. } | TaskId::SdkUninstall { .. } => {
+            TaskId::SdkSwitch { .. } | TaskId::SdkUninstall { .. } | TaskId::SdkImportLocal { .. } => {
                 self.sdk_page.busy = true;
                 spawn_task(self.tx.clone(), id);
             }
             other => spawn_task(self.tx.clone(), other),
         }
         cx.notify();
+    }
+
+    /// 操作类任务收尾（成功/失败共用）：关进度弹窗 + 解除忙碌态 + 刷新受影响的列表
+    fn finish_operation(&mut self, id: &TaskId, window: &mut Window, cx: &mut Context<Self>) {
+        // 安装完成/取消：先清取消标志，再关弹窗（避免 on_close 误判为用户取消）
+        self.install_cancel = None;
+        self.install_abort = None;
+        self.sdk_page.resolving = false;
+        self.sdk_page.import_picking = false;
+        self.close_progress_dialog(window, cx);
+        self.sdk_page.busy = false;
+        self.projects.picking = false;
+        // 仅 SDK 状态真正变化的任务才刷新列表/概览；设置页等其他任务不做无意义全量扫描
+        let affects_sdks = matches!(
+            id,
+            TaskId::SdkSwitch { .. }
+                | TaskId::SdkUninstall { .. }
+                | TaskId::SdkInstallExec { .. }
+                | TaskId::SdkImportLocal { .. }
+                | TaskId::ConfigAddSdk { .. }
+                | TaskId::ConfigRemoveSdk { .. }
+                | TaskId::ConfigSaveSymlink { .. }
+        );
+        if affects_sdks {
+            spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
+            // 安装/卸载/切换/导入/SDK 注册变化都会影响概览（存储占用、当前版本、状态列），同步刷新
+            self.refresh_overview();
+            // 远程列表的「已安装/使用中」标记同样需要重拉
+            if let Some(name) = self.last_remote.clone() {
+                spawn_task(self.tx.clone(), TaskId::SdkRemoteList { name });
+            }
+        }
+    }
+
+    /// 操作成功提示文案（仅用户可感知的状态变化返回 Some；None = 不提示）
+    fn success_message(&self, id: &TaskId) -> Option<String> {
+        let s = &self.lang.sdk;
+        let with = |template: &str, pairs: &[(&str, &str)]| -> String {
+            let mut out = template.to_string();
+            for (key, value) in pairs {
+                out = out.replace(key, value);
+            }
+            out
+        };
+        match id {
+            TaskId::SdkSwitch { name, version } => {
+                Some(with(s.toast_switched, &[("{name}", name), ("{version}", version)]))
+            }
+            TaskId::SdkUninstall { name, version } => {
+                Some(with(s.toast_uninstalled, &[("{name}", name), ("{version}", version)]))
+            }
+            TaskId::SdkInstallExec { name, version } => {
+                Some(with(s.toast_installed, &[("{name}", name), ("{version}", version)]))
+            }
+            TaskId::SdkImportLocal { name, version, .. } => {
+                Some(with(s.toast_imported, &[("{name}", name), ("{version}", version)]))
+            }
+            TaskId::ConfigAddSdk { name, .. } => Some(with(s.toast_sdk_added, &[("{name}", name)])),
+            TaskId::ConfigRemoveSdk { name } => Some(with(s.toast_sdk_removed, &[("{name}", name)])),
+            _ => None,
+        }
+    }
+
+    /// 重启应用到磁盘上的新版本：拉起同路径新进程后退出当前进程
+    pub fn restart_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let spawned = env::current_exe().and_then(|exe| Command::new(exe).spawn().map(|_| ()));
+        match spawned {
+            Ok(()) => cx.quit(),
+            Err(e) => self.notify_error(format!("restart failed: {e}"), window, cx),
+        }
     }
 
     /// 后台事件分发（window 供弹窗打开/关闭）
@@ -791,7 +888,9 @@ impl GuiApp {
                 if fuzzy {
                     self.open_fuzzy_confirm_dialog(name, full_version, window, cx);
                 } else {
-                    self.open_progress_dialog(window, cx);
+                    let installing = self.lang.sdk.installing;
+                    let processing = self.lang.sdk.processing;
+                    self.open_progress_dialog(installing, processing, window, cx);
                     self.dispatch(
                         TaskId::SdkInstallExec {
                             name,
@@ -850,6 +949,21 @@ impl GuiApp {
                     Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
                 }
             }
+            // 缓存清理完成：成功给带释放体积的提示
+            GuiEvent::Task {
+                outcome: TaskOutcome::CleanDone(result),
+                ..
+            } => match result {
+                Ok(bytes) => {
+                    let msg = self
+                        .lang
+                        .diagnostics
+                        .clean_done
+                        .replace("{size}", &crate::components::fmt_bytes(bytes));
+                    self.notify_success(msg, window, cx);
+                }
+                Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+            },
             GuiEvent::Task {
                 outcome: TaskOutcome::ShellStatus(result),
                 ..
@@ -949,7 +1063,8 @@ impl GuiApp {
                     }
                 }
             }
-            // 自更新完成：关闭进度、提示重启并刷新版本展示
+            // 自更新完成：磁盘二进制已替换，但当前进程仍是旧版——
+            // 进入"待重启"态：诊断页展示重启入口，版本差异不再按不一致报警
             GuiEvent::Task {
                 id: TaskId::UpdateRun | TaskId::UpdateRollback,
                 outcome: TaskOutcome::SelfUpdated(outcome),
@@ -958,14 +1073,23 @@ impl GuiApp {
                 self.diagnostics.updating = false;
                 self.close_progress_dialog(window, cx);
                 match outcome {
-                    SelfUpdateOutcome::Updated { .. } => {
+                    SelfUpdateOutcome::Updated { version } => {
+                        self.restart_required = Some(version);
                         self.notify_warning(self.lang.diagnostics.update_done_restart.to_string(), window, cx)
                     }
-                    SelfUpdateOutcome::RolledBack { .. } => {
+                    SelfUpdateOutcome::RolledBack { version } => {
+                        self.restart_required = Some(version);
                         self.notify_warning(self.lang.diagnostics.rollback_done_restart.to_string(), window, cx)
                     }
-                    SelfUpdateOutcome::UpToDate { .. } | SelfUpdateOutcome::Checked { .. } => {}
+                    SelfUpdateOutcome::UpToDate { version } => {
+                        // 磁盘上已是最新但运行进程落后（如在终端里用 CLI 更新过）：同样需要重启
+                        if version != env!("CARGO_PKG_VERSION") {
+                            self.restart_required = Some(version);
+                        }
+                    }
+                    SelfUpdateOutcome::Checked { .. } => {}
                 }
+                self.diagnostics.latest = None;
                 spawn_task(self.tx.clone(), TaskId::DiagEnv);
             }
             // 自更新失败：错误已由 Error 事件提示，这里只解除忙碌态
@@ -978,45 +1102,45 @@ impl GuiApp {
                 self.close_progress_dialog(window, cx);
                 spawn_task(self.tx.clone(), TaskId::DiagEnv);
             }
-            // 自定义 SDK 增删后：同时刷新注册列表与源配置
+            // 自定义 SDK 增删后：刷新注册列表 + 源配置 + 概览，并给成功提示
             GuiEvent::Task {
-                id: TaskId::ConfigAddSdk { .. } | TaskId::ConfigRemoveSdk { .. },
+                id,
                 outcome: TaskOutcome::Done,
-            } => {
+            } if matches!(id, TaskId::ConfigAddSdk { .. } | TaskId::ConfigRemoveSdk { .. }) => {
                 spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
                 spawn_task(self.tx.clone(), TaskId::SdkSourcesLoad);
+                self.refresh_overview();
+                if let Some(msg) = self.success_message(&id) {
+                    self.notify_success(msg, window, cx);
+                }
             }
-            // 操作完成：关进度弹窗 + 解除忙碌态 + 刷新列表 + 重拉远程（若开着）
+            // 导入目录选择完成：选中则弹版本名确认弹窗
+            GuiEvent::Task {
+                outcome: TaskOutcome::ImportDirPicked(picked),
+                ..
+            } => {
+                self.sdk_page.import_picking = false;
+                if let Some(dir) = picked {
+                    sdk::open_import_confirm(self, window, cx, dir);
+                }
+            }
+            // 操作成功：关进度弹窗 + 解除忙碌态 + 刷新列表 + 重拉远程（若开着）+ 成功轻提示
             GuiEvent::Task {
                 id,
                 outcome: TaskOutcome::Done,
             } => {
-                // 安装完成/取消：先清取消标志，再关弹窗（避免 on_close 误判为用户取消）
-                self.install_cancel = None;
-                self.install_abort = None;
-                self.sdk_page.resolving = false;
-                self.close_progress_dialog(window, cx);
-                self.sdk_page.busy = false;
-                self.projects.picking = false;
-                // 仅 SDK 状态真正变化的任务才刷新列表/概览；设置页等其他 Done 不做无意义全量扫描
-                let affects_sdks = matches!(
-                    id,
-                    TaskId::SdkSwitch { .. }
-                        | TaskId::SdkUninstall { .. }
-                        | TaskId::SdkInstallExec { .. }
-                        | TaskId::ConfigAddSdk { .. }
-                        | TaskId::ConfigRemoveSdk { .. }
-                        | TaskId::ConfigSaveSymlink { .. }
-                );
-                if affects_sdks {
-                    spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
-                    // 安装/卸载/切换/SDK 注册变化都会影响概览（存储占用、当前版本、状态列），同步刷新
-                    self.refresh_overview();
-                    // 远程列表的「已安装/使用中」标记同样需要重拉
-                    if let Some(name) = self.last_remote.clone() {
-                        spawn_task(self.tx.clone(), TaskId::SdkRemoteList { name });
-                    }
+                self.finish_operation(&id, window, cx);
+                // 成功提示（带 SDK 名/版本，让长时间操作有明确收尾）
+                if let Some(msg) = self.success_message(&id) {
+                    self.notify_success(msg, window, cx);
                 }
+            }
+            // 操作失败：错误已由 Core Error 事件提示，这里只做与成功路径相同的收尾
+            GuiEvent::Task {
+                id,
+                outcome: TaskOutcome::Failed,
+            } => {
+                self.finish_operation(&id, window, cx);
             }
             _ => {}
         }
