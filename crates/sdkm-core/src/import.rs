@@ -7,18 +7,19 @@
 
 use crate::install::extractor::{locate_bin_dir, move_dir};
 use crate::manager::SdkManager;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use sdkm_util::path::get_installed_sdks_dir;
 use sdkm_util::sdk::Sdk;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 impl SdkManager {
     /// 导入本地版本目录（把用户已有的 SDK 版本目录移动到 store 托管）
     ///
     /// - 版本名会直接成为 store 下的目录名：挡路径穿越与隐藏名
     /// - 版本名唯一：目标目录已存在直接拒绝
-    /// - 跨盘时 move_dir 自动退化为 copy+delete（等效移动）
+    /// - 链接/junction 源目录拒绝（store 必须是真实目录，move 链接会把激活环境搬走）
+    /// - 跨盘时 move_dir 自动退化为 copy+delete（等效移动）；失败回滚半成品
     pub fn import_local_version(&self, sdk: &Sdk, src_dir: &Path, version: &str) -> Result<()> {
         let version = version.trim();
         if version.is_empty() {
@@ -35,7 +36,16 @@ impl SdkManager {
                 version
             );
         }
-        if !src_dir.is_dir() {
+        // 用 symlink_metadata：软链/junction 本身 is_dir() 为 false，先挡链接再判目录
+        let meta = fs::symlink_metadata(src_dir)
+            .with_context(|| format!("source directory `{}` is not accessible", src_dir.display()))?;
+        if meta.file_type().is_symlink() {
+            bail!(
+                "source `{}` is a link/junction; choose the real version directory (sdkm-managed links are not importable)",
+                src_dir.display()
+            );
+        }
+        if !meta.is_dir() {
             bail!("source directory `{}` does not exist or is not a directory", src_dir.display());
         }
 
@@ -49,9 +59,10 @@ impl SdkManager {
                 target_dir.display()
             );
         }
-        // 防自吞：目标不能落在源目录内部（否则 rename 失败后的递归拷贝会自我复制）
+        // 防自吞：目标不能落在源目录内部（否则 rename 失败后的递归拷贝会自我复制）。
+        // canonicalize 在 Windows 返回 `\\?\` 前缀且路径大小写不敏感，需归一后比较
         let src_abs = fs::canonicalize(src_dir).unwrap_or_else(|_| src_dir.to_path_buf());
-        if target_dir.starts_with(&src_abs) || target_dir.starts_with(src_dir) {
+        if is_within(&target_dir, &src_abs) || is_within(&target_dir, src_dir) {
             bail!(
                 "source directory `{}` contains the sdkm store; choose the version directory itself",
                 src_dir.display()
@@ -60,7 +71,11 @@ impl SdkManager {
 
         self.sink
             .info(format!("importing `{}` `{}` from `{}`...", sdk, version, src_dir.display()));
-        move_dir(src_dir, &target_dir)?;
+        if let Err(e) = move_dir(src_dir, &target_dir) {
+            // 回滚半成品：跨盘 copy 中断会留部分文件；目标此前已校验不存在，可安全删除
+            let _ = fs::remove_dir_all(&target_dir);
+            return Err(e.context(format!("failed to move `{}` into store, nothing imported", src_dir.display())));
+        }
 
         // bin_dir 布局软警告：与 install Phase 9b 同口径，只提示不阻断
         let bin_dir = self.config.find_sdk_ok(sdk)?.bin_dir.clone();
@@ -89,4 +104,22 @@ impl SdkManager {
         self.sink.success(format!("imported `{}` version `{}` to store", sdk, version));
         Ok(())
     }
+}
+
+/// child 是否位于 parent 之内（含相等）：先归一化路径形态再按组件比较
+fn is_within(child: &Path, parent: &Path) -> bool {
+    normalize_for_compare(child).starts_with(normalize_for_compare(parent))
+}
+
+/// 路径归一化（比较专用）：Windows 剥 verbatim 前缀 + 统一分隔符 + 小写（大小写不敏感）；
+/// Unix 原样返回（大小写敏感，仅 canonicalize 结果即可）
+fn normalize_for_compare(p: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = p.to_string_lossy();
+        let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+        return PathBuf::from(s.replace('/', "\\").to_lowercase());
+    }
+    #[cfg(not(windows))]
+    p.to_path_buf()
 }
