@@ -19,13 +19,14 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 //  info      | Blue   bold  | ℹ️    | Primary status/guidance
 //  warning   | Yellow bold  | ⚠️    | Needs attention/retry
 //  error     | Red    bold  | 🦀    | Operation failed
-//  detail    | DarkGray     | 3sp   | Secondary info (URLs/paths)
+//  detail    | DarkGray     | 4sp   | Secondary info (URLs/paths)
 //  step      | Magenta bold | 📋    | Multi-step phase marker
 //  divider   | DarkGray     | ──────| Visual separator
 //
+//  所有前缀统一 4 列宽（emoji 占 2 列 + 2 空格；detail 直接 4 空格），标题与内容左对齐
 
 pub fn success(message: &str) {
-    println!("✅ {}", message.green().bold());
+    println!("✅  {}", message.green().bold());
 }
 
 pub fn warning(message: &str) {
@@ -37,15 +38,15 @@ pub fn info(message: &str) {
 }
 
 pub fn error(message: &str) {
-    eprintln!("🦀 {}", message.red().bold());
+    eprintln!("🦀  {}", message.red().bold());
 }
 
 pub fn detail(message: &str) {
-    println!("   {}", message.dark_grey());
+    println!("    {}", message.dark_grey());
 }
 
 pub fn step(label: &str, message: &str) {
-    println!("📋 {}: {}", label.magenta().bold(), message);
+    println!("📋  {}: {}", label.magenta().bold(), message);
 }
 
 pub fn divider() {

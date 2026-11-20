@@ -102,7 +102,7 @@ fn plain(fx: &Sandbox, raw: &[u8]) -> String {
     // debug 构建的错误路径附加 backtrace 块（release 无），截断后统一断言口径
     if let Some(idx) = s.find("debug log detail:") {
         // head = debug 块自身 "🦀" 起点；截断后串尾保留错误行自己的换行
-        let head = idx.saturating_sub("🦀 ".len());
+        let head = idx.saturating_sub("🦀  ".len());
         s.truncate(head);
     }
     s
@@ -203,7 +203,7 @@ fn ls_empty_and_missing_config() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         plain(&fx, &out.stderr),
-        "🦀 Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir\n"
+        "🦀  Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir\n"
     );
     assert!(out.stdout.is_empty(), "错误路径 stdout 应为空");
 }
@@ -269,7 +269,7 @@ fn err_unregistered_switch() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         plain(&fx, &out.stderr),
-        "🦀 Unregistered SDK `foo`. Register it with: `sdkm config add-sdk foo` \
+        "🦀  Unregistered SDK `foo`. Register it with: `sdkm config add-sdk foo` \
          (add `--download-url <url>` for remote install, or omit for a local switch-only SDK).\n"
     );
     assert!(out.stdout.is_empty());
