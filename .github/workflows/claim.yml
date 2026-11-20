@@ -4,12 +4,12 @@ name: Claim
 # 配置了项目面板（repo variable PROJECT_NUMBER + secret PROJECT_TOKEN）时，同时把卡片
 # 加入面板并置为 Status = In progress。
 # 只处理 issue（跳过 PR 评论）；已被他人认领时提示先协商，由维护者调整 Assignees。
+# 操作身份：GitHub App sdkmate-bot（非默认 github-actions[bot]），token 由 App 私钥换取。
 on:
   issue_comment:
     types: [created]
 
-permissions:
-  issues: write
+permissions: {}
 
 jobs:
   claim:
@@ -18,9 +18,16 @@ jobs:
       (startsWith(github.event.comment.body, '/claim') || startsWith(github.event.comment.body, '/认领'))
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - uses: actions/github-script@v7
         id: claim
         with:
+          github-token: ${{ steps.token.outputs.token }}
           script: |
             const { owner, repo } = context.repo;
             const issueNumber = context.payload.issue.number;
