@@ -1,8 +1,10 @@
+pub mod clean;
 pub mod config;
 pub mod current;
 pub mod doctor;
 pub mod env;
 pub mod hook_cache;
+pub mod import;
 pub mod init;
 pub mod install;
 pub mod link;

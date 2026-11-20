@@ -1,3 +1,4 @@
+use crate::impls::clean::CleanHandler;
 use crate::impls::config::ConfigHandler;
 use crate::impls::current::CurrentHandler;
 use crate::impls::doctor::DoctorHandler;
@@ -83,6 +84,12 @@ pub enum Commands {
     #[command(name = "doctor", about = "Print diagnostic report (sdkm context for issue reports)")]
     Doctor(DoctorHandler),
 
+    #[command(
+        name = "clean",
+        about = "Clean cache and temp data (.cache / .tmp); no flags = clean both"
+    )]
+    Clean(CleanHandler),
+
     #[command(name = "self", about = "Manage sdkm itself")]
     Self_(SelfHandler),
 }
@@ -117,6 +124,7 @@ impl Commands {
             Commands::Current(handler) => handler.run(),
             Commands::Config(handler) => handler.run(),
             Commands::Doctor(handler) => handler.run(),
+            Commands::Clean(handler) => handler.run(),
             Commands::Uninstall(handler) => handler.run(),
             Commands::Self_(handler) => handler.run(),
         };
