@@ -1,5 +1,7 @@
 # 配置详解
 
+> 读者：普通用户。
+
 本文档详述 `config.toml` 的结构、每个配置项的含义、类型校验规则与脱敏策略。命令用法见 [commands.md](./commands.md)。
 
 sdkm 的配置文件位于可执行文件同目录下的 `config.toml`（home 目录发现 = 运行中可执行文件的父目录，使工具可随目录移植）。可用 `sdkm config edit` 直接编辑，保存时自动校验 TOML 语法。
@@ -22,7 +24,7 @@ cache_ttl_secs = 3600       # 版本接口缓存 TTL（秒），0 = 每次都拉
 github_token = ""           # GitHub PAT，提升 API 限速（60/hr → 5000/hr）
 github_download_mirror = "" # GitHub 下载镜像前缀，如 "https://gh-proxy.com/"，空 = 关闭
 
-# 每个 [[sdk]] 是一个 SDK 条目，内置 40+ 个 + 用户自定义
+# 每个 [[sdk]] 是一个 SDK 条目，内置 42 个 + 用户自定义
 [[sdk]]
 name = "java"
 version_url = "https://api.adoptium.net/v3/info/available_releases"
@@ -57,14 +59,14 @@ extra_paths = []
 
 ### `[[sdk]]` SDK 条目
 
-每个 `[[sdk]]` 描述一个 SDK 的版本发现与下载来源。内置 40+ 个（java/node/python/go/maven/tomcat 传统模板 + bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform 等 GitHub Releases 引擎型），用户可通过 `sdkm config add-sdk` 添加自定义条目（见 [custom-sdk.md](./custom-sdk.md)）。
+每个 `[[sdk]]` 描述一个 SDK 的版本发现与下载来源。内置 42 个（java/node/python/go/maven/tomcat 等运行时与工具链 + bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform 等 30+ 工具，完整名单见 [custom-sdk.md · 内置 SDK 名单](./custom-sdk.md#内置-sdk-名单按类别)），用户可通过 `sdkm config add-sdk` 添加自定义条目（见 [custom-sdk.md](./custom-sdk.md)）。
 
 | 键 | 类型 | 可删除 | 说明 |
 |:---|:---|:---:|:---|
 | `name` | — | — | SDK 唯一名称，用于命令行引用 |
 | `version_url` | Url | 内置否/自定义是 | 版本发现主源 URL，返回可用版本列表 |
 | `version_fallback_url` | Url | 同上 | 版本发现备源，主源失败时回退 |
-| `download_url` | UrlTemplate | 内置否/自定义是 | 下载主源 URL 模板，支持 `{version}` 等占位符；**可省略** = 本地 switch-only SDK（仅切版本，不远程安装） |
+| `download_url` | UrlTemplate | 内置否/自定义是 | 下载主源 URL 模板，支持 `{version}` 等占位符。**与 `version_url` 至少一个非空**才可远程安装；两者皆空 = 本地 switch-only SDK（仅切版本，不远程安装） |
 | `download_fallback_url` | UrlTemplate | 内置否/自定义是 | 下载备源 URL 模板，主源失败时回退 |
 | `current_version` | NonEmptyString | 同上 | 当前激活版本（由 `switch` 自动维护，一般不手动改） |
 | `bin_dir` | FreeString | **否（任何 SDK）** | 二进制所在子目录名；**空值/省略 = 二进制在 SDK 根目录**（如 Windows 下的 Node.js / Python）；内置 SDK 已按平台预设（Linux/macOS 的 Node 与 Python 为 `bin`，Java/Maven 全平台为 `bin`）；必填 |
@@ -73,7 +75,7 @@ extra_paths = []
 | `os_style` / `arch_style` | OsStyle / ArchStyle | 同上 | 下载模板 `{os}` / `{arch}` 的命名风格（仅模板型 SDK 用到） |
 | `add_to_path` | Bool | 同上 | `true`（默认）= 切换时把 `<links>/<sdk>/<bin_dir>` 写入 PATH；`false` = 只设 `extra_vars` 不碰 PATH（内置 Tomcat 即如此，避免 `startup`/`version` 这类通用脚本名污染全局 PATH） |
 
-> **内置 SDK 保护**：内置 SDK（java/node/python/go/maven/tomcat/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform 等）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**（省略 = 本地 switch-only SDK，不远程安装）。
+> **内置 SDK 保护**：42 个内置 SDK（完整名单见 [custom-sdk.md · 内置 SDK 名单](./custom-sdk.md#内置-sdk-名单按类别)）的所有字段都不可 `delete`，也不可 `remove-sdk`，只能用 `set` 修改。`bin_dir` 对任意 SDK 都是必填字段，不可删除；`download_url` 内置 SDK 必填不可删，**自定义 SDK 可省略/可删**。**能否远程安装的唯一口径**是 `can_install_remotely()`：`download_url` 或 `version_url` 至少一个非空即可远程安装（GitHub Releases 形态只填 `version_url` 也能装）；两者皆空才是本地 switch-only（GUI 隐藏「安装新版本」、只留「导入本地版本」）。
 
 ## 键名格式（点分隔）
 
@@ -112,3 +114,16 @@ SDK 字段 `<field>` 取值：`version_url` / `version_fallback_url` / `download
 - **原子写入**：所有配置写操作采用「写入临时文件 → 重命名」模式，避免写入中途崩溃导致配置文件损坏。
 - **快照回滚**：`set` / `delete` / `add-sdk` / `remove-sdk` 失败时，自动恢复到操作前的配置（内存级 + 磁盘原始内容级双重恢复）。
 - **TOML 校验**：`edit` 保存后自动重新解析 `config.toml`，语法错误会提示但不破坏现有文件。
+
+## GUI 偏好文件（gui.toml）
+
+桌面应用 `sdkm-gui` 的界面偏好**不存在 `config.toml` 里**，而是单独写 `<sdkm_home>/gui.toml`（与 CLI 完全分离，CLI 不读不写）：
+
+| 键 | 取值 | 说明 |
+|:---|:---|:---|
+| `lang` | `Zh`（默认）/ `En` | 界面语言 |
+| `theme_mode` | `System`（默认）/ `Light` / `Dark` | 主题模式 |
+| `default_page` | `overview`（默认）/ `sdk` / `projects` / `settings` / `diagnostics` | 启动页 |
+| `density` | `Standard`（默认）/ `Compact` | 界面密度 |
+
+这些项在 GUI 的「设置 → 界面偏好设置」里修改，一般不需要手动编辑。业务配置（网络、SDK 源、目录）仍全部走 `config.toml`，CLI 与 GUI 共享。

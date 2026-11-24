@@ -2,6 +2,7 @@
 .idea
 .vscode
 .claude
+CLAUDE.local.md
 .workbuddy
 .zed
 /openspec

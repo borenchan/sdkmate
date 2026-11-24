@@ -1,6 +1,8 @@
 # 命令详解
 
-本文档详述 `sdkm` 的全部子命令：参数、别名、行为与示例。快速上手见 [usage.md](./usage.md)，配置项含义见 [configuration.md](./configuration.md)，自定义 SDK 见 [custom-sdk.md](./custom-sdk.md)。
+> 读者：普通用户查用法，贡献者查命令结构。
+
+本文档详述 `sdkm` 的全部子命令：参数、别名、行为与示例。快速上手见 [usage.md](./usage.md)，配置项含义见 [configuration.md](./configuration.md)，自定义 SDK 见 [custom-sdk.md](./custom-sdk.md)，SDK 接入标准见 [sdk-onboarding.md](./sdk-onboarding.md)。
 
 命令总览：
 
@@ -8,20 +10,23 @@
 |:---|:---|:---|
 | [`sdkm init`](#sdkm-init) | — | 初始化 sdkm 运行环境 |
 | [`sdkm install`](#sdkm-install) | `i` | 从远程安装 SDK 版本 |
-| [`sdkm list`](#sdkm-list) | `ls`, `l` | 列出本地/远程版本（含交互式 TUI） |
+| [`sdkm uninstall`](#sdkm-uninstall) | `rm`, `un` | 卸载本地已安装版本 |
+| [`sdkm list`](#sdkm-list) | `ls`, `l` | 列出本地/远程版本（两层交互式 TUI） |
 | [`sdkm switch`](#sdkm-switch) | `s` | 切换到本地已安装版本（全局） |
 | [`sdkm use`](#sdkm-use) | — | 为当前项目 / 当前 shell 会话固定版本 |
 | [`sdkm env`](#sdkm-env) | — | 输出当前目录应 eval 的环境脚本（hook 内部用） |
 | [`sdkm hook`](#sdkm-hook) | — | 输出 shell hook 注册脚本（注入 profile 用） |
-| [`sdkm current`](#sdkm-current) | `c` | 查看当前激活版本 |
+| [`sdkm current`](#sdkm-current) | `c` | 查看当前激活版本及其来源 |
 | [`sdkm config`](#sdkm-config) | — | 配置管理（7 个子命令） |
+| [`sdkm doctor`](#sdkm-doctor) | — | 打印诊断报告（提 issue 时粘贴） |
+| [`sdkm clean`](#sdkm-clean) | — | 清理缓存与临时数据 |
 | [`sdkm self`](#sdkm-self) | — | 管理 sdkm 自身（卸载 / 自更新） |
 
 ---
 
 ## sdkm init
 
-首次使用前初始化 sdkm：创建 `store/`、符号链接目录、`config.toml`，并把符号链接目录注册到 PATH。
+首次使用前初始化 sdkm：创建 `store/`、符号链接目录、`config.toml`，把 sdkm 自身目录加入 PATH（让 `sdkm` 命令在任何终端可用），并注入 shell hook。
 
 ```bash
 sdkm init           # 标准初始化（检测目录部署是否合理）
@@ -29,6 +34,8 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 ```
 
 - `--force` / `-f`：强制重新初始化。会覆盖已有 `config.toml`，并跳过「目录部署检测」。
+- 非 force 重跑**不覆盖**已有 `config.toml`，只补建缺失目录（改过 `symlink_dir` 后重跑可补建链接目录）。
+- 首次生成配置时若检测到**中国大陆时区**，会自动启用 GitHub 下载镜像 `https://gh-proxy.com/`（随时 `sdkm config set network.github_download_mirror ""` 关闭）。
 - 目标 shell 按登录 shell（`$SHELL`）检测；非登录 shell 场景（如 bash 登录后手动启动 fish）请在该 shell 的 profile 手动注入 hook，或把该 shell 设为登录 shell。
 - 初始化流程会透明地逐步打印每一步操作及其用途，便于排查。
 - Windows 下写入系统 PATH、环境变量与创建符号链接需**管理员权限**。
@@ -43,8 +50,8 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 sdkm install <SDK> <VERSION> [--no-switch]
 ```
 
-- `<SDK>`：SDK 名称。内置支持 `java` / `node` / `python` / `maven` / `go` / `tomcat`，也接受 [custom-sdk.md](./custom-sdk.md) 中注册的自定义 SDK。
-- `<VERSION>`：目标版本，**支持模糊匹配**。例如 `21` 会解析为最新的 `21.x`，`20.11` 会匹配到 `20.11.x`。
+- `<SDK>`：SDK 名称。内置 42 个（完整名单见 [custom-sdk.md · 内置 SDK 名单](./custom-sdk.md#内置-sdk-名单按类别)），也接受 [custom-sdk.md](./custom-sdk.md) 中注册的自定义 SDK。
+- `<VERSION>`：目标版本，**支持模糊匹配**。例如 `21` 会解析为最新的 `21.x`，`20.11` 会匹配到 `20.11.x`。模糊命中时会先弹出确认（`Resolved '21' → '21.0.13'. Install this version?`），回车确认后才开始下载；精确版本不确认。TUI 里选的版本恒为精确版本，不触发确认。
 - **Java 供应商**：默认装 Eclipse Temurin；换供应商把供应商写进版本号，两种写法等价——`21-zulu`（后缀式）与 `zulu@21`（前缀式）。别名：`tem`/`temurin`、`zulu`、`amzn`/`corretto`、`librca`/`liberica`。安装目录与 `current` 显示为规范形态 `21.0.13-zulu`（Temurin 无后缀，兼容旧数据）。`switch` / `uninstall` / `use` 同样接受这两种写法。
 - `--no-switch`：仅安装，不自动切换到新版本。
 
@@ -58,49 +65,91 @@ sdkm install tomcat 11          # 安装 Tomcat 11.x（Apache 归档全历史）
 sdkm install python 3.12 --no-switch   # 安装 Python 3.12 但不切换
 ```
 
-> **Maven 说明**：Maven 没有远程版本发现接口，因此 `<VERSION>` 必须是精确版本号（如 `3.9.9`），不支持模糊匹配，也不支持 `list -r`。详见 [已知限制](./usage.md#⚠️-已知限制)。
+> **Maven 说明**：Maven 没有远程版本发现接口，因此 `<VERSION>` 必须是精确版本号（如 `3.9.9`），不支持模糊匹配，也不支持 `list -r`。详见 [已知限制](./usage.md#known-limitations)。
 
 安装流程内部拆分为 12 个阶段（解析 → 本地检查 → 构建 URL → 下载 → 解压 → 校验 → 标准化 → 安装验证 → 清理 → 自动切换…），各阶段带进度展示，失败时会自动回滚已完成的步骤。
 
 ---
 
+## sdkm uninstall
+
+从本地 store 删除已安装的版本（别名 `rm` / `un`）。
+
+```bash
+sdkm uninstall <SDK> <VERSION> [-y/--yes]
+```
+
+- `<SDK>`：SDK 名称（内置或自定义）。
+- `<VERSION>`：要卸载的版本，**支持模糊匹配**（如 `21` → 本地已装的最新 `21.x`；TUI 里 `d`/`Delete` 也走这条路径）。
+- `-y` / `--yes`：跳过交互确认（脚本/CI 用）。不加时先展示预检结果再确认。
+
+**行为**（确认文案会说明将执行哪种分支）：
+
+- 卸载**非激活**版本：仅删除该版本目录。
+- 卸载**激活版本、且还有其他版本**：先把全局切换到一个其他已装版本，再删除目标目录。
+- 卸载**唯一版本**：清理该 SDK 的符号链接、PATH 条目、环境变量与 `current_version`，再删除目录。
+- 删除版本目录时若被其他进程/杀软占用，会部分完成并提示手动删除残留目录。
+
+```bash
+sdkm uninstall java 21          # 模糊命中 21.x 后确认卸载
+sdkm rm node 18.20.4 -y         # 精确版本，跳过确认
+```
+
+---
+
 ## sdkm list
 
-列出本地已安装版本或远程可用版本。带 SDK 名时进入交互式 TUI 选择器。
+列出本地已安装版本或远程可用版本。**交互式 TUI 是默认形态**；非 TTY（管道、CI、agent）自动降级为文本输出。
 
 ```bash
 sdkm list [SDK] [-r/--remote] [--limit N]
 ```
 
-- 无 `<SDK>`：打印所有已安装 SDK 及其当前版本（非交互）。
-- `<SDK>`（本地）：进入交互式本地版本选择器，按 `s` 切换版本。
-- `<SDK> -r/--remote`：从远程拉取版本列表后进入交互式远程选择器，按 `i` 安装、`s` 切换。
-- `--limit N`：远程列表最多显示 N 条，默认 20，必须 ≥ 1。
+- 无 `<SDK>`：TTY 下进入**两层浏览 TUI**——第一层列出所有已注册 SDK（已安装在上、未安装在下，显示激活版本与占用空间），选中后进入第二层；退出第二层回到第一层。非 TTY 打印已安装 SDK 概览表（sdk / current / total）。
+- `<SDK>`（本地）：直接进入该 SDK 的本地版本选择器。
+- `<SDK> -r/--remote`：拉取远程版本列表后进入远程版本选择器。
+- `--limit N`：**仅作用于非 TTY 的文本输出**（默认 20，必须 ≥ 1）。TUI 恒拉全量列表，靠 `f` 搜索筛选。
 - `-r` 但未指定 `<SDK>` 会报错：`Please specify an SDK name`。
-- `sdkm list maven -r` 会报错：Maven 不支持远程版本列表。
+- `sdkm list maven -r` 会报错：Maven 不支持远程版本列表（自定义 SDK 未配 `version_url` 时同样）。
 - `sdkm list java -r`：**四家供应商（Temurin/Zulu/Corretto/Liberica）的 LTS 系列 + 最新 feature 系列版本合并成一个列表**，非 Temurin 条目带后缀（如 `21.0.13-zulu`）；TUI 里按 `f` 搜 `zulu` / `amzn` / `librca` 即可筛。无 `--vendor` 参数——供应商就是版本号的一部分。
 - `sdkm list tomcat -r`：解析 Apache 归档的 HTML 目录索引（root → `tomcat-9/10/11` 分支），含全部历史 patch，里程碑 `-M` 已过滤。
 
 示例：
 
 ```bash
-sdkm list                  # 列出所有已安装 SDK + 当前版本
-sdkm ls java               # 交互式：Java 本地版本选择器
-sdkm list node -r          # 交互式：Node.js 远程版本选择器
-sdkm list python -r --limit 50   # 远程列表最多显示 50 条
+sdkm list                  # TTY：两层浏览 TUI；非 TTY：已安装概览
+sdkm ls java               # 本地版本选择器
+sdkm list node -r          # 远程版本选择器
+sdkm list python -r | head # 非 TTY：远程文本列表（默认前 20 条）
+sdkm list python -r --limit 50 > versions.txt   # 非 TTY 取 50 条
 ```
 
 ### 交互式 TUI 按键
 
-| 场景 | 按键 | 动作 |
-|:---|:---|:---|
-| 通用 | `↑` / `↓` 或 `k` / `j` | 上下导航 |
-| 通用 | `q` / `Esc` / `Ctrl+C` | 退出 |
-| 本地选择器 | `Enter` 或 `s` | 切换到选中版本 |
-| 远程选择器 | `i` | 安装选中版本 |
-| 远程选择器 | `s` | 切换到选中版本（需已安装） |
+**第一层：SDK 选择器**
 
-列表项状态标记：`✅` 当前激活 / `📦` 已安装 / 空白 = 未安装。
+| 按键 | 动作 |
+|:---|:---|
+| `↑` / `↓` 或 `k` / `j` | 上下导航 |
+| `f` | 搜索 SDK 名（输入实时过滤，`Enter` 应用，`Esc` 清空） |
+| `Enter` | 已安装 → 本地版本选择器；未安装 → 远程版本选择器（无版本发现源时提示并留在原地） |
+| `r` | 直接进入远程版本选择器 |
+| `Esc` | 有过滤时先清过滤，否则退出 |
+| `q` / `Ctrl+C` | 退出 |
+
+**第二层：版本选择器（本地 / 远程共用）**
+
+| 按键 | 动作 |
+|:---|:---|
+| `↑` / `↓` 或 `k` / `j` | 上下导航 |
+| `f` | 搜索版本号（输入实时过滤，`Enter` 应用，`Esc` 清空） |
+| `Enter` 或 `s` | 切换到选中版本（需已安装） |
+| `i` | 安装选中版本（仅远程选择器、仅未安装条目） |
+| `d` 或 `Delete` | 卸载选中版本（需已安装；恒弹确认） |
+| `Esc` | 有过滤时先清过滤，否则退出 |
+| `q` / `Ctrl+C` | 退出（远程/本地选择器退出后回到第一层 SDK 选择器） |
+
+列表项状态标记：`✅` 当前激活 / `📦` 已安装 / 空白 = 未安装。版本名后的 size 列在后台并行统计，冷启动时先显示 `…`，算完自动回填。
 
 ---
 
@@ -113,7 +162,7 @@ sdkm switch <SDK> <VERSION>
 ```
 
 - `<SDK>`：SDK 名称（内置或自定义）。
-- `<VERSION>`：目标版本，必须是本地 `store/<sdk>/` 下已存在的版本。
+- `<VERSION>`：目标版本，必须是本地 `store/<sdk>/` 下已存在的版本；**支持模糊匹配**（如 `21` → 本地已装的最新 `21.x`），模糊命中时先确认再切换（`Resolved '21' → '21.0.13'. Switch to this version?`）。Java 供应商写法同样适用（`21-zulu` / `zulu@21`）。
 
 示例：
 
@@ -128,7 +177,7 @@ sdkm s node 20.11.0          # 切换到 Node.js 20.11.0
 
 **安全特性**：
 
-- **PATH 冲突检测**：切换前检测 PATH 中是否已有同 SDK 的其他版本路径，避免冲突。
+- **PATH 冲突提示**：切换前检测 PATH 中是否已有同 SDK（按主命令名，如 `java`、`node`）的其他版本路径。命中时只发警告、不删任何条目——sdkm 注入的路径优先级最高，冲突路径会被自然覆盖。若发现"切了还是旧版本"，优先检查 PATH 里被警告的残留条目（`sdkm doctor` 可查）。
 - **快照回滚**：切换过程中任一步骤失败（符号链接、环境变量、PATH、配置写入），都会自动回滚到切换前的状态——恢复旧符号链接目标、旧环境变量值、移除已添加的 PATH 条目、恢复旧配置。
 - Windows 下创建符号链接与写入环境变量需**管理员权限**。
 
@@ -216,21 +265,31 @@ sdkm hook [<shell>]
 
 ## sdkm current
 
-查看当前激活的 SDK 版本。
+查看当前生效的 SDK 版本及其**来源层**（会话 / 项目 / 全局）。
 
 ```bash
 sdkm current [SDK]
 ```
 
-- 无 `<SDK>`：显示所有 SDK 的当前激活版本。
-- `<SDK>`：仅显示指定 SDK 的当前版本。
+- 无 `<SDK>`：打印 sdkm home，并以 `sdk / current / source` 三列表格展示所有 SDK 的生效版本。
+- `<SDK>`：单行显示该 SDK 的版本与来源，如 `ℹ️  java 21.0.5 (global)`。
+
+`source` 列取值（按 [四层优先级](./usage.md#四层优先级解析) 取第一个命中层）：
+
+| 值 | 含义 |
+|:---|:---|
+| `session` | 来自 `sdkm use --shell` 的当前终端临时变量（优先级最高） |
+| `project (路径)` | 来自向上找到的 `.sdkm.toml` 项目 pin |
+| `global` | 来自 `sdkm switch` 写入的 `current_version` |
 
 示例：
 
 ```bash
-sdkm current         # 显示所有 SDK 当前版本
-sdkm c java          # 仅显示 Java 当前版本
+sdkm current         # 所有 SDK 生效版本 + 来源
+sdkm c java          # 仅看 Java
 ```
+
+> 某 SDK 在 store 里存在但未注册（config 中无条目）时，会在 stderr 提示 `skip unregistered SDK directory`，不参与展示。
 
 ---
 
@@ -266,7 +325,48 @@ sdkm config edit                                      # 用编辑器打开 confi
 
 **写入安全**：`set` / `delete` / `add-sdk` / `remove-sdk` 均采用**原子写入**（写入临时文件再重命名），操作失败时自动**快照回滚**到操作前的配置内容。
 
-**内置 SDK 保护**：内置 SDK（java/node/python/go/maven/bun/pnpm/deno/uv/claude-code/cmake/gh/helm/terraform）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
+**内置 SDK 保护**：42 个内置 SDK（完整名单见 [custom-sdk.md · 内置 SDK 名单](./custom-sdk.md#内置-sdk-名单按类别)）的所有字段不可 `delete`，也不可 `remove-sdk`，只能通过 `set` 修改。
+
+---
+
+## sdkm doctor
+
+打印只读诊断报告，专供提 issue 时粘贴。不改任何配置，每项独立探测、单项失败不中断。
+
+```bash
+sdkm doctor
+```
+
+报告分节：
+
+| 分节 | 内容 |
+|:---|:---|
+| `version & platform` | sdkm 版本、平台三元组、系统版本 |
+| `home & paths` | home / store / symlink / config 路径与存在性（`SDKM_HOME` 覆盖会高亮标注） |
+| `shell & env persistence` | 检测到的 shell、各 profile 的 hook 注册状态、托管 env 文件（仅 Unix） |
+| `network config` | 代理 / SSL 校验 / 超时 / 缓存 TTL / GitHub Token（敏感值只报 set/unset，不打印内容） |
+| `installed SDKs` | 已安装 SDK 及其当前版本（标题带 `已安装 / 已注册` 总数） |
+| `health checks` | 符号链接目标有效性、PATH 中是否有 sdkm links 条目、已装 SDK 的 `extra_vars` 实际值、`SDKM_HOME` 与 exe 目录是否一致 |
+
+需要提 issue 时，把整份报告粘贴进 issue 正文即可。
+
+---
+
+## sdkm clean
+
+清理缓存与临时数据，回收磁盘空间。**不碰** `store/`（已安装的 SDK）、`links/`、`config.toml`；被删的缓存按需自动重建。
+
+```bash
+sdkm clean            # 不带参数 = .cache 和 .tmp 都清
+sdkm clean --cache    # 只清版本 API / 体积缓存
+sdkm clean --tmp      # 只清下载、解压、自更新的临时文件
+```
+
+- `.cache`：版本列表接口缓存、目录体积缓存（`ls` 的 size）。
+- `.tmp`：安装过程中间文件、自更新下载包与解压目录、替换失败留下的副本。
+- 输出会分别报告 `.cache` / `.tmp` 释放的字节数与总计。
+
+> 安装失败后想重来、或磁盘紧张时先跑 `sdkm clean`，比手动删目录安全。
 
 ---
 
@@ -280,18 +380,21 @@ sdkm config edit                                      # 用编辑器打开 confi
 
 ### sdkm self update
 
-从 GitHub Release 检查最新版并就地替换 sdkm 二进制，带备份 + 验证 + 自动回滚。
+从 GitHub Release 检查并替换 sdkm 二进制，CLI 与 GUI 始终一起更新、保持版本对齐。
 
 ```bash
-sdkm self update              # 检查 GitHub 最新版，落后则下载替换（只升不降）
-sdkm self update --check      # 只打印 current vs latest，不下载
-sdkm self update --rollback   # 回滚到上次更新前的备份
-sdkm self u -c                 # 别名 u + 短 flag -c/-r
+sdkm self update              # 检查最新版，落后则下载替换（只升不降）
+sdkm self update --check      # 只打印 current vs latest，不下载不替换
+sdkm self update --rollback   # 回滚到"包含所需组合包的最新旧版本"
+sdkm self u -c                # 别名 u + 短 flag -c / -r
 ```
 
-- 别名 `u`；`--check`/`-c`、`--rollback`/`-r`，二者互斥。
-- **只升不降**：远程 ≤ 当前 → 提示已是最新、不下载。
-- **备份与回滚**：替换前备份当前二进制到 `<home>/.tmp/self_update/`，替换后 spawn `--version` 验证；失败自动回滚到旧版。`--rollback` 从该备份恢复；备份不存在则拒绝回滚。
-- 复用 `config.toml` 的网络设置（`network.proxy` / `ssl_verify` / `github_token` / `connect_timeout` 自动生效）。
-- 产物名格式 `sdkm-<platform>.<ext>`（如 `sdkm-windows-x86_64.zip`），平台在编译期匹配。
-- Windows 上替换运行中的二进制靠 rename（非 delete）；旧副本残留在 `.tmp/self_update/`，下次运行清理，不污染 sdkm 安装目录。
+- 别名 `u`；`--check`/`-c` 与 `--rollback`/`-r` 互斥，同时给会报错。
+- **CLI + GUI 同步对齐**：同目录存在 `sdkm-gui` 时使用 `sdkm-desktop-*` 桌面组合包，一次替换两个二进制；纯 CLI 安装用 `sdkm-<platform>` 单包。目标版本缺少所需组合包时直接报错，绝不产生 CLI/GUI 版本错配。
+- **只升不降**：升级检查时所有二进制都已是目标版本 → 提示已是最新、不下载。
+- **权限预检 + 替换后验证 + 自动恢复**：碰网络前先在二进制目录试写（权限不足立即失败并提示提权）；替换后逐个 spawn `--version` 校验（旧版 GUI 不认识 `--version` 会打开窗口，用 3 秒超时兜底）；任一失败把原文件换回。
+- **回滚不再依赖本地备份**：查询 release 列表，选「低于当前版本、且包含所需组合包的最新版本」，走与升级完全相同的下载/替换流程；没有可回退版本时报错说明原因。
+- **产物命名**：CLI `sdkm-<platform>.<ext>`；桌面组合包 `sdkm-desktop-<platform>.<ext>`（gnu Linux / macOS / Windows 提供，musl 不提供桌面包）。
+- **复用网络配置**：`network.proxy` / `ssl_verify` / `github_token` / `connect_timeout` / `github_download_mirror` 自动生效。
+- **Windows 运行中替换**：全程 rename 不 delete（运行中的 exe 可 rename）；替换中断留下的 `.discard`/`.bad` 副本由下次 `sdkm clean` 或下次运行清理，不污染安装目录。
+- **更新后 GUI 需重启**：有 GUI 时磁盘二进制已换新、但运行中的进程仍是旧版，GUI 诊断页进入「重启后生效」态（显示「立即重启」），期间抑制 CLI/GUI 版本不一致告警。

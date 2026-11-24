@@ -1,19 +1,36 @@
 # 详细用法
 
-本节是 sdkm 的完整使用文档入口。如果你只想要「30 秒跑起来」，看 [项目 README](../README.md#快速开始) 即可。
+> 读者：普通用户。
+
+本节是 sdkm 的完整使用文档入口。如果你只想要「30 秒跑起来」，看 [项目 README 的 Quick Start](../README.md) 即可。
 
 ## 文档导航
 
+**使用者文档**
+
 | 文档 | 内容 |
 |:---|:---|
-| [commands.md](./commands.md) | 每个子命令的参数、别名、行为与示例（init / install / list / switch / use / env / hook / current / config / self） |
+| [commands.md](./commands.md) | 每个子命令的参数、别名、行为与示例（init / install / uninstall / list / switch / use / env / hook / current / config / doctor / clean / self） |
 | [configuration.md](./configuration.md) | `config.toml` 结构、每个配置项含义、类型校验规则、写入安全机制 |
-| [custom-sdk.md](./custom-sdk.md) | 用 `add-sdk` 注册任意工具为自定义 SDK、URL 模板占位符系统 |
+| [custom-sdk.md](./custom-sdk.md) | 用 `add-sdk` 注册任意工具为自定义 SDK、URL 模板占位符系统、42 个内置 SDK 名单 |
+| [sdk-onboarding.md](./sdk-onboarding.md) | 什么工具适合接入 sdkm、四类支持范围、用户自助注册 vs 贡献内置两条路径 |
+| [gui.md](./gui.md) | 桌面应用 `sdkm-gui`：首次引导、五个页面、更新与重启 |
+| [faq.md](./faq.md) | 常见问题排查，以 `sdkm doctor` 为核心 |
+
+**贡献者文档**
+
+| 文档 | 内容 |
+|:---|:---|
+| [development.md](./development.md) | 构建、分层架构、测试沙箱、质量门禁、CLI 命令落位 |
+| [development-notes.md](./development-notes.md) | 易变开发注意事项：历史坑、跨层契约与平台约束 |
 
 本文档章节索引：
 
 - [项目级版本管理](#项目级版本管理) — `.sdkm.toml` + `sdkm use`，版本随目录自动切换
 - [Shell 支持与 Hook 注册](#shell-支持与-hook-注册) — 4 种 shell 支持与手动注入 / 重置
+- [交互式 TUI](#交互式-tui) — 两层浏览：SDK 选择器 + 版本选择器
+- [自定义 SDK](#自定义-sdk) — 把任意工具纳入 sdkm 管理
+- [桌面应用（GUI）](#桌面应用gui) — `sdkm-gui` 页面导览与使用入口
 - [工作原理](#工作原理) — hook 生效流程图、四层优先级、关键机制（技术参考）
 
 ## 30 秒快速上手
@@ -29,10 +46,10 @@ sdkm install java 21
 #    放到 <sdkm所在目录>/store/java/21/ 下，sdkm 会自动发现
 
 # 4. 列出与切换
-sdkm list                  # 查看所有已安装 SDK + 当前版本
+sdkm list                  # TUI 浏览所有 SDK 与版本（非 TTY 下打印已安装概览）
 sdkm list node -r          # 交互式浏览远程 Node.js 版本，按 i 安装
 sdkm switch java 17        # 切换到本地已安装的 Java 17
-sdkm current               # 查看当前激活版本
+sdkm current               # 查看当前生效版本及其来源
 ```
 
 ## 把已有 SDK 交给 sdkm 托管
@@ -214,14 +231,14 @@ sdkm init
 
 ## 交互式 TUI
 
-`sdkm list <sdk>` 和 `sdkm list <sdk> -r` 会进入交互式版本选择器：
+`sdkm list`（无参数）在两个层级上浏览：
 
-- `↑` / `↓` 或 `k` / `j`：导航
-- 本地选择器：`Enter` / `s` 切换版本
-- 远程选择器：`i` 安装、`s` 切换
-- `q` / `Esc` / `Ctrl+C`：退出
+- **第一层（SDK 选择器）**：列出所有已注册 SDK，已安装在上、未安装在下，显示激活版本与占用空间。`Enter` 进入本地版本选择器（未安装则进远程），`r` 直接看远程，`f` 搜索，`q` 退出。
+- **第二层（版本选择器）**：`Enter`/`s` 切换、`i` 安装（远程未装）、`d`/`Delete` 卸载（已装）、`f` 搜索版本号、`q` 退出（回到第一层）。
 
-状态标记：`✅` 当前激活 / `📦` 已安装 / 空白 = 未安装。
+通用按键：`↑`/`↓` 或 `k`/`j` 导航，`Esc` 先清过滤、无过滤才退出，`Ctrl+C` 退出。状态标记：`✅` 当前激活 / `📦` 已安装 / 空白 = 未安装。
+
+非 TTY（管道、CI、agent）不会进 TUI，自动降级为文本输出（概览表 / 版本列表），此时 `--limit` 生效。完整按键表见 [commands.md · 交互式 TUI 按键](./commands.md#交互式-tui-按键)。
 
 ## 配置
 
@@ -238,7 +255,7 @@ sdkm config edit                              # 用编辑器直接改 config.tom
 
 ## 自定义 SDK
 
-内置只覆盖 Java / Node.js / Python / Maven / Go。任何能从 URL 下载解压的工具都能注册：
+sdkm 内置 42 个 SDK（Java、Node.js、Python、Go、Maven、Tomcat 等运行时与工具链，加 helm、terraform、ripgrep、k9s 等 30+ 开发工具，完整名单见 [custom-sdk.md · 内置 SDK 名单](./custom-sdk.md#内置-sdk-名单按类别)）。除此之外，任何能从 URL 下载解压的工具都能注册：
 
 ```bash
 sdkm config add-sdk mytool \
@@ -246,7 +263,20 @@ sdkm config add-sdk mytool \
   --bin-dir bin
 ```
 
-详见 [custom-sdk.md](./custom-sdk.md)。
+GitHub Releases 分发的工具甚至可以只填版本源：
+
+```bash
+sdkm config add-sdk mytool --version-url "https://api.github.com/repos/owner/repo/releases"
+```
+
+详见 [custom-sdk.md](./custom-sdk.md)。想让工具成为内置 SDK（所有人 `init` 即可用），见 [sdk-onboarding.md](./sdk-onboarding.md)。
+
+## 桌面应用（GUI）
+
+不喜欢记命令？sdkm 还提供原生桌面应用 `sdkm-gui`（与 CLI 同一套 Rust 核心、共享同一份 `config.toml`）。通过 `sdkm-desktop-*` 组合包安装时两个二进制同目录分布，首次启动引导一步完成初始化，之后可在图形界面里浏览 / 安装 / 切换 / 卸载 SDK、配置项目版本约束、改网络与源设置、执行环境诊断与自更新。
+
+- 安装与启动：[README](../README.md) 的 “Desktop App” 一节
+- 页面导览与操作细节：[gui.md](./gui.md)
 
 ---
 
@@ -337,6 +367,8 @@ flowchart TD
 > **为什么托管环境文件里的 PATH 行不会与 hook 冲突**：hook 每次回车重建的 PATH（全局层 symlink bins + base）覆盖了持久化条目的语义——`switch` 维护 `config.toml` 的 `current_version` 与环境文件的 PATH 行一致，两者指向相同的 symlink 目录。环境文件只在「hook 未注入 / 非交互 shell / 首次启动」时兜底。profile 中的 source 行由 `init` 注入，插在 hook 行之前（hook 启动时要能调用 `sdkm env`）。
 
 ---
+
+<a id="known-limitations"></a>
 
 ## ⚠️ 已知限制
 

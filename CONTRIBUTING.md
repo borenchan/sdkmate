@@ -12,7 +12,7 @@
 ## 开始之前
 
 1. **先搜索**：在 Issues 和 Discussions 里确认没有相同的问题或建议，避免重复劳动。
-2. **先讨论**：较大的功能（新 SDK 接入、架构调整、GUI 新页面、命令行为变更）请先在 Discussions / Ideas 或相关 issue 里讨论方案，达成一致后再动手。方向不符的实现 PR 会被关闭，别浪费你的时间。
+2. **先讨论**：较大的功能（新 SDK 接入、架构调整、GUI 新页面、命令行为变更）请先在 Discussions / Ideas 或相关 issue 里讨论方案，达成一致后再动手。方向不符的实现 PR 会被关闭，别浪费你的时间。**新 SDK 接入前请先读 [SDK 接入说明](docs/sdk-onboarding.md)**——接入标准、四类支持范围与内置准入门槛都在那里。
 3. **认领**：在 issue 下评论 `/claim`（或 `/认领`），机器人会自动把你加入 Assignees 并打上「已认领」标签。已被他人认领的 issue 请先与认领人沟通，由维护者调整 Assignees。完成时在 PR 描述里写 `Closes #<issue号>`。
 4. 不确定的地方在 issue 里提问，不要默默选一种解释硬写。
 
@@ -22,7 +22,7 @@
    ```bash
    git checkout -b feature/xxx
    ```
-2. 开发，遵守下方「工程约束」。
+2. 开发，遵守下方「工程约束」。构建命令、分层架构、测试沙箱与常见改动的落位见 [开发者指南](docs/development.md)。
 3. 本地质量门禁全部通过（与 CI 一致）：
    ```bash
    cargo fmt --all --check
@@ -85,12 +85,12 @@ docs: clarify claim workflow
    - 不要修改根 `Cargo.toml` 的版本号（发版由维护者控制，改版本号会触发发版流程）
    - 不要修改 `.github/workflows/`（CI 与发版链由维护者维护）
 9. **文档克制**：sdkm 内置 SDK 是 40+ 的统一注册表（只是下载逻辑不同），新增普通内置条目不需要在 README / 文档里单独开段落——除非有特别注意事项（本地管理、特殊布局、外部依赖）。文档从读者视角写，不从「本次改了什么」视角写
-10. **`CLAUDE.md` 允许贡献者修改，但仅限「agent 需要关注的原则与注意事项」**：它是维护者与 AI 协作的内部说明，架构、命令表、发布流程等维护者章节请勿改动；每处修改需在 PR 描述中说明原因，便于维护者核对
+10. **`CLAUDE.md` 保持稳定**：它只放长期不变的 agent 约定与文档索引；易变开发注意事项写 `docs/development-notes.md`，架构/命令/构建细节写 `docs/development.md`，不要往 `CLAUDE.md` 追加临时说明。确需修改 `CLAUDE.md` 时在 PR 描述里说明原因。
 
 ## Review 与合并
 
 - 维护者会逐条 review，可能要求拆分或调整
-- 合并方式由维护者选择；合并后 commit 进入 master，发版时自动进入 changelog
+- 合并方式由维护者选择；合并后 commit 进入 master，发版时自动进入 Release changelog
 - 对 review 意见有异议时直接在 PR 里讨论，对事不对人
 
 再次感谢你的贡献 🎉
