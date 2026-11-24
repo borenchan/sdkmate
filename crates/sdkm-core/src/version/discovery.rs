@@ -89,8 +89,8 @@ impl VersionDiscovery for MultiRequestDiscovery {
 /// 版本发现分发：专属路径 SDK 按枚举固定，其余走 ConfigBased 通用解析
 ///
 /// ConfigBased 依次识别三种 JSON 形状：扁平字符串数组 / {version} 对象数组 /
-/// GitHub Releases 数组（标准 B，`asset_prefix` 作资产前缀门：内置种子取主可执行
-/// 文件名 claude-code→"claude"，自定义 SDK 取名字本身）。
+/// GitHub Releases 数组（标准 B，`asset_prefix` 作资产前缀门：内置种子取种子里的
+/// 资产前缀（默认即 SDK 名，claude-code→"claude" 等例外显式指定），自定义 SDK 取名字本身）。
 /// GH 形状靠 JSON 结构识别而非 URL——本地镜像/代理/测试 server 同样生效。
 pub fn get_version_discovery(sdk: &Sdk, _version_url: &str) -> Box<dyn VersionDiscovery> {
     match sdk {

@@ -8,7 +8,7 @@ use crate::report::EventSink;
 #[cfg(unix)]
 use crate::shell::inject::inject_env_source;
 use anyhow::{Context, Result, bail};
-use sdkm_util::builtin::{SDK_SEEDS, SdkSeed, is_builtin_sdk};
+use sdkm_util::builtin::{SdkSeed, all_seeds, is_builtin_sdk};
 use sdkm_util::config_helper::{
     ArchStyle, OsStyle, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
 };
@@ -249,7 +249,7 @@ impl Default for SdkmConfig {
 
 impl SdkmConfig {
     pub fn get_default_builtin_sdks() -> Vec<SdkConfig> {
-        SDK_SEEDS.iter().map(|s| seed_to_config(s)).collect()
+        all_seeds().map(|s| seed_to_config(s)).collect()
     }
 
     /// 检查并自动补全缺失的内置 SDK 条目（对比编译期 BUILTIN_SDK_CONFIG，开销极小）

@@ -1,4 +1,5 @@
-// 核心语言与运行时种子：旧 5 个专属路径 SDK + JS/Python 生态引擎型工具
+// 语言 SDK / Runtime：版本发现与下载形态各异——专属路径 SDK 用结构体字面量，
+// deno 走标准 B（GitHub Releases 直链）。
 
 use super::SdkSeed;
 use crate::config_helper::{ArchStyle, OsStyle};
@@ -22,49 +23,6 @@ pub const JAVA: SdkSeed = SdkSeed {
     extra_vars: &[("JAVA_HOME", "{sdk_dir}")],
     extra_paths: &[],
     add_to_path: true,
-};
-
-pub const MAVEN: SdkSeed = SdkSeed {
-    name: "maven",
-    variant: Some(BuiltinSdk::Maven),
-    version_url: "", // 无远程版本发现，仅精确版本安装
-    version_fallback_url: None,
-    // {version} = 3.9.9；{ext} = zip(win)/tar.gz(unix)
-    download_url: Some("https://dlcdn.apache.org/maven/maven-3/{version}/binaries/apache-maven-{version}-bin.{ext}"),
-    download_fallback_url: None,
-    bin_dir: Some("bin"),
-    os_style: OsStyle::Default,
-    arch_style: ArchStyle::Default,
-    primary_executables: &["mvn"],
-    asset_prefix: None,
-    extra_vars: &[],
-    extra_paths: &[],
-    add_to_path: true,
-};
-
-pub const TOMCAT: SdkSeed = SdkSeed {
-    name: "tomcat",
-    variant: Some(BuiltinSdk::Tomcat),
-    // Apache 归档根索引（列 tomcat-9/10/11 分支目录）；版本列表经多请求逐分支解析
-    version_url: "https://archive.apache.org/dist/tomcat/",
-    version_fallback_url: Some("https://dlcdn.apache.org/tomcat/"),
-    // {feature_version} = 主版本号（9/10/11）；{ext} = zip(win)/tar.gz(unix)
-    // 主源 dlcdn（当前版本 CDN，快；历史版本 404 时不重试，立即回退 archive）
-    download_url: Some(
-        "https://dlcdn.apache.org/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
-    ),
-    download_fallback_url: Some(
-        "https://archive.apache.org/dist/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
-    ),
-    bin_dir: Some("bin"),
-    os_style: OsStyle::Default,
-    arch_style: ArchStyle::Default,
-    primary_executables: &["catalina"],
-    asset_prefix: None,
-    extra_vars: &[("CATALINA_HOME", "{sdk_dir}")],
-    extra_paths: &[],
-    // bin/ 下 startup/version 等脚本名太通用，不入 PATH，仅设 CATALINA_HOME
-    add_to_path: false,
 };
 
 pub const NODE: SdkSeed = SdkSeed {
@@ -130,21 +88,7 @@ pub const GO: SdkSeed = SdkSeed {
     add_to_path: true,
 };
 
-// ── 引擎型（标准 B 直链）─────────────────────────────────────────
-
-pub const BUN: SdkSeed = SdkSeed::gh("bun", "https://api.github.com/repos/oven-sh/bun/releases", &["bun"]);
-pub const PNPM: SdkSeed = SdkSeed::gh("pnpm", "https://api.github.com/repos/pnpm/pnpm/releases", &["pnpm"]);
 pub const DENO: SdkSeed = SdkSeed::gh("deno", "https://api.github.com/repos/denoland/deno/releases", &["deno"]);
-pub const UV: SdkSeed = SdkSeed::gh("uv", "https://api.github.com/repos/astral-sh/uv/releases", &["uv", "uvx"]);
-// 资产前缀 claude 与 sdk 名 claude-code 不同
-pub const CLAUDE_CODE: SdkSeed = SdkSeed::gh(
-    "claude-code",
-    "https://api.github.com/repos/anthropics/claude-code/releases",
-    &["claude"],
-)
-.prefix("claude");
-// zip 顶层目录提升后 bin/ 保留
-pub const CMAKE: SdkSeed =
-    SdkSeed::gh("cmake", "https://api.github.com/repos/Kitware/CMake/releases", &["cmake"]).bin("bin");
-// zip 内 bin/gh.exe，顶层单目录提升后 bin/ 保留
-pub const GH: SdkSeed = SdkSeed::gh("gh", "https://api.github.com/repos/cli/cli/releases", &["gh"]).bin("bin");
+
+/// 语言 SDK / Runtime 分类的全部种子（新增语言运行时在这里追加）
+pub static SEEDS: &[&SdkSeed] = &[&JAVA, &NODE, &PYTHON, &GO, &DENO];
