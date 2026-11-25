@@ -466,7 +466,8 @@ impl GuiApp {
                 h_flex()
                     .id(ElementId::NamedInteger("toast".into(), toast.id))
                     .gap_2()
-                    .items_start()
+                    // 图标与文字垂直居中对齐（items_start 会让图标相对文字偏上）
+                    .items_center()
                     .min_w(px(260.))
                     .max_w(px(560.))
                     .min_w_0()
