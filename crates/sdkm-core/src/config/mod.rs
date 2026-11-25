@@ -8,7 +8,7 @@ use crate::report::EventSink;
 #[cfg(unix)]
 use crate::shell::inject::inject_env_source;
 use anyhow::{Context, Result, bail};
-use sdkm_util::builtin::{SdkSeed, all_seeds, is_builtin_sdk};
+use sdkm_util::builtin::{SdkSeed, all_seeds, find_seed, is_builtin_sdk};
 use sdkm_util::config_helper::{
     ArchStyle, OsStyle, PLACEHOLDER_SDKM_HOME_DIR, PLACEHOLDER_SDKS_INSTALL_DIR, TemplateRenderer,
 };
@@ -17,6 +17,7 @@ use sdkm_util::path::{
     expand_tilde, get_default_env_file_path, get_default_symlink_dir, get_installed_sdks_dir, get_sdkm_config_path,
     get_sdkm_home,
 };
+use sdkm_util::region::is_china_mainland_timezone;
 use sdkm_util::sdk::Sdk;
 use sdkm_util::shell::{Shell, detect_shell};
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ pub mod keys;
 pub mod snapshot;
 pub mod validation;
 
-pub use keys::{ConfigKey, SdkField, known_keys, parse_config_key};
+pub use keys::{ConfigKey, ResetTarget, SdkField, known_keys, parse_config_key, parse_reset_target};
 pub use snapshot::{ConfigSnapshot, rollback_config, rollback_config_from_raw, take_config_snapshot};
 pub use validation::{
     KeyMeta, ValidatedValue, ValueType, field_type, key_meta, mask_by_type, mask_token, validate_by_type,
@@ -396,31 +397,52 @@ impl SdkmConfig {
         all_seeds().map(|s| seed_to_config(s)).collect()
     }
 
-    /// 检查并自动补全缺失的内置 SDK 条目（对比编译期 BUILTIN_SDK_CONFIG，开销极小）
-    fn ensure_builtin_sdks(&mut self) -> Result<()> {
-        let builtins = Self::get_default_builtin_sdks();
-        let mut missing = Vec::new();
-        for builtin in &builtins {
-            if !self.sdks.iter().any(|s| s.name == builtin.name) {
-                missing.push(builtin.clone());
+    /// 与编译期种子表对齐（返回是否有改动）：
+    ///
+    /// - 补全缺失的内置 SDK 条目（新版本新增的内置 SDK）
+    /// - 已有条目只填充**未设置**的源地址字段（新版本给老 SDK 新增的版本源/备源）
+    ///
+    /// 已有非空值一律保留——默认值变更不在这里猜，用户用 `sdkm config reset` 显式恢复。
+    ///
+    /// 处于每次读配置的常驻路径（含 shell hook 的 `sdkm env`）：只做名字比对 + 字符串引用，
+    /// 常态零分配；只有真要补条目/补字段时才构造并写回一次。
+    fn merge_seed_defaults(&mut self) -> bool {
+        let mut changed = false;
+        for seed in all_seeds() {
+            match self.sdks.iter().position(|s| s.name == seed.name) {
+                None => {
+                    self.sdks.push(seed_to_config(seed));
+                    changed = true;
+                }
+                Some(index) => {
+                    let conf = &mut self.sdks[index];
+                    // None/空串都视为未设置（老配置里该字段可能根本不存在）
+                    let fill = |dst: &mut Option<String>, src: &str| {
+                        if !src.is_empty() && dst.as_deref().is_none_or(|v| v.trim().is_empty()) {
+                            *dst = Some(src.to_string());
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    changed |= fill(&mut conf.version_url, seed.version_url);
+                    changed |= fill(&mut conf.version_fallback_url, seed.version_fallback_url.unwrap_or(""));
+                    changed |= fill(&mut conf.download_url, seed.download_url.unwrap_or(""));
+                    changed |= fill(&mut conf.download_fallback_url, seed.download_fallback_url.unwrap_or(""));
+                }
             }
         }
-        if missing.is_empty() {
-            return Ok(());
-        }
-        // 静默补全——不打印任何提示：read_from_disk 处于 hook 高频链路（sdkm env 的输出
-        // 会被 shell Invoke-Expression/eval 执行，任何 stdout 都是毒药，参考 v0.4.7 fish 修复）
-        self.sdks.extend(missing);
-        self.atomic_write_to_disk()?;
-        Ok(())
+        changed
     }
 
     pub fn read_from_disk() -> Result<SdkmConfig> {
-        if let Ok(config_file) = fs::read_to_string(get_sdkm_config_path()?) {
-            let mut config: SdkmConfig = toml::from_str(config_file.as_str())
-                .context("Failed to parse toml file,please check config.toml syntax!")?;
-            // 二进制升级后自动补全缺失的内置 SDK（如 go）
-            config.ensure_builtin_sdks()?;
+        if let Ok(raw) = fs::read_to_string(get_sdkm_config_path()?) {
+            let mut config: SdkmConfig =
+                toml::from_str(raw.as_str()).context("Failed to parse toml file,please check config.toml syntax!")?;
+            // 默认值补全（静默）：补全缺失内置 SDK / 老配置缺的新源地址字段，有改动才写回一次
+            if config.merge_seed_defaults() {
+                config.atomic_write_to_disk()?;
+            }
             return Ok(config);
         }
         anyhow::bail!("Failed to read sdkm config! please try again after executing `sdkm init` in sdkm home dir")
@@ -799,6 +821,162 @@ impl SdkmConfig {
         }
     }
 
+    // ── reset：恢复内置默认值 ──
+
+    /// 把配置目标恢复为内置默认值（返回真正发生变化的键及新值，已脱敏）。
+    ///
+    /// - `network`：proxy/ssl_verify/connect_timeout/cache_ttl_secs/镜像恢复默认，
+    ///   镜像按地区（中国大陆 = 内置镜像列表）；`github_token` 是凭据，不随网络设置重置。
+    /// - `sdks`：全部内置 SDK 整条恢复种子默认（自定义/未识别条目跳过），保留 `current_version`。
+    /// - `sdk.<name>`：整条恢复编译期种子默认，保留 `current_version` 运行状态。
+    /// - 单键/单字段：只恢复该键。
+    ///
+    /// 先规划目标（校验通过才动手），改动走快照 + 一次性原子写；失败回滚。
+    pub fn reset_value(&mut self, target: &ResetTarget, sink: &dyn EventSink) -> Result<Vec<(String, String)>> {
+        // 先取旧值：只展示真正发生变化的键
+        let watched = self.reset_watched_keys(target)?;
+        let before: Vec<String> = watched.iter().map(|k| self.get_raw_value(k).unwrap_or_default()).collect();
+
+        let snapshot = take_config_snapshot()?;
+        self.apply_reset(target, is_china_mainland_timezone())?;
+
+        if let Err(e) = self.atomic_write_to_disk() {
+            sink.warning("Failed to write config, rolling back...".to_string());
+            if rollback_config(&snapshot).is_err() && rollback_config_from_raw(&snapshot).is_err() {
+                sink.warning("Config rollback failed! Your config file may be corrupted.".to_string());
+                sink.detail("Manual recovery may be needed. Re-run `sdkm init --force` to reset.".to_string());
+            }
+            return Err(sdkm_util::consts::BugReportError::wrap(e));
+        }
+
+        let mut changes = Vec::new();
+        for (key, old) in watched.iter().zip(before) {
+            let new = self.get_raw_value(key)?;
+            if new != old {
+                changes.push((key.display(), mask_by_type(&new, &field_type(key))));
+            }
+        }
+        Ok(changes)
+    }
+
+    /// 校验 reset 目标，产出需要观测变化的键集合
+    fn reset_watched_keys(&self, target: &ResetTarget) -> Result<Vec<ConfigKey>> {
+        Ok(match target {
+            ResetTarget::Network => network_reset_keys(),
+            ResetTarget::NetworkKey(key) => vec![key.clone()],
+            ResetTarget::Sdks => {
+                // 只有编译期种子里的 SDK 有默认值；自定义/未识别条目直接跳过
+                let mut keys = Vec::new();
+                for seed in all_seeds() {
+                    if self.sdks.iter().any(|s| s.name == seed.name) {
+                        keys.extend(sdk_entry_keys(seed.name));
+                    }
+                }
+                keys
+            }
+            ResetTarget::Sdk(name) => {
+                self.ensure_builtin_entry(name)?;
+                sdk_entry_keys(name)
+            }
+            ResetTarget::SdkField { name, field } => {
+                self.ensure_builtin_entry(name)?;
+                if matches!(field, SdkField::CurrentVersion) {
+                    bail!(
+                        "`sdk.{}.current_version` is runtime state maintained by `sdkm switch` and cannot be reset.",
+                        name
+                    );
+                }
+                vec![ConfigKey::Sdk {
+                    name: name.clone(),
+                    field: field.clone(),
+                }]
+            }
+        })
+    }
+
+    /// 把默认值写回内存（china_tz 决定镜像默认：中国大陆启用内置镜像列表）
+    fn apply_reset(&mut self, target: &ResetTarget, china_tz: bool) -> Result<()> {
+        match target {
+            ResetTarget::Network => {
+                self.network.proxy = None;
+                self.network.ssl_verify = true;
+                self.network.connect_timeout = 30;
+                self.network.cache_ttl_secs = default_cache_ttl_secs();
+                self.network.github_download_mirror = default_download_mirror(china_tz);
+            }
+            ResetTarget::NetworkKey(key) => match key {
+                ConfigKey::NetworkProxy => self.network.proxy = None,
+                ConfigKey::NetworkSslVerify => self.network.ssl_verify = true,
+                ConfigKey::NetworkConnectTimeout => self.network.connect_timeout = 30,
+                ConfigKey::NetworkCacheTtlSecs => self.network.cache_ttl_secs = default_cache_ttl_secs(),
+                ConfigKey::NetworkGithubToken => self.network.github_token = None,
+                ConfigKey::NetworkGithubDownloadMirror => {
+                    self.network.github_download_mirror = default_download_mirror(china_tz);
+                }
+                _ => bail!("`{}` is not a network setting", key.display()),
+            },
+            ResetTarget::Sdks => {
+                // 跳过自定义 SDK（无种子默认）；保留各 SDK 的 current_version 运行状态
+                for seed in all_seeds() {
+                    if let Some(cur) = self.find_sdk_mut_by_name(seed.name) {
+                        let current_version = cur.current_version.take();
+                        *cur = SdkConfig {
+                            current_version,
+                            ..seed_to_config(seed)
+                        };
+                    }
+                }
+            }
+            ResetTarget::Sdk(name) => {
+                let seed = self.seed_sdk_entry(name)?;
+                if let Some(cur) = self.find_sdk_mut_by_name(name) {
+                    // current_version 是 switch 维护的运行状态，整条恢复时保留
+                    let current_version = cur.current_version.take();
+                    *cur = SdkConfig {
+                        current_version,
+                        ..seed
+                    };
+                }
+            }
+            ResetTarget::SdkField { name, field } => {
+                let seed = self.seed_sdk_entry(name)?;
+                if let Some(cur) = self.find_sdk_mut_by_name(name) {
+                    match field {
+                        SdkField::VersionUrl => cur.version_url = seed.version_url,
+                        SdkField::VersionFallbackUrl => cur.version_fallback_url = seed.version_fallback_url,
+                        SdkField::DownloadUrl => cur.download_url = seed.download_url,
+                        SdkField::DownloadFallbackUrl => cur.download_fallback_url = seed.download_fallback_url,
+                        SdkField::BinDir => cur.bin_dir = seed.bin_dir,
+                        SdkField::OsStyle => cur.os_style = seed.os_style,
+                        SdkField::ArchStyle => cur.arch_style = seed.arch_style,
+                        SdkField::AddToPath => cur.add_to_path = seed.add_to_path,
+                        SdkField::CurrentVersion => bail!("`current_version` cannot be reset"),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// reset 目标校验：配置里必须存在该 SDK，且必须有编译期种子（自定义 SDK 无默认值可恢复）
+    fn ensure_builtin_entry(&self, name: &str) -> Result<()> {
+        self.find_sdk_by_name(name)?;
+        if !is_builtin_sdk(name) {
+            bail!(
+                "SDK '{}' is a custom SDK with no built-in defaults. Use `sdkm config set` / `sdkm config delete` to adjust it.",
+                name
+            );
+        }
+        Ok(())
+    }
+
+    /// 编译期种子 → config 条目（reset 的默认值来源）
+    fn seed_sdk_entry(&self, name: &str) -> Result<SdkConfig> {
+        find_seed(name)
+            .map(seed_to_config)
+            .with_context(|| format!("SDK '{}' has no built-in seed", name))
+    }
+
     /// 获取键名元数据（内置 SDK 字段不可删除）
     pub fn key_meta_for(&self, key: &ConfigKey) -> KeyMeta {
         let is_builtin = match key {
@@ -969,6 +1147,47 @@ impl SdkmConfig {
     fn find_sdk_mut_by_name(&mut self, name: &str) -> Option<&mut SdkConfig> {
         self.sdks.iter_mut().find(|s| s.name == name)
     }
+}
+
+/// network 整组 reset 覆盖的键（github_token 是凭据，需单独 reset）
+fn network_reset_keys() -> Vec<ConfigKey> {
+    vec![
+        ConfigKey::NetworkProxy,
+        ConfigKey::NetworkSslVerify,
+        ConfigKey::NetworkConnectTimeout,
+        ConfigKey::NetworkCacheTtlSecs,
+        ConfigKey::NetworkGithubDownloadMirror,
+    ]
+}
+
+/// 单个内置 SDK 整条 reset 观测的键集合
+fn sdk_entry_keys(name: &str) -> Vec<ConfigKey> {
+    sdk_reset_fields()
+        .into_iter()
+        .map(|field| ConfigKey::Sdk {
+            name: name.to_string(),
+            field,
+        })
+        .collect()
+}
+
+/// SDK 整条 reset 会恢复的字段（current_version 是运行状态，不在此列）
+fn sdk_reset_fields() -> Vec<SdkField> {
+    vec![
+        SdkField::VersionUrl,
+        SdkField::VersionFallbackUrl,
+        SdkField::DownloadUrl,
+        SdkField::DownloadFallbackUrl,
+        SdkField::BinDir,
+        SdkField::OsStyle,
+        SdkField::ArchStyle,
+        SdkField::AddToPath,
+    ]
+}
+
+/// 镜像默认值：中国大陆时区 = 内置镜像列表；其他地区 = 不启用镜像
+fn default_download_mirror(china_tz: bool) -> Option<String> {
+    china_tz.then(|| DEFAULT_CN_GITHUB_MIRRORS.to_string())
 }
 
 /// 内置种子 → config 条目（统一注册表到 [[sdk]] 的物化）
@@ -1167,5 +1386,199 @@ mod mirror_tests {
         let mut n = NetworkConfig::default();
         n.github_download_mirror = Some("https://gh-proxy.com/".to_string());
         assert_eq!(n.download_candidates("not a url"), vec!["not a url".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+
+    fn find<'a>(config: &'a SdkmConfig, name: &str) -> &'a SdkConfig {
+        config.sdks.iter().find(|s| s.name == name).expect("builtin sdk missing")
+    }
+
+    /// reset 目标解析：network / network.<key> / sdks / sdk.<name> / sdk.<name>.<field>
+    #[test]
+    fn parse_reset_target_variants() {
+        assert!(matches!(parse_reset_target("network").unwrap(), ResetTarget::Network));
+        assert!(matches!(parse_reset_target("sdks").unwrap(), ResetTarget::Sdks));
+        assert!(matches!(
+            parse_reset_target("network.github_download_mirror").unwrap(),
+            ResetTarget::NetworkKey(ConfigKey::NetworkGithubDownloadMirror)
+        ));
+        assert!(matches!(parse_reset_target("sdk.maven").unwrap(), ResetTarget::Sdk(n) if n == "maven"));
+        assert!(matches!(
+            parse_reset_target("sdk.maven.download_url").unwrap(),
+            ResetTarget::SdkField { name, field: SdkField::DownloadUrl } if name == "maven"
+        ));
+        // 非网络/非 SDK 字段不属于 reset 目标
+        assert!(parse_reset_target("symlink_dir").is_err());
+        assert!(parse_reset_target("sdk.maven.extra_vars.JAVA_HOME").is_err());
+        assert!(parse_reset_target("network.proxy.extra").is_err());
+    }
+
+    /// network 全组恢复：连通性设置回到默认，凭据 github_token 保留
+    #[test]
+    fn reset_network_keeps_token() {
+        let mut config = SdkmConfig::default();
+        config.network.proxy = Some("http://127.0.0.1:7890".to_string());
+        config.network.ssl_verify = false;
+        config.network.connect_timeout = 5;
+        config.network.cache_ttl_secs = 0;
+        config.network.github_token = Some("ghp_xxx".to_string());
+        config.network.github_download_mirror = Some("https://my-mirror.example/".to_string());
+
+        config.apply_reset(&ResetTarget::Network, true).unwrap();
+
+        assert!(config.network.proxy.is_none());
+        assert!(config.network.ssl_verify);
+        assert_eq!(config.network.connect_timeout, 30);
+        assert_eq!(config.network.cache_ttl_secs, 3600);
+        assert_eq!(config.network.github_token.as_deref(), Some("ghp_xxx"));
+        assert_eq!(
+            config.network.github_download_mirror.as_deref(),
+            Some(DEFAULT_CN_GITHUB_MIRRORS)
+        );
+
+        // 非中国大陆：镜像默认关闭
+        let mut non_cn = SdkmConfig::default();
+        non_cn.network.github_download_mirror = Some("https://my-mirror.example/".to_string());
+        non_cn
+            .apply_reset(&ResetTarget::NetworkKey(ConfigKey::NetworkGithubDownloadMirror), false)
+            .unwrap();
+        assert!(non_cn.network.github_download_mirror.is_none());
+    }
+
+    /// 单键 reset：token 可单独清除，其他键不受影响
+    #[test]
+    fn reset_single_network_key() {
+        let mut config = SdkmConfig::default();
+        config.network.github_token = Some("ghp_xxx".to_string());
+        config.network.proxy = Some("http://127.0.0.1:7890".to_string());
+
+        config
+            .apply_reset(&ResetTarget::NetworkKey(ConfigKey::NetworkGithubToken), true)
+            .unwrap();
+
+        assert!(config.network.github_token.is_none());
+        assert_eq!(config.network.proxy.as_deref(), Some("http://127.0.0.1:7890"));
+    }
+
+    /// 整条 SDK reset：源地址/附加项恢复种子默认，current_version 保留
+    #[test]
+    fn reset_sdk_entry_restores_seed_and_keeps_current_version() {
+        let mut config = SdkmConfig::default();
+        let sdk = config.sdks.iter_mut().find(|s| s.name == "maven").unwrap();
+        sdk.download_url = Some("https://my.example/maven.zip".to_string());
+        sdk.version_url = None;
+        sdk.bin_dir = Some("wrong".to_string());
+        sdk.current_version = Some("3.9.9".to_string());
+
+        config.apply_reset(&ResetTarget::Sdk("maven".to_string()), true).unwrap();
+
+        let seed = find_seed("maven").unwrap();
+        let maven = find(&config, "maven");
+        assert_eq!(maven.download_url.as_deref(), seed.download_url);
+        assert_eq!(maven.version_url.as_deref(), Some(seed.version_url));
+        assert_eq!(maven.bin_dir.as_deref(), seed.bin_dir);
+        assert_eq!(maven.current_version.as_deref(), Some("3.9.9"));
+    }
+
+    /// sdks 整组：内置 SDK 全部回种子默认，自定义条目跳过，current_version 保留
+    #[test]
+    fn reset_sdks_skips_custom_and_keeps_current_version() {
+        let mut config = SdkmConfig::default();
+        for sdk in &mut config.sdks {
+            if sdk.name == "maven" || sdk.name == "node" {
+                sdk.download_url = Some("https://my.example/x.zip".to_string());
+            }
+        }
+        let maven = config.sdks.iter_mut().find(|s| s.name == "maven").unwrap();
+        maven.current_version = Some("3.9.9".to_string());
+        config.sdks.push(SdkConfig::new(
+            "mytool".to_string(),
+            String::new(),
+            "https://my.example/mytool.zip".to_string(),
+            None,
+        ));
+
+        config.apply_reset(&ResetTarget::Sdks, true).unwrap();
+
+        assert_eq!(
+            find(&config, "maven").download_url.as_deref(),
+            find_seed("maven").unwrap().download_url
+        );
+        assert_eq!(
+            find(&config, "node").download_url.as_deref(),
+            find_seed("node").unwrap().download_url
+        );
+        assert_eq!(find(&config, "maven").current_version.as_deref(), Some("3.9.9"));
+        // 自定义 SDK 原样保留
+        assert_eq!(
+            find(&config, "mytool").download_url.as_deref(),
+            Some("https://my.example/mytool.zip")
+        );
+    }
+
+    /// 单字段 reset + 校验：自定义 SDK 无默认可恢复；current_version 拒绝 reset
+    #[test]
+    fn reset_sdk_field_validations() {
+        let mut config = SdkmConfig::default();
+        let maven = config.sdks.iter_mut().find(|s| s.name == "maven").unwrap();
+        maven.download_url = Some("https://my.example/maven.zip".to_string());
+
+        config
+            .apply_reset(
+                &ResetTarget::SdkField {
+                    name: "maven".to_string(),
+                    field: SdkField::DownloadUrl,
+                },
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            find(&config, "maven").download_url.as_deref(),
+            find_seed("maven").unwrap().download_url
+        );
+
+        // 自定义 SDK 无种子默认
+        config
+            .sdks
+            .push(SdkConfig::new("mytool".to_string(), String::new(), String::new(), None));
+        assert!(config.reset_watched_keys(&ResetTarget::Sdk("mytool".to_string())).is_err());
+
+        // current_version 是运行状态，不允许 reset
+        assert!(
+            config
+                .reset_watched_keys(&ResetTarget::SdkField {
+                    name: "maven".to_string(),
+                    field: SdkField::CurrentVersion,
+                })
+                .is_err()
+        );
+    }
+
+    /// 读取时补全：缺失内置 SDK 补条目；老配置缺失的新源地址字段补种子值；用户改过的值保留
+    #[test]
+    fn merge_seed_defaults_fills_missing_only() {
+        let mut config = SdkmConfig::default();
+        config.sdks.retain(|s| s.name != "uv");
+        let maven = config.sdks.iter_mut().find(|s| s.name == "maven").unwrap();
+        maven.version_url = None;
+        maven.version_fallback_url = None;
+        maven.download_url = Some("https://my.example/maven.zip".to_string());
+
+        assert!(config.merge_seed_defaults());
+        assert!(config.sdks.iter().any(|s| s.name == "uv"));
+
+        let seed = find_seed("maven").unwrap();
+        let maven = find(&config, "maven");
+        assert_eq!(maven.version_url.as_deref(), Some(seed.version_url));
+        assert_eq!(maven.version_fallback_url.as_deref(), seed.version_fallback_url);
+        // 用户自定义的下载源不被覆盖
+        assert_eq!(maven.download_url.as_deref(), Some("https://my.example/maven.zip"));
+
+        // 幂等：再跑无改动
+        assert!(!config.merge_seed_defaults());
     }
 }

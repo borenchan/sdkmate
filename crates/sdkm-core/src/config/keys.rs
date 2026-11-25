@@ -187,6 +187,63 @@ pub fn parse_config_key(key: &str) -> Result<ConfigKey> {
     }
 }
 
+/// `sdkm config reset` 的目标
+///
+/// 与 `ConfigKey` 的差异：支持整组（network）与整条 SDK 恢复，
+/// 且只允许有内置默认值的对象（自定义 SDK 无种子默认）。
+#[derive(Debug, Clone)]
+pub enum ResetTarget {
+    /// network 全部设置（github_token 是凭据，不在其列）
+    Network,
+    /// 单个 network 键
+    NetworkKey(ConfigKey),
+    /// 全部内置 SDK 恢复种子默认（无种子的自定义 SDK 跳过；保留 current_version）
+    Sdks,
+    /// 整条内置 SDK 恢复种子默认（保留 current_version）
+    Sdk(String),
+    /// 单个内置 SDK 字段恢复种子默认
+    SdkField { name: String, field: SdkField },
+}
+
+/// 解析 reset 目标字符串
+///
+/// 支持：all | network | network.<key> | sdk.<name> | sdk.<name>.<field>
+pub fn parse_reset_target(raw: &str) -> Result<ResetTarget> {
+    let target = raw.trim();
+    if target == "network" {
+        return Ok(ResetTarget::Network);
+    }
+    if target == "sdks" {
+        return Ok(ResetTarget::Sdks);
+    }
+    let parts: Vec<&str> = target.split('.').collect();
+    // sdk.<name>：两段（parse_config_key 要求三段，故单独处理）
+    if parts.len() == 2 && parts[0] == "sdk" {
+        if parts[1].is_empty() {
+            return bail_reset_target(target);
+        }
+        return Ok(ResetTarget::Sdk(parts[1].to_string()));
+    }
+    if parts.len() >= 2 && parts[0] == "network" {
+        return Ok(ResetTarget::NetworkKey(parse_config_key(target)?));
+    }
+    if parts.len() >= 3 && parts[0] == "sdk" {
+        return match parse_config_key(target)? {
+            ConfigKey::Sdk { name, field } => Ok(ResetTarget::SdkField { name, field }),
+            _ => bail_reset_target(target),
+        };
+    }
+    bail_reset_target(target)
+}
+
+/// reset 目标无效时的统一提示
+fn bail_reset_target(target: &str) -> Result<ResetTarget> {
+    bail!(
+        "Cannot reset '{}'.\nReset targets:\n  network                     all network settings (proxy/ssl/timeout/cache/mirror)\n  network.<key>               a single network setting, e.g. network.proxy\n  sdks                        every built-in SDK (custom SDKs skipped, current_version kept)\n  sdk.<name>                  a built-in SDK's full config (current_version kept)\n  sdk.<name>.<field>          a single built-in SDK field, e.g. sdk.maven.download_url",
+        target
+    )
+}
+
 /// 生成无效键名错误，附带所有合法键名清单
 fn bail_invalid_key(key: &str) -> Result<ConfigKey> {
     bail!(

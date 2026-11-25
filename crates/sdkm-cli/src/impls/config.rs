@@ -4,8 +4,8 @@ use crate::{detail, info, success, warning};
 use anyhow::{Context, Result};
 use clap::Parser;
 use sdkm_core::config::{
-    ConfigKey, SdkConfig, SdkmConfig, ValidatedValue, ValueType, field_type, mask_by_type, parse_config_key,
-    validate_by_type,
+    ConfigKey, ResetTarget, SdkConfig, SdkmConfig, ValidatedValue, ValueType, field_type, mask_by_type,
+    parse_config_key, parse_reset_target, validate_by_type,
 };
 use sdkm_util::path::get_sdkm_config_path;
 use std::collections::HashMap;
@@ -35,6 +35,10 @@ enum ConfigCommands {
     /// Delete a config value (reset to default), e.g. sdkm config delete network.proxy
     #[command(name = "delete", visible_alias = "del")]
     Delete(ConfigDeleteHandler),
+
+    /// Reset to built-in defaults, e.g. sdkm config reset network / sdks / sdk.maven / network.proxy
+    #[command(name = "reset")]
+    Reset(ConfigResetHandler),
 
     /// Open config file in system editor, validate TOML on save
     #[command(name = "edit", visible_alias = "e")]
@@ -72,6 +76,16 @@ struct ConfigDeleteHandler {
     /// Config key to delete (resets to default)
     #[arg(value_name = "KEY", help = "Config key to delete (resets to default)")]
     key: String,
+}
+
+#[derive(Debug, Parser)]
+struct ConfigResetHandler {
+    /// Reset target: network | network.<key> | sdks | sdk.<name> | sdk.<name>.<field>
+    #[arg(
+        value_name = "TARGET",
+        help = "Reset target: network, network.<key>, sdks, sdk.<name>, sdk.<name>.<field>"
+    )]
+    target: String,
 }
 
 #[derive(Debug, Parser)]
@@ -129,6 +143,7 @@ impl CommandHandler for ConfigHandler {
             ConfigCommands::Get(h) => h.run(),
             ConfigCommands::List => run_list(),
             ConfigCommands::Delete(h) => h.run(),
+            ConfigCommands::Reset(h) => h.run(),
             ConfigCommands::Edit => run_edit(),
             ConfigCommands::AddSdk(h) => h.run(),
             ConfigCommands::RemoveSdk(h) => h.run(),
@@ -240,6 +255,40 @@ impl ConfigDeleteHandler {
         manager.config.delete_value(&key, manager.sink.as_ref())?;
 
         success!("{} has been deleted (reset to default: {})", key.display(), meta.default_desc);
+        Ok(())
+    }
+}
+
+impl ConfigResetHandler {
+    fn run(&self) -> Result<()> {
+        let mut manager = manager()?;
+        let target = parse_reset_target(&self.target)?;
+
+        // SDK 不存在时与 set/delete 一样先给出明确提示
+        if let ResetTarget::Sdk(name) | ResetTarget::SdkField { name, .. } = &target {
+            if manager.config.find_sdk_by_name(name).is_err() {
+                anyhow::bail!("SDK '{}' not found in config.", name);
+            }
+        }
+
+        let changes = manager.config.reset_value(&target, manager.sink.as_ref())?;
+        if changes.is_empty() {
+            info!("{} is already at built-in defaults.", self.target);
+            return Ok(());
+        }
+        for (key, value) in &changes {
+            if value.is_empty() {
+                success!("{} = (none)", key);
+            } else {
+                success!("{} = {}", key, value);
+            }
+        }
+        if let ResetTarget::Sdk(name) = &target {
+            detail!("SDK '{}' restored from built-in defaults (current_version kept).", name);
+        }
+        if matches!(target, ResetTarget::Sdks) {
+            detail!("All built-in SDKs restored (current_version kept; custom SDKs skipped).");
+        }
         Ok(())
     }
 }
