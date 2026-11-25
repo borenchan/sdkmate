@@ -145,7 +145,7 @@ sdkm-util  ←  sdkm-core  ←  sdkm-cli
 - 全项目统一 `anyhow`（`bail!` / `.context()`），不用 thiserror。
 - `BugReportError` 标记只用于**用户无法自行解决**的错误（解压/校验失败、内置配置缺失），CLI 检测到会提示提 issue；权限、环境问题用普通错误。
 - debug 构建的 `error!` 会额外打印 backtrace。
-- core 内的 `sink.warning/info/...` 文案属于跨层契约：例如 `bin dir mismatch for \`<sdk>\`` 是 GUI 翻译层解析 SDK 名的锚点，改前缀必须同步改 `crates/sdkm-gui/src/i18n/errors.rs`。
+- core 内的 `sink.warning/info/...` 文案由前端**原样展示**（GUI 已删除关键字翻译层，不再有文案锚点契约）；改动文案不影响任何解析逻辑，但请保持对用户可读。
 
 ## 发版相关（维护者）
 

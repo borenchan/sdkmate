@@ -70,6 +70,7 @@ pub struct SdkLang {
     pub progress_self_update_download: &'static str,
     pub progress_self_extract: &'static str,
     pub progress_eta: &'static str,
+    pub open_dir_tip: &'static str,
 }
 
 /// 简体中文
@@ -137,6 +138,7 @@ pub const ZH: SdkLang = SdkLang {
     progress_self_update_download: "正在下载 sdkm...",
     progress_self_extract: "正在解压 sdkm...",
     progress_eta: "剩余",
+    open_dir_tip: "打开 SDK 安装目录",
     toast_switched: "已切换 {name} → {version}",
     toast_uninstalled: "已卸载 {name} {version}",
     toast_installed: "已安装 {name} {version}",
@@ -210,6 +212,7 @@ pub const EN: SdkLang = SdkLang {
     progress_self_update_download: "Downloading sdkm...",
     progress_self_extract: "Extracting sdkm...",
     progress_eta: "ETA",
+    open_dir_tip: "Open SDK install folder",
     toast_switched: "Switched {name} → {version}",
     toast_uninstalled: "Uninstalled {name} {version}",
     toast_installed: "Installed {name} {version}",

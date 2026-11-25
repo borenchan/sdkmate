@@ -630,7 +630,7 @@ fn network_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                             false,
                             cx.listener(|app, _, _, cx| {
                                 app.settings.loaded = false;
-                                app.dispatch(TaskId::ConfigLoad, cx);
+                                app.dispatch(TaskId::ConfigReload, cx);
                             }),
                             cx,
                         ))
@@ -986,7 +986,7 @@ fn sources_footer(id: &'static str, app: &GuiApp, cx: &Context<GuiApp>) -> impl 
                     false,
                     false,
                     cx.listener(|app, _, _, cx| {
-                        app.dispatch(TaskId::SdkSourcesLoad, cx);
+                        app.dispatch(TaskId::SdkSourcesReload, cx);
                     }),
                     cx,
                 ))

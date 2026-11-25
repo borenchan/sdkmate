@@ -23,11 +23,6 @@ pub fn is_elevated() -> bool {
 #[cfg(windows)]
 pub fn relaunch_as_admin() -> bool {
     use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-    /// 转为以 NUL 结尾的宽字符串
-    fn wide(s: &OsStr) -> Vec<u16> {
-        s.encode_wide().chain(std::iter::once(0)).collect()
-    }
 
     let Ok(exe) = std::env::current_exe() else {
         return false;
@@ -46,6 +41,45 @@ pub fn relaunch_as_admin() -> bool {
         )
     };
     rc as isize > 32
+}
+
+/// 用系统默认程序打开文件/目录
+///
+/// Windows 走 ShellExecuteW（shell 亲自处理，不拉起 cmd，避免控制台闪窗）；
+/// macOS/Linux 沿用 open/xdg-open。
+#[cfg(windows)]
+pub fn open_path(path: &str) {
+    use std::ffi::OsStr;
+
+    let operation = wide(OsStr::new("open"));
+    let file = wide(OsStr::new(path));
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn open_path(path: &str) {
+    let _ = std::process::Command::new("open").arg(path).spawn();
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn open_path(path: &str) {
+    let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+}
+
+/// 转为以 NUL 结尾的宽字符串
+#[cfg(windows)]
+fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    s.encode_wide().chain(std::iter::once(0)).collect()
 }
 
 #[cfg(not(windows))]

@@ -14,6 +14,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -402,7 +403,27 @@ fn sdk_detail(app: &GuiApp, it: &SdkListItem, cx: &Context<GuiApp>) -> AnyElemen
                             .text_color(theme.foreground)
                             .truncate()
                             .child(it.current.as_ref().map(|v| format!("{}/{}", it.name, v)).unwrap_or_default()),
-                    ),
+                    )
+                    // 当前版本存在时提供“打开安装目录”入口（store/<sdk>/<version>）
+                    .when_some(it.current.clone().filter(|_| app.sys_info.store_path != "—"), |el, ver| {
+                        let dir = Path::new(&app.sys_info.store_path)
+                            .join(&it.name)
+                            .join(&ver)
+                            .to_string_lossy()
+                            .into_owned();
+                        el.child(
+                            div()
+                                .id(ElementId::Name(format!("open-sdk-dir-{}", it.name).into()))
+                                .cursor_pointer()
+                                .text_color(theme.muted_foreground)
+                                .hover(|s| s.text_color(theme.primary))
+                                .tooltip(move |window, cx| Tooltip::new(t.sdk.open_dir_tip).build(window, cx))
+                                .on_click(cx.listener(move |app, _, _, cx| {
+                                    app.dispatch(TaskId::OpenFile { path: dir.clone() }, cx);
+                                }))
+                                .child(Icon::new(IconName::FolderOpen).small()),
+                        )
+                    }),
             ),
     );
 

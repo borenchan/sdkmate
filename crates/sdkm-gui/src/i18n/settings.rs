@@ -95,6 +95,14 @@ pub struct SettingsLang {
     pub col_version_url: &'static str,
     pub col_download_url: &'static str,
     pub btn_save_sources: &'static str,
+    /// 网络设置保存成功提示
+    pub toast_network_saved: &'static str,
+    /// SDK 源保存成功提示
+    pub toast_sources_saved: &'static str,
+    /// 符号链接目录保存成功提示
+    pub toast_symlink_saved: &'static str,
+    /// 重新加载完成提示
+    pub toast_reloaded: &'static str,
 }
 
 /// 简体中文
@@ -193,6 +201,10 @@ pub const ZH: SettingsLang = SettingsLang {
     col_version_url: "版本发现 URL",
     col_download_url: "下载 URL 模板",
     btn_save_sources: "保存源配置",
+    toast_network_saved: "网络设置已保存",
+    toast_sources_saved: "SDK 源配置已保存",
+    toast_symlink_saved: "符号链接目录已更新",
+    toast_reloaded: "已重新加载",
 };
 
 /// English
@@ -291,4 +303,8 @@ pub const EN: SettingsLang = SettingsLang {
     col_version_url: "Version URL",
     col_download_url: "Download URL Template",
     btn_save_sources: "Save Sources",
+    toast_network_saved: "Network settings saved",
+    toast_sources_saved: "SDK sources saved",
+    toast_symlink_saved: "Symlink directory updated",
+    toast_reloaded: "Reloaded",
 };
