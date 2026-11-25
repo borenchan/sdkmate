@@ -7,6 +7,8 @@ description: 安装并使用 sdkm（跨平台 SDK 版本管理器 CLI，单二�
 
 sdkm（命令名 `sdkm`）是一款用 Rust 写的跨平台 SDK 版本管理器，单二进制、无运行时依赖、纯绿色。通过**符号链接 + PATH/环境变量注入**实时切换 Java、Node.js、Python、Maven、Go 等版本，切换后无需重启终端、无需手改系统变量。本文件自包含：agent 据此可从零安装 sdkm，并在用户机器上使用它管理 SDK。
 
+> **参数以实际二进制为准**：命令、别名、flag 一律先跑 `sdkm -h` / `sdkm <cmd> -h` 核对；本文件只记录 **语义、作用域、取舍与坑**（模糊匹配规则、PATH/环境副作用、镜像候选策略、reset 语义、已知限制等），这些是 help 里没有的。因此改参数不需要同步本文件，只有行为语义变化才需要更新。
+
 ## 何时用 sdkm
 
 - 用户机器上没有 sdkm，但需要装/切 Java、Node.js、Python、Maven、Go 版本——先按[安装 sdkm](#安装-sdkm)装好，再用它管理。
@@ -109,12 +111,12 @@ sdkm rm node 16              # 卸载本地 Node 16（uninstall 别名 rm；-y �
 | `sdkm switch <SDK> <VERSION>` | `s` | 切到本地已安装版本（全局） | 版本必须已存在于 store/；支持模糊匹配 |
 | `sdkm use <SDK> <VERSION>` | — | 项目级固定版本（写 `.sdkm.toml`） | 需 hook；`--shell` 走临时会话级，见"多作用域" |
 | `sdkm current [SDK]` | `c` | 查看当前激活版本 | 不带 SDK 名则显示全部 |
-| `sdkm config <sub>` | — | 管理 config.toml | 7 个子命令，见下 |
+| `sdkm config <sub>` | — | 管理 config.toml | 8 个子命令，见下 |
 | `sdkm hook [SHELL]` | — | 打印 shell hook 注册脚本 | 手动注入 hook 用；`init` 已自动注入 |
 | `sdkm env [SHELL]` | — | 打印当前目录应 eval 的环境脚本 | hook 高频调用；手动调试 hook 时用 |
 | `sdkm self <uninstall\|update>` | — | 管理 sdkm 自身 | `update` 别名 `u`；`--check`/`--rollback`，带备份+回滚 |
 
-别名是真实 clap 别名：`sdkm i java 21`、`sdkm rm node 16`、`sdkm s node 20.11.0`、`sdkm c`、`sdkm self u --check` 都能用。
+别名是真实 clap 别名：`sdkm i java 21`、`sdkm rm node 16`、`sdkm s node 20.11.0`、`sdkm c`、`sdkm self u --check` 都能用。精确 flag 以 `sdkm <cmd> -h` 为准，本表只列行为要点。
 
 ### 多作用域版本切换（重要）
 
@@ -265,6 +267,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 - **快照回滚**：`set`/`delete`/`add-sdk`/`remove-sdk` 失败时自动恢复到操作前（内存级 + 磁盘原始内容级双重恢复）。
 - **TOML 校验**：`edit` 保存后自动重解析，语法错误会提示但不破坏现有文件。
 - **内置 SDK 保护**：内置 SDK（java/node/python/maven/go）所有字段不可 `delete`、不可 `remove-sdk`，只能 `set` 改。`bin_dir` 对任意 SDK 必填不可删；`download_url` 内置必填，自定义可省略/可删（省略 = 本地 switch-only SDK，仅切版本不远程安装）。
+- **默认值升级与 reset**：升级 sdkm 不会覆盖已有配置值（只补缺失条目/空缺字段），默认值变更需显式 `sdkm config reset <target>`。`network` 整组不重置 `github_token`；SDK 目标保留 `current_version`、跳过自定义 SDK。
 
 ## 自定义 SDK
 
@@ -320,16 +323,12 @@ sdkm config add-sdk groovy \
 
 ### 内置 SDK 下载源参考
 
-注册自定义 SDK 时可参考内置 SDK 的源配置：
+内置 42 个 SDK 的源地址会随版本调整（例如 Node/Tomcat/Maven 已切华为云主源），**不要凭记忆写死 URL**。需要参考时直接读现值：`sdkm config list` 或 `sdkm config get sdk.<name>.version_url` / `sdk.<name>.download_url`。
 
-| SDK | 版本发现源 | 下载源 |
-|:---|:---|:---|
-| Java | 四家供应商 API：Adoptium（默认 Temurin）/ Azul Zulu / GitHub `corretto-*` tags / BellSoft Liberica | 各家 API 返回的平台直链；仅「默认供应商 + 裸大版本」（如 `install java 21`）未配镜像时走 `sdk.java.download_url` 模板，配镜像时改用解析到的 GitHub 直链（可走镜像 + 清华 Adoptium 镜像，仅最新 patch） |
-| Node.js | nodejs.org/dist/index.json（华为云 `nodejs/index.json` 备源） | `mirrors.huaweicloud.com/nodejs/{version}/...`（官方 dist 兜底，`{os}`=`win/darwin/linux`） |
-| Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
-| Maven | Maven Central `maven-metadata.xml`（华为云镜像主源+官方兜底，仅稳定版） | Maven Central 制品（华为云镜像主源+官方兜底，`{version}`/`{ext}`） |
-| Tomcat | Apache 归档 HTML 目录索引（`archive.apache.org/dist/tomcat/`，多请求，备源 dlcdn） | 华为云 Apache 镜像模板（`{feature_version}`/`{version}`/`{ext}`，全历史；dlcdn 备源，404 不重试直接切） |
-| Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
+非显然的特例只有两个：
+
+- **Java**：四家供应商 API（Temurin 默认 / Zulu / Corretto / Liberica）。精确版本或指定供应商始终用供应商 API 直链；「默认供应商 + 裸大版本」（如 `install java 21`）未配 GitHub 镜像时走 `sdk.java.download_url` 模板，配了镜像时改用解析出的 GitHub 直链（可走镜像 + 清华 Adoptium 镜像，仅最新 patch）。
+- **Tomcat**：版本列表是 Apache HTML 目录索引；下载主源华为云 Apache 镜像（全历史），dlcdn 备源。只设 `CATALINA_HOME`、不写 PATH。
 
 > **自定义 SDK 只认 JSON**：`version_url` 需返回版本列表 JSON（扁平数组 / `{"version": ...}` 数组 / GitHub Releases 三种形态）。Apache 风格的 HTML 目录索引只有内置 Tomcat 支持，自定义 SDK 指向 HTML 页会解析失败。
 
@@ -342,7 +341,7 @@ sdkm config add-sdk groovy \
 - **Java 供应商覆盖范围**：首批 4 家（Temurin 默认 / Zulu / Corretto / Liberica），Oracle、Microsoft、Semeru、GraalVM 等未接入。`list java -r` 只列 LTS 系列 + 最新 feature 系列；未列出的大版本仍可直接 `install java 24`。Corretto 无 Windows aarch64 构建。
 - **Java 裸大版本的下载源**：`install java 21` 未配 `network.github_download_mirror` 时走 `sdk.java.download_url` 模板；配了镜像时改用解析到的 GitHub 直链（可走镜像 + 清华 Adoptium 镜像，仅最新 patch）。精确版本/指定供应商始终用各家 API 直链。
 - **Tomcat 不写 PATH**：`bin/` 里 `startup`/`version`/`digest` 等脚本名太通用，内置条目 `add_to_path = false`，切换只更新 `CATALINA_HOME`，用 `$CATALINA_HOME/bin/...`（Windows `%CATALINA_HOME%\bin\catalina.bat`）启动。
-- **Tomcat 版本源是 HTML**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存）；下载主源 dlcdn，历史版本 404 立即回退内置华为云镜像（不浪费重试），首响应 8s / 静默 15s / 低速 60s 自动中止切源。想直接用华为云作主源：`sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"`
+- **Tomcat 版本源是 HTML**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存），备源 dlcdn；下载主源华为云 Apache 镜像（全历史），dlcdn 备源，历史版本 404 不重试直接切源，首响应 8s / 静默 15s / 低速 60s 自动中止切源。
 - **Unix 环境变量操作**写入托管环境文件（默认 `<home>/sdkm_env.sh`，fish 为 `sdkm_env.fish`，`config set env_file` 可指向自有文件），profile 只保留一行 source；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
 - **self update 跨改名迁移**：0.3.0 起 release 产物名从 `sdkmate-*` 改为 `sdkm-*`，0.2.x 的 `self update` 无法升级到 0.3.0（asset 名不匹配），需手动下载 0.3.0 覆盖一次，之后正常。
@@ -373,6 +372,7 @@ if [ $? -ne 0 ]; then echo "切换失败"; fi
 
 ## agent 操作建议
 
+- **先核对参数**：不确定命令/flag 时先跑 `sdkm -h` / `sdkm <cmd> -h`，以实际二进制为准；本 skill 负责语义与坑。
 - **先检查是否已装**：`sdkm --version`；没有则按[安装 sdkm](#安装-sdkm)装（优先用 scripts/ 下的安装脚本）。
 - **前提**：装好后跑过 `sdkm init`；Windows 下 `init`/`switch` 需管理员权限运行。
 - **优先非交互命令**：agent 通常不在 TUI 里操作，直接用 `i`/`s`/`rm -y`/`c`/`ls`（不带 SDK 名）。
