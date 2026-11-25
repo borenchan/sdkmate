@@ -9,14 +9,15 @@
 - 安装 / 解压 / 目录布局 → `install`、`normalize_extracted_dir`、`bin_dir`、`zip`
 - 环境变量 / Shell → `EnvOperation`、`env/unix.rs`、`$SHELL`、WSL
 - 版本发现 / 下载源 → `version/`、`discovery`、Tomcat、Java 供应商
-- GUI → `gpui-kit`、`on_ok`、`i18n/errors`
+- GUI → `gpui-kit`、`on_ok`、进度弹层单行反馈
 - 测试 → `SDKM_HOME`、`MockEnv`、沙箱
 - 构建 / 依赖 → `rust-toolchain.toml`、`reqwest`、`zip`
 
 
 - **集成测试禁止触碰真实 shell profile（2026-11-20 事故）**：`uninstall_self` 的 hook 行移除必须走 `EnvOperation::remove_shell_hook`（trait 默认空操作，测试 MockEnv 天然隔离）；历史上它直接调真实 `shell::inject::remove_shell_hook`，`tests/self_uninstall.rs` 每跑一次 `cargo test` 都会删掉用户真实 PowerShell profile 的 hook 行（已修复）。**新增任何操作 profile/注册表/PATH 的路径都必须经过 EnvOperation**，否则测试会污染真实环境
 - **gpui-kit 确认框 `on_ok` 里不能直接开新弹窗**：确认框的延迟关闭（`defer_close_dialog`）关的是"最顶层非关闭弹窗"——`on_ok` 里新开的进度窗会被它连带关掉（表现为"点确认后没有进度反馈"）。必须在 `on_ok` 里 `window.defer` 延后开，并检查忙碌标志（瞬时操作的 Done 可能先到，防残留弹窗）
-- **bin_dir 布局警告文案是跨层契约**：core 侧前缀 `bin dir mismatch for \`<sdk>\`` 是 GUI 翻译层（`errors::translate`）解析 SDK 名的锚点，改动前缀必须同步改 `errors.rs`；install 校验与 `import_local_version` 两处同口径
+- **GUI 进度弹层单行反馈 = core 事件原文最新一条（2026-11-25）**：`Detail`/`Warning`/`ProgressMessage` 弹窗打开时覆盖式写入 `progress_note`，不 append、不解析、不翻译。已知限制：core 安装流程在 `Download URL (primary): …` 后紧接 `Temporary directory: …`，会把 URL 行覆盖成临时目录；要稳定显示请求地址需 core 结构化上报（`ProgressStart`/`ProgressHandle` 带 url 字段），GUI 再改为独立字段展示。**禁止在 GUI 端按关键字匹配/解析文本做翻译**——历史 `i18n/errors.rs` 子串匹配（"proxy" → 代理连接失败）会吞掉真实错误并造成误报，已删除
+- **bin_dir 布局警告两处同口径**：core 的 install 校验与 `import_local_version` 都会发软警告，改文案时保持两处一致；GUI 原样展示，不再有翻译层锚点契约
 - **SDK 能否远程安装统一口径（2026-11-20 决策）**：一律走 `SdkConfig::can_install_remotely()`（download_url 或 version_url 至少一个非空；GitHub Releases 形态仅填 version_url 也能装，版本发现会产出资产直链），`RegisteredSdkItem.can_install` 透传 GUI。**CLI/GUI 禁止自行按单字段判断**——历史错误：CLI 按 `download_url.is_some()` 把 GitHub 引擎型 SDK 误报成 switch-only，GUI 按 `has_version_url` 会误隐藏 Maven 的精确版本安装入口。两者皆无 = 本地 switch-only，GUI 隐藏"安装新版本"、改用"导入本地版本"
 - **导入本地版本 = 移动语义（2026-11-20 决策）**：`import_local_version` 把用户既有版本目录整体移入 `store/<sdk>/<version>`（跨盘自动 copy+delete），**不做 store 内软链**——uninstall 用 `remove_dir_all`、size 统计/空目录清理全按"目录在 store 内"假设，软链会误删用户源目录；且 `symlink_dir/<sdk>` 本身已是指向 store 的软链，再套一层无收益。导入不改目录内部布局（用户选的目录即版本根），bin_dir 不可见只发软警告（同 install Phase 9b）；版本名即目录名，须唯一且无路径分隔符（防路径穿越），目标已存在直接拒绝
 - **自更新临时文件兜底**：`self_update.rs` 用 `TempGuard`（Drop 清理）保证下载/解压中途失败（`?` 提前返回）不留半截包与解压目录；成功路径 disarm 后走 `run_blocking` 异步清理。运行中 GUI 的旧副本（`.discard`）Windows 删不掉，留给下次 `clean_leftovers`

@@ -5,7 +5,7 @@
 //! `t.overview.title` 层级访问。
 //!
 //! 边界约定：文案归 core、样式归前端——本表只覆盖
-//! GUI 自身文案；core 事件/错误文案原样展示，常见错误经 [`errors`] 渐进映射。
+//! GUI 自身文案；core 事件/错误文案原样展示（不做关键字匹配映射）。
 
 // 文案表全量预定义（zh/en 同步维护），未实现页面暂不引用属预期
 #[allow(dead_code)]
@@ -22,8 +22,6 @@ mod projects;
 mod sdk;
 #[allow(dead_code)]
 mod settings;
-
-pub mod errors;
 
 pub use common::sdk_desc;
 

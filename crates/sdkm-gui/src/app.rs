@@ -7,7 +7,6 @@
 use crate::components::fmt_bytes;
 use crate::data::{TaskId, TaskOutcome, spawn_task};
 use crate::i18n::Lang;
-use crate::i18n::errors::{is_process_noise, translate};
 use crate::pages::diagnostics::DiagnosticsState;
 use crate::pages::overview::OverviewState;
 use crate::pages::projects::ProjectsState;
@@ -22,6 +21,7 @@ use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -119,6 +119,10 @@ pub struct GuiApp {
     pub sdk_rows: Option<Vec<crate::data::SdkListItem>>,
     /// 活动进度（core 进度事件驱动；操作串行约定下单槽即可）
     pub progress: Option<ProgressState>,
+    /// 操作中最近一条过程反馈（Detail/Warning/ProgressMessage 原文，进度弹窗单行展示）
+    pub progress_note: Option<String>,
+    /// 进度弹窗是否打开（过程事件按此分流：弹窗打开走单行反馈，否则走 toast）
+    pub progress_dialog_open: bool,
     /// 最近拉取远程列表的 SDK（操作完成后自动重拉）
     pub last_remote: Option<String>,
     /// 进行中安装的取消标志（关闭进度弹窗时置位）
@@ -220,6 +224,8 @@ impl GuiApp {
             diagnostics: DiagnosticsState::new(),
             sdk_rows: None,
             progress: None,
+            progress_note: None,
+            progress_dialog_open: false,
             last_remote: None,
             install_cancel: None,
             install_abort: None,
@@ -460,7 +466,8 @@ impl GuiApp {
                 h_flex()
                     .id(ElementId::NamedInteger("toast".into(), toast.id))
                     .gap_2()
-                    .items_start()
+                    // 图标与文字垂直居中对齐（items_start 会让图标相对文字偏上）
+                    .items_center()
                     .min_w(px(260.))
                     .max_w(px(560.))
                     .min_w_0()
@@ -553,15 +560,18 @@ impl GuiApp {
                         });
                         // 进度弹窗延后到确认框退出后：on_ok 里直接开会被确认框的延迟关闭连带关掉
                         let deferred = view.clone();
+                        let d_name = name.clone();
+                        let d_version = full_version.clone();
                         window.defer(cx, move |window, cx| {
                             deferred.update(cx, |app, cx| {
                                 // 瞬时操作可能已完成：已完成不再弹窗
                                 if !app.sdk_page.busy {
                                     return;
                                 }
-                                let installing = app.lang.sdk.installing;
+                                // 标题带上具体 SDK 和解析后的版本号
+                                let title = format!("{} {d_name} {d_version}", app.lang.sdk.install_running);
                                 let processing = app.lang.sdk.processing;
-                                app.open_progress_dialog(installing, processing, window, cx);
+                                app.open_progress_dialog(title, processing, window, cx);
                             });
                         });
                         true
@@ -575,13 +585,16 @@ impl GuiApp {
     /// `title` 为弹窗标题（各操作传入，如"正在卸载 java 21.0.5"）；
     /// `default_phase` 是无进度事件时的阶段文案（有 kind 时按场景覆盖）
     pub fn open_progress_dialog(
-        &self,
+        &mut self,
         title: impl Into<SharedString>,
         default_phase: &'static str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let title: SharedString = title.into();
+        // 新操作：清空上一次的单行反馈，并标记弹窗已打开（过程事件分流用）
+        self.progress_note = None;
+        self.progress_dialog_open = true;
         let view = cx.entity();
         {
             let cancel_view = view.clone();
@@ -644,6 +657,8 @@ impl GuiApp {
                     }
                 });
                 let bar_color = crate::theme::tokens(cx).primary_soft_fg;
+                // 单行过程反馈：core 原文最新一条（不 append，只保留最新）
+                let feedback = view.read(cx).progress_note.clone();
                 // 有总量：精确百分比进度条（主题蓝）+ 大小/速度/剩余时长；
                 // 无总量（解析/校验等）：Spinner + 阶段文案，不显示闪烁进度条
                 let content: AnyElement = if has_total {
@@ -672,10 +687,28 @@ impl GuiApp {
                         .child(div().text_sm().child(phase))
                         .into_any_element()
                 };
+                // 反馈行固定在进度内容上方：只展示最新一条，过长截断 + hover 看全文
+                let content: AnyElement = v_flex()
+                    .when_some(feedback, |el, fb| {
+                        let tip = fb.clone();
+                        el.child(
+                            div()
+                                .id("progress-feedback")
+                                .min_w_0()
+                                .truncate()
+                                .text_xs()
+                                .text_color(gpui_kit::rgb(0x64748b))
+                                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                                .child(fb),
+                        )
+                    })
+                    .child(content)
+                    .into_any_element();
                 dialog
                     .on_close(move |_, _, cx| {
                         // 用户关闭进度弹窗 = 取消安装：置取消标志并立即恢复页面
                         cancel_view.update(cx, |app, cx| {
+                            app.progress_dialog_open = false;
                             let cancelling = app.install_cancel.take();
                             if let Some(token) = &cancelling {
                                 token.store(true, Ordering::SeqCst);
@@ -691,6 +724,9 @@ impl GuiApp {
                             }
                         });
                     })
+                    // 点背景/按 Esc 不关闭：只有显式关闭按钮才取消操作
+                    .overlay_closable(false)
+                    .keyboard(false)
                     .title(title)
                     .child(content)
             });
@@ -698,7 +734,8 @@ impl GuiApp {
     }
 
     /// 关闭进度弹窗（操作 Done 时）
-    pub fn close_progress_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn close_progress_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.progress_dialog_open = false;
         window.close_dialog(cx);
     }
 
@@ -733,6 +770,19 @@ impl GuiApp {
 
     /// 操作类任务收尾（成功/失败共用）：关进度弹窗 + 解除忙碌态 + 刷新受影响的列表
     fn finish_operation(&mut self, id: &TaskId, window: &mut Window, cx: &mut Context<Self>) {
+        // 只读/打开类任务不持有忙碌态：不能因为它们的 Done/Failed 去重置
+        // resolving/busy 或关闭正在进行的进度弹窗（否则可发起第二次并发安装）
+        if matches!(
+            id,
+            TaskId::OpenFile { .. }
+                | TaskId::OpenConfigPath
+                | TaskId::ConfigLoad
+                | TaskId::ConfigReload
+                | TaskId::SdkSourcesLoad
+                | TaskId::SdkSourcesReload
+        ) {
+            return;
+        }
         // 安装完成/取消：先清取消标志，再关弹窗（避免 on_close 误判为用户取消）
         self.install_cancel = None;
         self.install_abort = None;
@@ -740,6 +790,7 @@ impl GuiApp {
         self.sdk_page.import_picking = false;
         self.close_progress_dialog(window, cx);
         self.sdk_page.busy = false;
+        self.progress_note = None;
         self.projects.picking = false;
         // 仅 SDK 状态真正变化的任务才刷新列表/概览；设置页等其他任务不做无意义全量扫描
         let affects_sdks = matches!(
@@ -788,6 +839,9 @@ impl GuiApp {
             }
             TaskId::ConfigAddSdk { name, .. } => Some(with(s.toast_sdk_added, &[("{name}", name)])),
             TaskId::ConfigRemoveSdk { name } => Some(with(s.toast_sdk_removed, &[("{name}", name)])),
+            // 设置页保存类操作：写入 config.toml 后明确提示
+            TaskId::ConfigSaveNetwork { .. } => Some(self.lang.settings.toast_network_saved.to_string()),
+            TaskId::SdkSourcesSaveFull { .. } => Some(self.lang.settings.toast_sources_saved.to_string()),
             _ => None,
         }
     }
@@ -811,12 +865,21 @@ impl GuiApp {
         match ev {
             GuiEvent::Core(core_ev) => match core_ev {
                 CoreEvent::Error(msg) => {
-                    self.notify_error(translate(&msg, self.prefs.lang), window, cx);
+                    // 错误原文直接展示（关键字翻译已移除，避免误报）
+                    if self.progress_dialog_open {
+                        self.progress_note = Some(msg.clone());
+                    }
+                    self.notify_error(msg, window, cx);
                 }
-                // 过程性自愈消息（切备源/重试/清残留）不弹 toast：成功路径上它是
-                // 噪音且易被误译（"HTTP 404 Not Found" → 未找到目标资源）误导用户
-                CoreEvent::Warning(msg) if !is_process_noise(&msg) => {
-                    self.notify_warning(translate(&msg, self.prefs.lang), window, cx);
+                // 进度弹窗打开时，过程 warning/detail 原样进弹窗单行反馈
+                CoreEvent::Warning(msg) if self.progress_dialog_open => {
+                    self.progress_note = Some(msg);
+                }
+                // 弹窗未打开时 warning 走 toast
+                CoreEvent::Warning(msg) => self.notify_warning(msg, window, cx),
+                // 过程 Detail（含下载地址）在弹窗打开时原样作为单行反馈
+                CoreEvent::Detail(msg) if self.progress_dialog_open => {
+                    self.progress_note = Some(msg);
                 }
                 _ => {}
             },
@@ -834,8 +897,12 @@ impl GuiApp {
                     p.sample(pos);
                 }
             }
-            // 进度文案由前端按 kind 本地化展示，忽略 core 的英文过程文案
-            GuiEvent::ProgressMessage { .. } => {}
+            // 进度文案：进度弹窗打开时作为单行反馈原文展示（重试用）
+            GuiEvent::ProgressMessage { msg, .. } => {
+                if self.progress_dialog_open {
+                    self.progress_note = Some(msg);
+                }
+            }
             GuiEvent::ProgressFinish { .. } => {
                 self.progress = None;
             }
@@ -858,7 +925,7 @@ impl GuiApp {
                     self.overview.refreshing = false;
                     self.overview.refresh_pending = false;
                     self.overview.sizes_loading = false;
-                    self.notify_error(translate(&e, self.prefs.lang), window, cx)
+                    self.notify_error(e, window, cx)
                 }
             },
             GuiEvent::Task {
@@ -869,7 +936,7 @@ impl GuiApp {
                     self.sdk_rows = Some(items);
                     self.on_sdk_rows_ready(window, cx);
                 }
-                Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                Err(e) => self.notify_error(e, window, cx),
             },
             GuiEvent::Task {
                 id: TaskId::SdkRemoteList { name },
@@ -899,9 +966,10 @@ impl GuiApp {
                 if fuzzy {
                     self.open_fuzzy_confirm_dialog(name, full_version, window, cx);
                 } else {
-                    let installing = self.lang.sdk.installing;
+                    // 标题带上具体 SDK 和版本号
+                    let title = format!("{} {name} {full_version}", self.lang.sdk.install_running);
                     let processing = self.lang.sdk.processing;
-                    self.open_progress_dialog(installing, processing, window, cx);
+                    self.open_progress_dialog(title, processing, window, cx);
                     self.dispatch(
                         TaskId::SdkInstallExec {
                             name,
@@ -941,14 +1009,21 @@ impl GuiApp {
                 outcome: TaskOutcome::SymlinkSaved(path),
                 ..
             } => {
-                // 保存成功：回显新目录（空 = 跟随 Home）
+                // 保存成功：回显新目录（空 = 跟随 Home）+ 提示
                 self.settings.symlink_dir = path;
+                let msg = self.lang.settings.toast_symlink_saved.to_string();
+                self.notify_success(msg, window, cx);
             }
             GuiEvent::Task {
+                id,
                 outcome: TaskOutcome::SdkSources(items),
-                ..
             } => {
                 self.settings.apply_sources(items, window, cx);
+                // 仅用户主动点「重新加载」时提示（启动/增删后刷新不打扰）
+                if matches!(id, TaskId::SdkSourcesReload) {
+                    let msg = self.lang.settings.toast_reloaded.to_string();
+                    self.notify_success(msg, window, cx);
+                }
             }
             GuiEvent::Task {
                 outcome: TaskOutcome::EnvStatus(result),
@@ -957,7 +1032,7 @@ impl GuiApp {
                 self.diagnostics.checking = false;
                 match result {
                     Ok(status) => self.diagnostics.env = Some(status),
-                    Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                    Err(e) => self.notify_error(e, window, cx),
                 }
             }
             // 缓存清理完成：成功给带释放体积的提示
@@ -971,7 +1046,7 @@ impl GuiApp {
                         let msg = self.lang.diagnostics.clean_done.replace("{size}", &fmt_bytes(bytes));
                         self.notify_success(msg, window, cx);
                     }
-                    Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                    Err(e) => self.notify_error(e, window, cx),
                 }
             }
             GuiEvent::Task {
@@ -982,7 +1057,7 @@ impl GuiApp {
                 self.diagnostics.injecting = false;
                 match result {
                     Ok(status) => self.diagnostics.shell = Some(status),
-                    Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                    Err(e) => self.notify_error(e, window, cx),
                 }
             }
             GuiEvent::Task {
@@ -995,7 +1070,7 @@ impl GuiApp {
                         // 注入后重新读取 hook 状态
                         spawn_task(self.tx.clone(), TaskId::ShellStatus);
                     }
-                    Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                    Err(e) => self.notify_error(e, window, cx),
                 }
             }
             GuiEvent::Task {
@@ -1003,6 +1078,7 @@ impl GuiApp {
                 ..
             } => {}
             GuiEvent::Task {
+                id,
                 outcome:
                     TaskOutcome::ConfigValues {
                         proxy,
@@ -1013,10 +1089,14 @@ impl GuiApp {
                         mirror,
                         symlink_dir,
                     },
-                ..
             } => {
                 self.settings
                     .apply_values(proxy, ssl_verify, timeout, ttl, token, mirror, symlink_dir, window, cx);
+                // 仅用户主动点「重新加载」时提示（启动时静默回填）
+                if matches!(id, TaskId::ConfigReload) {
+                    let msg = self.lang.settings.toast_reloaded.to_string();
+                    self.notify_success(msg, window, cx);
+                }
             }
             GuiEvent::Task {
                 outcome: TaskOutcome::LatestVersion(result),
@@ -1026,7 +1106,7 @@ impl GuiApp {
                 self.diagnostics.updating = false;
                 match result {
                     Ok(v) => self.diagnostics.latest = Some(v),
-                    Err(e) => self.notify_error(translate(&e, self.prefs.lang), window, cx),
+                    Err(e) => self.notify_error(e, window, cx),
                 }
             }
             // 回退目标查询完成：弹出确认框，展示即将下载的版本号

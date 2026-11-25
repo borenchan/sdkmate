@@ -58,6 +58,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging"
 ]}
+# Windows COM 接口（GUI 现代目录选择器 IFileOpenDialog；gpui 传递依赖中已是同版本）
+windows = { version = "0.62" }
 unicode-width = {version = "0.2"}
 url = { version = "2" }
 regex-lite = { version = "0.1" }

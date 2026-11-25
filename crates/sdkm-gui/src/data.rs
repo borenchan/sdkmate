@@ -4,6 +4,7 @@
 //! 本地重段（全盘体积扫描/卸载删除）经 spawn_blocking 放到阻塞线程池，不占用 runtime worker。
 //! 操作类任务（切换/卸载/安装）完成后回传 `TaskOutcome::Done`，UI 端据此刷新列表。
 
+use crate::platform::open_path;
 use crate::sink::{GuiEvent, GuiSink};
 use sdkm_core::manager::SdkManager;
 use sdkm_core::self_update::SelfUpdateOutcome;
@@ -66,6 +67,8 @@ pub enum TaskId {
     ProjectAutoLoad,
     /// 读取网络设置（设置页表单回填）
     ConfigLoad,
+    /// 人工重新加载网络设置（设置页「重新加载」，完成后给提示）
+    ConfigReload,
     /// 检查 sdkm 更新（只查最新版本，不下载）
     UpdateCheck,
     /// 查询回退目标版本（只读，用于确认弹窗）
@@ -92,6 +95,8 @@ pub enum TaskId {
     OpenFile { path: String },
     /// 读取各 SDK 的版本源/下载源（SDK 源设置回填）
     SdkSourcesLoad,
+    /// 人工重新加载 SDK 源（设置页「重新加载」，完成后给提示）
+    SdkSourcesReload,
     /// 批量保存各 SDK 源配置（None/空串 = 清空）
     SdkSourcesSaveFull { entries: Vec<SdkSourceEntry> },
     /// 环境健康检查（PATH / CLI / 配置 / 存储 / 链接）
@@ -303,6 +308,7 @@ async fn build_outcome(
                 | TaskId::ProjectSave { .. }
                 | TaskId::UninstallSelf
                 | TaskId::ConfigLoad
+                | TaskId::ConfigReload
                 | TaskId::OpenConfigPath
                 | TaskId::OpenFile { .. }
                 | TaskId::SdkSourcesSaveFull { .. } => Some(TaskOutcome::Failed),
@@ -323,7 +329,7 @@ async fn build_outcome(
                 TaskId::PickDirectory { .. } => Some(TaskOutcome::DirectoryPicked(None)),
                 TaskId::PickSymlinkDir { .. } => Some(TaskOutcome::SymlinkDirPicked(None)),
                 TaskId::PickImportDir { .. } => Some(TaskOutcome::ImportDirPicked(None)),
-                TaskId::SdkSourcesLoad => Some(TaskOutcome::SdkSources(Vec::new())),
+                TaskId::SdkSourcesLoad | TaskId::SdkSourcesReload => Some(TaskOutcome::Failed),
                 TaskId::OverviewRefresh => Some(TaskOutcome::Overview(Err(format!("{e:#}")))),
                 TaskId::SdkListRefresh => Some(TaskOutcome::SdkList(Err(format!("{e:#}")))),
                 TaskId::SdkRemoteList { .. } => Some(TaskOutcome::RemoteList {
@@ -447,18 +453,25 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
             mirror,
         } => {
             use sdkm_core::config::{ConfigKey, ValidatedValue};
-            let mut set = |key: ConfigKey, v: ValidatedValue| manager.config.set_value(&key, v, sink.as_ref());
-            if let Some(p) = proxy {
-                set(ConfigKey::NetworkProxy, ValidatedValue::FreeString(p))?;
+            // 空值 = 用户清空该项：走 delete 语义（proxy 存空串会让 reqwest 代理构建失败）
+            let cfg = &mut manager.config;
+            let sink_ref = sink.as_ref();
+            match proxy {
+                Some(p) => cfg.set_value(&ConfigKey::NetworkProxy, ValidatedValue::FreeString(p), sink_ref)?,
+                None => cfg.delete_value(&ConfigKey::NetworkProxy, sink_ref)?,
             }
-            set(ConfigKey::NetworkSslVerify, ValidatedValue::Bool(ssl_verify))?;
-            set(ConfigKey::NetworkConnectTimeout, ValidatedValue::U32(timeout))?;
-            set(ConfigKey::NetworkCacheTtlSecs, ValidatedValue::U32(ttl))?;
-            if let Some(t) = token {
-                set(ConfigKey::NetworkGithubToken, ValidatedValue::Token(t))?;
+            cfg.set_value(&ConfigKey::NetworkSslVerify, ValidatedValue::Bool(ssl_verify), sink_ref)?;
+            cfg.set_value(&ConfigKey::NetworkConnectTimeout, ValidatedValue::U32(timeout), sink_ref)?;
+            cfg.set_value(&ConfigKey::NetworkCacheTtlSecs, ValidatedValue::U32(ttl), sink_ref)?;
+            match token {
+                Some(t) => cfg.set_value(&ConfigKey::NetworkGithubToken, ValidatedValue::Token(t), sink_ref)?,
+                None => cfg.delete_value(&ConfigKey::NetworkGithubToken, sink_ref)?,
             }
-            if let Some(m) = mirror {
-                set(ConfigKey::NetworkGithubDownloadMirror, ValidatedValue::FreeString(m))?;
+            match mirror {
+                Some(m) => {
+                    cfg.set_value(&ConfigKey::NetworkGithubDownloadMirror, ValidatedValue::FreeString(m), sink_ref)?
+                }
+                None => cfg.delete_value(&ConfigKey::NetworkGithubDownloadMirror, sink_ref)?,
             }
             Ok(TaskOutcome::Done)
         }
@@ -502,7 +515,7 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
             sdkm_core::project_config::write_project_config(std::path::Path::new(&dir), &cfg)?;
             Ok(TaskOutcome::Done)
         }
-        TaskId::ConfigLoad => {
+        TaskId::ConfigLoad | TaskId::ConfigReload => {
             use sdkm_core::config::ConfigKey;
             let get = |key| manager.config.get_value(key).unwrap_or_default();
             Ok(TaskOutcome::ConfigValues {
@@ -609,7 +622,7 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
             )?;
             Ok(TaskOutcome::SymlinkSaved(path))
         }
-        TaskId::SdkSourcesLoad => {
+        TaskId::SdkSourcesLoad | TaskId::SdkSourcesReload => {
             let items = manager
                 .config
                 .sdks
@@ -669,48 +682,15 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
     }
 }
 
-/// 用系统默认程序打开路径（Windows start / macOS open / Linux xdg-open）
-fn open_path(path: &str) {
-    #[cfg(windows)]
-    {
-        let _ = std::process::Command::new("cmd").args(["/C", "start", "", path]).spawn();
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(path).spawn();
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
-    }
-}
-
-/// 调系统文件选择弹窗（零依赖：各平台系统自带工具；取消返回 None）
+/// 调系统文件选择弹窗（取消返回 None）
 fn pick_directory(title: &str) -> Option<String> {
     #[cfg(windows)]
     {
-        // 强制 UTF-8 输出：PowerShell 5.1 重定向 stdout 默认用 OEM 代码页（中文系统 GBK），
-        // 中文路径按 UTF-8 解码会失败 → 整个选择结果丢失（表现为"选了没反应"）
-        let script = format!(
-            r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-Add-Type -AssemblyName System.Windows.Forms | Out-Null;
-$f = New-Object System.Windows.Forms.FolderBrowserDialog;
-$f.Description = '{title}';
-if ($f.ShowDialog() -eq 'OK') {{ $f.SelectedPath }} else {{ '' }}"#
-        );
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            // CREATE_NO_WINDOW：避免弹出 PowerShell 控制台窗口
-            cmd.creation_flags(0x0800_0000);
+        // 优先资源管理器同款选择器；COM 不可用时回退旧版 PowerShell 弹窗
+        match pick_directory_modern(title) {
+            Ok(picked) => picked,
+            Err(()) => pick_directory_legacy(title),
         }
-        cmd.output()
-            .ok()
-            // 兜底 lossy 解码：编码仍异常时给核心层一个可诊断的路径（后续会报目录不存在）
-            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
-            .filter(|s| !s.is_empty())
     }
     #[cfg(target_os = "macos")]
     {
@@ -744,6 +724,80 @@ if ($f.ShowDialog() -eq 'OK') {{ $f.SelectedPath }} else {{ '' }}"#
     {
         None
     }
+}
+
+/// Windows 现代目录选择器（IFileOpenDialog + FOS_PICKFOLDERS，资源管理器同款）
+///
+/// Ok(Some) = 选中；Ok(None) = 用户取消；Err = 选择器运行失败（调用方回退旧弹窗）
+#[cfg(windows)]
+fn pick_directory_modern(title: &str) -> Result<Option<String>, ()> {
+    use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+
+    // 选择框是模态 shell 窗口：调用线程必须以 STA 初始化 COM
+    if unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_err() {
+        return Err(());
+    }
+    let picked = unsafe { pick_directory_com(title) };
+    unsafe { CoUninitialize() };
+    picked
+}
+
+#[cfg(windows)]
+unsafe fn pick_directory_com(title: &str) -> Result<Option<String>, ()> {
+    use windows::Win32::Foundation::ERROR_CANCELLED;
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, CoTaskMemFree};
+    use windows::Win32::UI::Shell::{
+        FILEOPENDIALOGOPTIONS, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH,
+    };
+    use windows::core::{HRESULT, HSTRING};
+
+    // 用户取消（ERROR_CANCELLED）与真实失败要分开：只有真失败才回退第二个弹窗
+    let is_cancel = |e: &windows::core::Error| e.code() == HRESULT::from_win32(ERROR_CANCELLED.0);
+
+    let dialog: IFileOpenDialog =
+        unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }.map_err(|_| ())?;
+    let options = unsafe { dialog.GetOptions() }.map_err(|_| ())?;
+    // FORCEFILESYSTEM：只允许选文件系统目录，虚拟位置取不到路径会表现为"选了没反应"
+    unsafe { dialog.SetOptions(FILEOPENDIALOGOPTIONS(options.0 | FOS_PICKFOLDERS.0 | FOS_FORCEFILESYSTEM.0)) }
+        .map_err(|_| ())?;
+    let _ = unsafe { dialog.SetTitle(&HSTRING::from(title)) };
+    if let Err(e) = unsafe { dialog.Show(None) } {
+        return if is_cancel(&e) { Ok(None) } else { Err(()) };
+    }
+    let item = match unsafe { dialog.GetResult() } {
+        Ok(item) => item,
+        Err(e) => return if is_cancel(&e) { Ok(None) } else { Err(()) },
+    };
+    let raw = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }.map_err(|_| ())?;
+    let path = unsafe { raw.to_string() }.ok();
+    unsafe { CoTaskMemFree(Some(raw.0 as *const core::ffi::c_void)) };
+    Ok(path.filter(|p| !p.is_empty()))
+}
+
+/// 旧版 PowerShell 目录选择弹窗（COM 不可用时的兜底）
+#[cfg(windows)]
+fn pick_directory_legacy(title: &str) -> Option<String> {
+    // 强制 UTF-8 输出：PowerShell 5.1 重定向 stdout 默认用 OEM 代码页（中文系统 GBK），
+    // 中文路径按 UTF-8 解码会失败 → 整个选择结果丢失（表现为"选了没反应"）
+    let script = format!(
+        r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+Add-Type -AssemblyName System.Windows.Forms | Out-Null;
+$f = New-Object System.Windows.Forms.FolderBrowserDialog;
+$f.Description = '{title}';
+if ($f.ShowDialog() -eq 'OK') {{ $f.SelectedPath }} else {{ '' }}"#
+    );
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW：避免弹出 PowerShell 控制台窗口
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.output()
+        .ok()
+        // 兜底 lossy 解码：编码仍异常时给核心层一个可诊断的路径（后续会报目录不存在）
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// 构造 sdk（内置/自定义按名称自动判定）

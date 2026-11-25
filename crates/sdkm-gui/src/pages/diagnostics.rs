@@ -650,9 +650,13 @@ fn update_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                 state.updating,
                 cx.listener(|app, _, window, cx| {
                     app.diagnostics.updating = true;
-                    let updating = app.lang.sdk.updating;
+                    // 已知目标版本时标题带上版本号（自更新与 SDK 安装同风格）
+                    let title = match app.diagnostics.latest.as_deref() {
+                        Some(v) => format!("{} → v{v}", app.lang.sdk.updating),
+                        None => app.lang.sdk.updating.to_string(),
+                    };
                     let processing = app.lang.sdk.processing;
-                    app.open_progress_dialog(updating, processing, window, cx);
+                    app.open_progress_dialog(title, processing, window, cx);
                     app.dispatch(TaskId::UpdateRun, cx);
                 }),
                 cx,
@@ -933,6 +937,7 @@ fn open_inject_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<G
 pub(crate) fn open_rollback_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>, target: &str) {
     let t = app.lang;
     let view = cx.entity();
+    let target = target.to_string();
     let title = format!("{} · v{}", t.diagnostics.btn_rollback, target);
     let desc = t.diagnostics.rollback_confirm_desc.to_string();
     window.open_alert_dialog(cx, move |alert, _, _| {
@@ -945,6 +950,7 @@ pub(crate) fn open_rollback_confirm(app: &mut GuiApp, window: &mut Window, cx: &
             .ok_variant(ButtonVariant::Danger)
             .on_ok({
                 let view = view.clone();
+                let target = target.clone();
                 move |_, window, cx| {
                     view.update(cx, |app, cx| {
                         // 确认后走与升级相同的下载/替换流程
@@ -953,14 +959,15 @@ pub(crate) fn open_rollback_confirm(app: &mut GuiApp, window: &mut Window, cx: &
                     });
                     // 进度弹窗延后到确认框退出后（on_ok 里直接开会被延迟关闭连带关掉）
                     let deferred = view.clone();
+                    let target = target.clone();
                     window.defer(cx, move |window, cx| {
                         deferred.update(cx, |app, cx| {
                             if !app.diagnostics.updating {
                                 return;
                             }
-                            let updating = app.lang.sdk.updating;
+                            let title = format!("{} → v{target}", app.lang.sdk.updating);
                             let processing = app.lang.sdk.processing;
-                            app.open_progress_dialog(updating, processing, window, cx);
+                            app.open_progress_dialog(title, processing, window, cx);
                         });
                     });
                     true
