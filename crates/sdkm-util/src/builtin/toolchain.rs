@@ -1,6 +1,6 @@
 // 开发工具链：构建、包管理、部署与 IaC。
 // 标准 B 用 SdkSeed::gh()；GH release 不含二进制资产的用 SdkSeed::gh_cdn()（组合模式）；
-// Maven 是无版本发现源的标准 A（模板直链），用结构体字面量。
+// Maven 是 XML 版本元数据 + 模板直链，用结构体字面量。
 
 use super::SdkSeed;
 use crate::config_helper::{ArchStyle, OsStyle};
@@ -11,11 +11,19 @@ use crate::sdk::BuiltinSdk;
 pub const MAVEN: SdkSeed = SdkSeed {
     name: "maven",
     variant: Some(BuiltinSdk::Maven),
-    version_url: "", // 无远程版本发现，仅精确版本安装
-    version_fallback_url: None,
+    // 版本发现：华为云 Maven Central 镜像的 maven-metadata.xml（国内快）；官方兜底
+    version_url: "https://mirrors.huaweicloud.com/repository/maven/org/apache/maven/apache-maven/maven-metadata.xml",
+    version_fallback_url: Some("https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/maven-metadata.xml"),
+    // Maven Central 制品（含全部历史 patch 与 4.x RC），路径按版本号平铺
     // {version} = 3.9.9；{ext} = zip(win)/tar.gz(unix)
-    download_url: Some("https://dlcdn.apache.org/maven/maven-3/{version}/binaries/apache-maven-{version}-bin.{ext}"),
-    download_fallback_url: None,
+    download_url: Some(
+        // 主源华为云 Central 镜像：国内快，且比 apache dist 镜像完整（老 patch 如 3.0.2 只有 Central 有）
+        "https://mirrors.huaweicloud.com/repository/maven/org/apache/maven/apache-maven/{version}/apache-maven-{version}-bin.{ext}",
+    ),
+    download_fallback_url: Some(
+        // 备源官方 Maven Central（与主源同源制品，历史齐全）
+        "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/{version}/apache-maven-{version}-bin.{ext}",
+    ),
     bin_dir: Some("bin"),
     os_style: OsStyle::Default,
     arch_style: ArchStyle::Default,

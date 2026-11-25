@@ -17,7 +17,9 @@ use std::env;
 use std::sync::{Arc, OnceLock};
 
 use super::cache::{VersionSource, fetch_version_data};
-use super::fuzzy::{JavaVendor, format_java_version, fuzzy_match_version_core, parse_java_version_input};
+use super::fuzzy::{
+    JavaVendor, compare_versions_desc, format_java_version, fuzzy_match_version_core, parse_java_version_input,
+};
 use super::github_releases::{GitHubRelease, github_api_headers, parse_releases};
 use super::truncate;
 
@@ -224,6 +226,48 @@ fn sort_java_releases_desc(releases: &mut [JavaRelease]) {
     });
 }
 
+// ─── Java 供应商端点（集中维护：换镜像/调参只改这一段）────────────
+// 各供应商 API 与下载直链模板差异较大，统一收成构造函数，调用处只传平台参数。
+
+/// Adoptium available_releases（major 宇宙默认源；config 的 `sdk.java.version_url` 优先）
+const ADOPTIUM_INFO_URL: &str = "https://api.adoptium.net/v3/info/available_releases";
+
+/// Temurin（Adoptium）：某 major 的全部 patch + 当前平台资产直链
+fn adoptium_assets_url(major: u32, os: &str, arch: &str) -> String {
+    format!(
+        "https://api.adoptium.net/v3/assets/feature_releases/{major}/ga?architecture={arch}&image_type=jdk&os={os}&page=0&page_size=30&project=jdk&sort_order=DESC&vendor=eclipse"
+    )
+}
+
+/// Zulu（Azul）：`latest=true` 只含每 major 最新，`latest=false` 含历史但排除最新
+fn zulu_packages_url(os: &str, arch: &str, ext: &str, latest: bool) -> String {
+    format!(
+        "https://api.azul.com/metadata/v1/zulu/packages/?os={os}&arch={arch}&archive_type={ext}&java_package_type=jdk&javafx_bundled=false&crac_supported=false&release_status=ga&availability_types=CA&latest={latest}&page=1&page_size=300"
+    )
+}
+
+/// Corretto：GitHub corretto-{major} 仓库 tag 列表（无 assets，直链另行拼）
+fn corretto_releases_url(major: u32, page: u32) -> String {
+    format!("https://api.github.com/repos/corretto/corretto-{major}/releases?per_page=100&page={page}")
+}
+
+/// Corretto 平台直链（Windows 带 -jdk；归档目录 macOS 用 macosx）
+fn corretto_download_url(tag: &str, os: &str, arch: &str, ext: &str) -> String {
+    if os == "windows" {
+        format!("https://corretto.aws/downloads/resources/{tag}/amazon-corretto-{tag}-windows-{arch}-jdk.{ext}")
+    } else {
+        let url_os = if os == "macos" { "macosx" } else { os };
+        format!("https://corretto.aws/downloads/resources/{tag}/amazon-corretto-{tag}-{url_os}-{arch}.{ext}")
+    }
+}
+
+/// Liberica（BellSoft）：必须带 version-feature，否则返回 16MB 全量
+fn liberica_releases_url(major: u32, os: &str, arch: &str, ext: &str) -> String {
+    format!(
+        "https://api.bell-sw.com/v1/liberica/releases?version-feature={major}&os={os}&arch={arch}&package-type={ext}&bundle-type=jdk&bitness=64&output=json"
+    )
+}
+
 /// Temurin：Adoptium feature_releases API（返回该 major 的全部 patch + 平台直链）
 async fn fetch_temurin(
     client: &Client,
@@ -234,9 +278,7 @@ async fn fetch_temurin(
 ) -> Result<Vec<JavaRelease>> {
     let os = detect_os_with(OsStyle::Adoptium);
     let arch = detect_arch_with(ArchStyle::Adoptium);
-    let url = format!(
-        "https://api.adoptium.net/v3/assets/feature_releases/{major}/ga?architecture={arch}&image_type=jdk&os={os}&page=0&page_size=30&project=jdk&sort_order=DESC&vendor=eclipse"
-    );
+    let url = adoptium_assets_url(major, &os, &arch);
     let body = fetch_version_data(
         client,
         &VersionSource {
@@ -285,9 +327,6 @@ fn parse_temurin_releases(body: &str) -> Result<Vec<JavaRelease>> {
     sort_java_releases_desc(&mut out);
     Ok(out)
 }
-
-/// Adoptium available_releases（major 宇宙默认源；config 的 `sdk.java.version_url` 优先）
-const ADOPTIUM_INFO_URL: &str = "https://api.adoptium.net/v3/info/available_releases";
 
 /// 信息源主备都失败时的 LTS 兜底（新增 LTS 时更新；正常路径不会用到）
 const JAVA_DEFAULT_LTS_MAJORS: &[u32] = &[8, 11, 17, 21, 25];
@@ -376,9 +415,7 @@ async fn fetch_zulu(
 
     let mut all: Vec<ZuluPackage> = Vec::new();
     for latest in [true, false] {
-        let url = format!(
-            "https://api.azul.com/metadata/v1/zulu/packages/?os={os}&arch={arch}&archive_type={ext}&java_package_type=jdk&javafx_bundled=false&crac_supported=false&release_status=ga&availability_types=CA&latest={latest}&page=1&page_size=300"
-        );
+        let url = zulu_packages_url(os, arch, ext, latest);
         let key = if latest {
             "java-zulu-latest"
         } else {
@@ -471,7 +508,7 @@ async fn fetch_corretto(
     let mut out: Vec<JavaRelease> = Vec::new();
     // 100 条/页足够覆盖单个 major 的全部 release；满页再翻一页兜底
     for page in 1..=2u32 {
-        let url = format!("https://api.github.com/repos/corretto/corretto-{major}/releases?per_page=100&page={page}");
+        let url = corretto_releases_url(major, page);
         let body = fetch_version_data(
             client,
             &VersionSource {
@@ -511,13 +548,7 @@ fn parse_corretto_tags(body: &str, os: &str, arch: &str, ext: &str) -> Result<Ve
         if tag.is_empty() || !tag.chars().all(|c| c.is_ascii_digit() || c == '.') {
             continue;
         }
-        let url = if os == "windows" {
-            format!("https://corretto.aws/downloads/resources/{tag}/amazon-corretto-{tag}-windows-{arch}-jdk.{ext}")
-        } else {
-            // Corretto 归档目录用 macosx（不是 macos）
-            let url_os = if os == "macos" { "macosx" } else { os };
-            format!("https://corretto.aws/downloads/resources/{tag}/amazon-corretto-{tag}-{url_os}-{arch}.{ext}")
-        };
+        let url = corretto_download_url(&tag, os, arch, ext);
         out.push(JavaRelease {
             numeric: tag,
             download_url: Some(url),
@@ -537,9 +568,7 @@ async fn fetch_liberica(
     let os = vendor_os_name();
     let arch = if cfg!(target_arch = "aarch64") { "arm" } else { "x86" };
     let ext = vendor_ext();
-    let url = format!(
-        "https://api.bell-sw.com/v1/liberica/releases?version-feature={major}&os={os}&arch={arch}&package-type={ext}&bundle-type=jdk&bitness=64&output=json"
-    );
+    let url = liberica_releases_url(major, os, arch, ext);
     let body = fetch_version_data(
         client,
         &VersionSource {
@@ -631,9 +660,11 @@ pub async fn resolve_java_version(
     // 裸 major = 该系列最新（不触发确认，保持既有 UX）；部分/精确版本走模糊匹配
     let (matched_numeric, download_url, fuzzy_matched) = if !numeric.contains('.') {
         let r = &releases[0];
-        // Temurin 裸 major 走 config 下载模板（Adoptium binary/latest API，可 `config set` 换镜像）；
+        // Temurin 裸 major：配置了 GitHub 镜像时用解析到的 GitHub 直链（可走镜像/高校镜像，
+        // api.adoptium.net 的 302 目标 reqwest 内部跟随、镜像层看不到）；未配镜像时保持
+        // 原有 API 模板路径（可 `config set sdk.java.download_url` 换源）。
         // 其他供应商与精确版本号用 API 返回的平台直链
-        let url = if matches!(vendor, JavaVendor::Temurin) {
+        let url = if matches!(vendor, JavaVendor::Temurin) && network.github_mirrors().is_empty() {
             None
         } else {
             r.download_url.clone()
@@ -1147,9 +1178,34 @@ fn extract_python_version(name: &str) -> Option<String> {
 struct MavenDiscovery;
 
 impl VersionDiscovery for MavenDiscovery {
-    fn parse_version_data(&self, _body: &str) -> Result<Vec<VersionEntry>> {
-        // Maven 无远程版本发现,parse 不使用
-        Ok(Vec::new())
+    fn parse_version_data(&self, body: &str) -> Result<Vec<VersionEntry>> {
+        // maven-metadata.xml：只取 <versions> 块内的 <version>，块外顶层 <version> 是最新版副本
+        let block = body
+            .split_once("<versions>")
+            .and_then(|(_, rest)| rest.split_once("</versions>").map(|(inner, _)| inner))
+            .context("[Maven version lookup] failed to parse maven-metadata.xml")?;
+        let mut entries: Vec<VersionEntry> = block
+            .split("<version>")
+            .filter_map(|chunk| chunk.split("</version>").next())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            // 只保留稳定版：alpha/beta/rc/M 等预发布都带 '-'；将来 4.x GA 会自然进入列表
+            .filter(|v| !v.contains('-'))
+            // Maven 2 已 EOL，且华为云/Apache 归档都没有完整二进制；保留主版本 >=3（4+ 同样自动支持）
+            .filter(|v| v.split('.').next().and_then(|m| m.parse::<u32>().ok()).is_some_and(|m| m >= 3))
+            .map(|v| VersionEntry {
+                full_version: v.to_string(),
+                feature_version: v.split('.').next().map(str::to_string),
+                release_tag: None,
+                download_url: None,
+            })
+            .collect();
+        if entries.is_empty() {
+            bail!("[Maven version lookup] no stable versions found in maven-metadata.xml");
+        }
+        // metadata 按发布时间升序，统一成最新在前（列表/选择器默认取前 N 条）
+        entries.sort_by(|a, b| compare_versions_desc(&a.full_version, &b.full_version));
+        Ok(entries)
     }
 }
 
@@ -1320,6 +1376,53 @@ mod tests {
         assert_eq!(versions, vec!["11.0.29", "11.0.9", "11.0.5"]);
         // feature_version = 版本首段（Apache 分支目录就是主版本号）
         assert!(entries.iter().all(|e| e.feature_version.as_deref() == Some("11")));
+    }
+
+    // ── Maven 元数据解析 ───────────────────────────────────────
+
+    #[test]
+    fn maven_metadata_keeps_stable_versions_only() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <metadata>
+          <versioning>
+            <latest>4.0.0-rc-7</latest>
+            <versions>
+              <version>2.0.9</version>
+              <version>3.0-alpha-2</version>
+              <version>3.9.9</version>
+              <version>3.10.0-rc-1</version>
+              <version>3.10.2</version>
+              <version>4.0.0-rc-7</version>
+              <version>4.0.0</version>
+            </versions>
+          </versioning>
+          <version>4.0.0</version>
+        </metadata>"#;
+        let entries = MavenDiscovery.parse_version_data(xml).unwrap();
+        let versions: Vec<&str> = entries.iter().map(|e| e.full_version.as_str()).collect();
+        // 预发布版与 Maven 2 被过滤；顶层 <version> 不重复计入；结果按版本降序
+        assert_eq!(versions, vec!["4.0.0", "3.10.2", "3.9.9"]);
+        // feature_version = 主版本号（Central 按版本平铺，仅作元数据）
+        assert_eq!(entries[0].feature_version.as_deref(), Some("4"));
+        assert_eq!(entries[1].feature_version.as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn maven_metadata_fuzzy_picks_latest_stable() {
+        let xml = r#"<metadata><versioning><versions>
+              <version>3.10.0-rc-1</version>
+              <version>3.10.1</version>
+              <version>3.10.2</version>
+              <version>4.0.0-rc-7</version>
+            </versions></versioning></metadata>"#;
+        let entries = MavenDiscovery.parse_version_data(xml).unwrap();
+        // 不能落到 3.10.0-rc-1（排序时数值分量相同，rc 可能排在 GA 前面）
+        assert_eq!(fuzzy_match_version(&entries, "3").unwrap().full_version, "3.10.2");
+        let err = match fuzzy_match_version(&entries, "4") {
+            Ok(v) => panic!("expected no match, got {}", v.full_version),
+            Err(e) => e.to_string(),
+        };
+        assert!(err.contains("not found"), "unexpected error: {err}");
     }
 
     // ── Java 供应商解析 ─────────────────────────────────────────

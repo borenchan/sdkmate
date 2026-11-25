@@ -191,11 +191,6 @@ impl SdkManager {
         let cache_key = sdk_name.to_lowercase();
         let ttl = self.config.network.cache_ttl_secs as u64;
 
-        // Maven 无 version_url → 不支持远程版本列表
-        if let Sdk::Built(BuiltinSdk::Maven) = sdk {
-            bail!("Maven does not support remote version listing. Specify an exact version to install.");
-        }
-
         // 版本源统一读 config（内置 SDK 种子已由 ensure_builtin_sdks 物化，用户可换源/镜像）
         let version_url = sdk_conf.version_url.clone().unwrap_or_default();
         let secondary_url = sdk_conf.version_fallback_url.clone();

@@ -120,7 +120,7 @@ fn parse_version_components(v: &str) -> Vec<u32> {
 }
 
 /// 按版本号降序比较(数值分量逐段比较)
-fn compare_versions_desc(a: &str, b: &str) -> Ordering {
+pub(super) fn compare_versions_desc(a: &str, b: &str) -> Ordering {
     let va = parse_version_components(a);
     let vb = parse_version_components(b);
     vb.cmp(&va) // 降序:b 在前则 b 更大
