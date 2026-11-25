@@ -56,13 +56,19 @@ fn load_from_cache_stale(sdk_name: &str) -> Option<String> {
 
 // ─── 通用网络请求:主备切换 + 重试 + 缓存兜底 ──────────────────
 
-/// 最大重试次数(仅对 5xx / 网络错误重试,429/403 不重试)
-const MAX_RETRIES: u32 = 3;
+/// 最后一次兜底（无任何备援）时的尝试次数：1 次重试
+const LAST_RESORT_ATTEMPTS: u32 = 2;
+
+/// 单次请求等待响应头的上限（connect+TLS+响应头）。
+/// connect_timeout 只管 TCP 建连，黑洞源可能在建连后长时间不发响应头；
+/// 有候选/备源时不该为一个源等到 connect_timeout(默认 30s) 才切换。
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// 缓存优先的版本数据获取,带 TTL 与 API 兜底。
 ///
 /// 流程:查缓存 → 新鲜则立即返回 → 过期/缺失
-///       → 主源(重试 3 次)→ 备源(重试 3 次)
+///       → 主源候选链（有备援则每个只试 1 次，直接切）
+///       → 备源候选链（多候选同样 1 次；单候选为最后兜底，允许 1 次重试）
 ///       → 写入缓存 → 返回。
 ///       主备均失败 → 返回过期缓存作为降级兜底 → bail。
 #[allow(clippy::too_many_arguments)] // 传输层管线参数天然多（client/source/cache/label/ttl/network/sink），打包反而模糊
@@ -81,24 +87,35 @@ pub async fn fetch_version_data(
         return Ok(cached);
     }
 
-    // GitHub 下载镜像重写（纯 URL 层：白名单域名拼前缀，api.github.com 排除）
-    let primary_url = network.mirror_github_url(&source.primary_url);
-    let secondary_url = source
+    // 候选源链：GitHub 白名单域名展开为「镜像前缀 + 高校镜像 + 直连」，
+    // 单个坏源不再吃掉整段重试时间（api.github.com 等非白名单 URL 只有一个候选）
+    let primary_candidates = network.download_candidates(&source.primary_url);
+    let secondary_candidates = source
         .secondary_url
         .as_deref()
         .filter(|s| !s.is_empty())
-        .map(|s| network.mirror_github_url(s));
+        .map(|s| network.download_candidates(s));
 
     // token 只注入 GH API 请求（client 不再全局带 Authorization，防镜像下载泄露给第三方）；
     // api.github.com 不在镜像白名单内，重写前后 URL 的"是否 GH API"判定等价
-    let secondary_headers = secondary_url
-        .as_deref()
-        .map(|rewritten| with_github_token_if_api(headers.clone(), rewritten, network))
-        .flatten();
-    let primary_headers = with_github_token_if_api(headers, &primary_url, network);
-
-    // 缓存过期或缺失 → 走 API
-    let primary_result = try_url_with_retry(client, &primary_url, primary_headers, sdk_label, "primary", sink).await;
+    // 外层主备策略：主源有备援（多候选 / 配置了备源）时只给 1 次机会，失败立刻切；
+    // 备源组内多候选同样 1 次；只有单候选的最后兜底才允许 1 次重试
+    let primary_attempts = if primary_candidates.len() > 1 || secondary_candidates.is_some() {
+        1
+    } else {
+        LAST_RESORT_ATTEMPTS
+    };
+    let primary_result = try_candidates(
+        client,
+        &primary_candidates,
+        headers.clone(),
+        sdk_label,
+        "primary",
+        sink,
+        network,
+        primary_attempts,
+    )
+    .await;
 
     if let Ok(body) = primary_result {
         let _ = save_to_cache(cache_key, &body);
@@ -115,14 +132,28 @@ pub async fn fetch_version_data(
             .to_string()
     };
     let primary_err_str = strip_prefix(primary_err, sdk_label);
-    if let Some(secondary_url) = &secondary_url {
+    if let Some(secondary_candidates) = &secondary_candidates {
         sink.warning(format!(
             "[{}] primary source failed ({}), trying secondary source...",
             sdk_label,
             truncate(&primary_err_str, 160)
         ));
-        let secondary_result =
-            try_url_with_retry(client, secondary_url, secondary_headers, sdk_label, "secondary", sink).await;
+        let secondary_attempts = if secondary_candidates.len() > 1 {
+            1
+        } else {
+            LAST_RESORT_ATTEMPTS
+        };
+        let secondary_result = try_candidates(
+            client,
+            secondary_candidates,
+            headers,
+            sdk_label,
+            "secondary",
+            sink,
+            network,
+            secondary_attempts,
+        )
+        .await;
 
         if let Ok(body) = secondary_result {
             let _ = save_to_cache(cache_key, &body);
@@ -173,6 +204,37 @@ fn with_github_token_if_api(
     headers
 }
 
+/// 按候选顺序逐个尝试；`attempts` 由调用方按「有无备援」决定：
+/// 有备援传 1（下一个源就是重试），最后兜底才传 LAST_RESORT_ATTEMPTS
+#[allow(clippy::too_many_arguments)] // 传输层管线参数天然多（client/候选/头/标签/sink/network/预算），打包反而模糊
+async fn try_candidates(
+    client: &Client,
+    candidates: &[String],
+    headers: Option<HashMap<String, String>>,
+    sdk_label: &str,
+    source_label: &str,
+    sink: &dyn EventSink,
+    network: &NetworkConfig,
+    attempts: u32,
+) -> Result<String> {
+    let mut last_err: Option<anyhow::Error> = None;
+    for (i, url) in candidates.iter().enumerate() {
+        if i > 0 {
+            sink.warning(format!(
+                "[{}] {} source unreachable, trying next mirror...",
+                sdk_label, source_label
+            ));
+        }
+        let hdrs = with_github_token_if_api(headers.clone(), url, network);
+        match try_url_with_retry(client, url, hdrs, sdk_label, source_label, sink, attempts).await {
+            Ok(body) => return Ok(body),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| anyhow::anyhow!("[{}] {} source has no candidates configured", sdk_label, source_label)))
+}
+
 /// 对单个 URL 进行重试(5xx/网络错误重试,429/403 不重试直接返回错误)
 async fn try_url_with_retry(
     client: &Client,
@@ -181,15 +243,43 @@ async fn try_url_with_retry(
     sdk_label: &str,
     source_label: &str,
     sink: &dyn EventSink,
+    attempts_budget: u32,
 ) -> Result<String> {
-    for attempt in 0..MAX_RETRIES {
+    for attempt in 0..attempts_budget {
         let mut req = client.get(url);
         if let Some(hdrs) = &headers {
             for (k, v) in hdrs {
                 req = req.header(k.as_str(), v.as_str());
             }
         }
-        let resp = req.send().await;
+        let resp = match tokio::time::timeout(RESPONSE_TIMEOUT, req.send()).await {
+            Ok(resp) => resp,
+            Err(_) => {
+                // 响应头超时按网络错误处理：有备援时 attempts=1 直接返回让上层切源
+                let msg = format!("no response within {}s", RESPONSE_TIMEOUT.as_secs());
+                if attempt + 1 < attempts_budget {
+                    let delay = Duration::from_secs((attempt + 1) as u64);
+                    sink.warning(format!(
+                        "[{}] {} source {}, retrying in {}s... (attempt {}/{})",
+                        sdk_label,
+                        source_label,
+                        msg,
+                        delay.as_secs(),
+                        attempt + 1,
+                        attempts_budget
+                    ));
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                return Err(anyhow::anyhow!(
+                    "[{}] {} source {} after {} attempts",
+                    sdk_label,
+                    source_label,
+                    msg,
+                    attempts_budget
+                ));
+            }
+        };
 
         match resp {
             Ok(resp) if resp.status().is_success() => {
@@ -214,7 +304,7 @@ async fn try_url_with_retry(
 
                 // 5xx 服务器错误 → 重试
                 if status.is_server_error() {
-                    if attempt < MAX_RETRIES - 1 {
+                    if attempt + 1 < attempts_budget {
                         let delay = Duration::from_secs((attempt + 1) as u64);
                         sink.warning(format!(
                             "[{}] {} source server error (HTTP {}), retrying in {}s... (attempt {}/{})",
@@ -223,17 +313,17 @@ async fn try_url_with_retry(
                             status,
                             delay.as_secs(),
                             attempt + 1,
-                            MAX_RETRIES
+                            attempts_budget
                         ));
                         tokio::time::sleep(delay).await;
                         continue;
                     }
                     return Err(anyhow::anyhow!(
-                        "[{}] {} source server error (HTTP {}) after {} retries",
+                        "[{}] {} source server error (HTTP {}) after {} attempts",
                         sdk_label,
                         source_label,
                         status,
-                        MAX_RETRIES
+                        attempts_budget
                     ));
                 }
 
@@ -247,7 +337,7 @@ async fn try_url_with_retry(
             }
             Err(e) => {
                 // 网络错误 → 重试
-                if attempt < MAX_RETRIES - 1 {
+                if attempt + 1 < attempts_budget {
                     let delay = Duration::from_secs((attempt + 1) as u64);
                     sink.warning(format!(
                         "[{}] {} source network error, retrying in {}s... (attempt {}/{}): {}",
@@ -255,17 +345,17 @@ async fn try_url_with_retry(
                         source_label,
                         delay.as_secs(),
                         attempt + 1,
-                        MAX_RETRIES,
+                        attempts_budget,
                         truncate(&e.to_string(), 100)
                     ));
                     tokio::time::sleep(delay).await;
                     continue;
                 }
                 return Err(anyhow::anyhow!(
-                    "[{}] {} source network error after {} retries: {}",
+                    "[{}] {} source network error after {} attempts: {}",
                     sdk_label,
                     source_label,
-                    MAX_RETRIES,
+                    attempts_budget,
                     truncate(&e.to_string(), 200)
                 ));
             }

@@ -14,6 +14,8 @@ use super::keys::{ConfigKey, SdkField};
 pub enum ValueType {
     /// 合法 URL（http/https/socks5）→ url::Url::parse()
     Url,
+    /// URL 列表（逗号/空白分隔多个前缀；允许空串 = 关闭/未配置）
+    UrlList,
     /// URL 模板（允许 {version} 等占位符）→ 占位符替换为 dummy 后 Url::parse()
     UrlTemplate,
     /// 布尔值 → 接受 true/false/1/0/yes/no/on/off（大小写不敏感）
@@ -100,7 +102,7 @@ pub fn field_type(key: &ConfigKey) -> ValueType {
         ConfigKey::NetworkConnectTimeout => ValueType::U32 { min: 1, max: 600 },
         ConfigKey::NetworkCacheTtlSecs => ValueType::U32 { min: 0, max: 86400 },
         ConfigKey::NetworkGithubToken => ValueType::Token,
-        ConfigKey::NetworkGithubDownloadMirror => ValueType::Url,
+        ConfigKey::NetworkGithubDownloadMirror => ValueType::UrlList,
         ConfigKey::Sdk {
             field: SdkField::VersionUrl,
             ..
@@ -195,7 +197,7 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
         },
         ConfigKey::NetworkGithubDownloadMirror => KeyMeta {
             deletable: true,
-            value_type: ValueType::Url,
+            value_type: ValueType::UrlList,
             default_desc: "(none)".to_string(),
         },
         ConfigKey::Sdk {
@@ -292,6 +294,7 @@ pub fn key_meta(key: &ConfigKey, is_builtin: bool) -> KeyMeta {
 pub fn validate_by_type(raw: &str, ty: &ValueType) -> Result<ValidatedValue> {
     match ty {
         ValueType::Url => validate_url(raw),
+        ValueType::UrlList => validate_url_list(raw),
         ValueType::UrlTemplate => validate_url_template(raw),
         ValueType::Bool => validate_bool(raw),
         ValueType::U32 { min, max } => validate_u32(raw, *min, *max),
@@ -330,6 +333,25 @@ fn validate_url(raw: &str) -> Result<ValidatedValue> {
         "http" | "https" | "socks5" => Ok(ValidatedValue::Url(raw.to_string())),
         s => bail!("Invalid URL scheme '{}'. Supported: http, https, socks5", s),
     }
+}
+
+/// URL 列表校验：逗号/空白分隔，空串表示关闭（合法）；逐项必须是 http/https 前缀
+fn validate_url_list(raw: &str) -> Result<ValidatedValue> {
+    let items: Vec<&str> = raw
+        .split([',', ' ', '\t', '\r', '\n'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    for item in &items {
+        let parsed = url::Url::parse(item).context(format!("Invalid URL in list: '{}'", item))?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            bail!(
+                "Invalid URL scheme '{}' in list. Mirror prefixes must be http/https",
+                parsed.scheme()
+            );
+        }
+    }
+    Ok(ValidatedValue::Url(raw.to_string()))
 }
 
 /// URL 模板校验：含 {version} 等占位符的 URL，先将占位符替换为 dummy 再验证
@@ -420,5 +442,23 @@ pub fn mask_token(token: &str) -> String {
         "***".to_string()
     } else {
         format!("{}***", &token[..4])
+    }
+}
+
+#[cfg(test)]
+mod url_list_tests {
+    use super::*;
+
+    #[test]
+    fn mirror_list_accepts_multiple_and_empty() {
+        assert!(validate_url_list("").is_ok());
+        assert!(validate_url_list("https://a.example/, https://b.example").is_ok());
+        assert!(validate_url_list("https://a.example\nhttps://b.example").is_ok());
+    }
+
+    #[test]
+    fn mirror_list_rejects_bad_entry_or_scheme() {
+        assert!(validate_url_list("https://a.example/, not-a-url").is_err());
+        assert!(validate_url_list("ftp://a.example/").is_err());
     }
 }

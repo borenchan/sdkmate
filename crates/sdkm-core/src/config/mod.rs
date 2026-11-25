@@ -53,6 +53,10 @@ pub struct SdkSourceUpdate {
     pub extra_paths: Option<Vec<String>>,
 }
 
+/// 中国大陆 init 与 `config reset network` 时启用的 GitHub 下载镜像前缀。
+/// 多镜像在下载时并行探测选最快，失败自动切换；用户可用 config set 覆盖或清空关闭。
+pub const DEFAULT_CN_GITHUB_MIRRORS: &str = "https://ghfast.top/, https://edgeone.gh-proxy.com/, https://gh-proxy.com/";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)] //ignore unknown fields
 pub struct SdkmConfig {
@@ -96,42 +100,182 @@ pub struct NetworkConfig {
     #[serde(default)]
     pub github_token: Option<String>,
 
-    /// GitHub 下载镜像前缀（可选，如 "https://gh-proxy.com/"）。
+    /// GitHub 下载镜像前缀（可选，支持逗号/空白分隔多个前缀，如
+    /// "https://ghfast.top/, https://gh-proxy.com/"）。
     /// 域名在白名单内（github.com 等，不含 api.github.com）的下载/raw 请求拼此前缀加速；
-    /// 空 = 关闭。纯 URL 重写层，不影响主备切换与重试逻辑。
+    /// 空 = 关闭。多前缀只是候选顺序，实际由下载器探测最快者，失败自动切换。
     #[serde(default)]
     pub github_download_mirror: Option<String>,
 }
 
+/// 可被镜像重写的 GitHub 域名（api.github.com 明确排除：直连 + token 已可用，
+/// 公共代理出口 IP 匿名配额不可靠）
+const GITHUB_MIRROR_WHITELIST: &[&str] = &[
+    "github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "codeload.github.com",
+    "gist.githubusercontent.com",
+];
+
+/// 高校 github-release 镜像：只同步「白名单仓库 + 最新 release」。
+/// 实测覆盖：USTC 有 astral-sh（Python/uv），TUNA/BFSU 有 denoland 等；
+/// 不覆盖 adoptium（Temurin 走下面的清华 Adoptium 专属镜像）。
+const UNIVERSITY_GH_RELEASE_MIRRORS: &[&str] = &[
+    "https://mirrors.ustc.edu.cn/github-release/",
+    "https://mirrors.tuna.tsinghua.edu.cn/github-release/",
+    "https://mirrors.bfsu.edu.cn/github-release/",
+];
+
+/// 清华 Adoptium 镜像（Temurin 专用）：路径 `{feature}/jdk/{arch}/{os}/{asset}`，
+/// 只保留每个 feature 的最新 patch，旧版本 404 由探测自然跳过。
+const TUNA_ADOPTIUM_BASE: &str = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/";
+
 impl NetworkConfig {
-    /// GitHub 下载镜像重写：URL 域名在白名单内则拼镜像前缀，否则原样返回。
-    /// 空镜像配置 = 关闭（原样返回）。api.github.com 明确排除（直连+token 已可用，
-    /// 公共代理出口 IP 匿名配额不可靠）。非白名单/关闭态返回 to_string 的原 URL。
-    pub fn mirror_github_url(&self, url: &str) -> String {
-        const WHITELIST: &[&str] = &[
-            "github.com",
-            "raw.githubusercontent.com",
-            "objects.githubusercontent.com",
-            "codeload.github.com",
-            "gist.githubusercontent.com",
-        ];
-        let Some(mirror) = self.github_download_mirror.as_deref() else {
-            return url.to_string();
+    /// 解析镜像前缀列表（逗号/空白分隔，过滤空项与非法 URL）
+    pub fn github_mirrors(&self) -> Vec<String> {
+        let Some(raw) = self.github_download_mirror.as_deref() else {
+            return Vec::new();
         };
-        if mirror.is_empty() {
-            return url.to_string();
-        }
-        let Ok(parsed) = url::Url::parse(url) else {
-            return url.to_string();
-        };
-        let in_whitelist = parsed.host_str().is_some_and(|h| WHITELIST.contains(&h));
-        if !in_whitelist {
-            return url.to_string();
-        }
-        // 尾斜杠归一化：镜像填 "https://gh-proxy.com" 等价带 "/"
-        let sep = if mirror.ends_with('/') { "" } else { "/" };
-        format!("{}{}{}", mirror, sep, url)
+        raw.split([',', ' ', '\t', '\r', '\n'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter(|s| url::Url::parse(s).is_ok())
+            .map(|s| s.to_string())
+            .collect()
     }
+
+    /// 是否配置了代理（有代理时直连 GitHub 走代理，通常优于再绕第三方镜像）
+    fn has_proxy(&self) -> bool {
+        self.proxy.as_deref().is_some_and(|p| !p.trim().is_empty())
+    }
+
+    /// 为单个原始 URL 生成候选下载地址（按尝试优先级）。
+    ///
+    /// - 非 GitHub 白名单域名：只有原 URL 一个候选
+    /// - 配置了代理：直连优先，镜像作兜底（代理已能直达 GitHub，不必绕镜像）
+    /// - 未配代理：镜像按配置顺序在前，直连兜底（镜像全挂时 GitHub 偶尔仍可直连）
+    ///
+    /// 去重保序；调用方负责探测/切换/续传。
+    pub fn download_candidates(&self, url: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let Ok(parsed) = url::Url::parse(url) else {
+            out.push(url.to_string());
+            return out;
+        };
+        let mirrorable = parsed.host_str().is_some_and(|h| GITHUB_MIRROR_WHITELIST.contains(&h));
+        let mirrors = self.github_mirrors();
+        if !mirrorable || (mirrors.is_empty() && !self.has_proxy()) {
+            out.push(url.to_string());
+            return out;
+        }
+
+        let mut push = |u: String| {
+            if !u.is_empty() && !out.contains(&u) {
+                out.push(u);
+            }
+        };
+        let use_university = !mirrors.is_empty();
+        let prefix_mirrors = mirrors.into_iter().map(|m| {
+            // 尾斜杠归一化："https://gh-proxy.com" 等价带 "/"
+            let sep = if m.ends_with('/') { "" } else { "/" };
+            format!("{}{}{}", m, sep, url)
+        });
+        let university = if use_university {
+            university_release_candidates(&parsed)
+        } else {
+            Vec::new()
+        };
+        // Temurin 的 GitHub 资产可映射到清华 Adoptium 镜像（白名单外，独立规则）
+        let adoptium = tuna_adoptium_candidate(&parsed);
+
+        if self.has_proxy() {
+            push(url.to_string());
+            for m in prefix_mirrors {
+                push(m);
+            }
+            if let Some(m) = adoptium {
+                push(m);
+            }
+            for m in university {
+                push(m);
+            }
+        } else {
+            for m in prefix_mirrors {
+                push(m);
+            }
+            if let Some(m) = adoptium {
+                push(m);
+            }
+            for m in university {
+                push(m);
+            }
+            push(url.to_string());
+        }
+        out
+    }
+}
+
+/// GitHub Release 资产 URL → 高校 github-release 镜像候选。
+/// 仅处理 `github.com/{owner}/{repo}/releases/download/{tag}/{asset}` 形态；
+/// 这些镜像只保留最新 release，旧版本会 404，由探测/切换逻辑自然跳过。
+fn university_release_candidates(parsed: &url::Url) -> Vec<String> {
+    if parsed.host_str() != Some("github.com") {
+        return Vec::new();
+    }
+    let path = parsed.path();
+    let Some(rest) = path.strip_prefix('/') else {
+        return Vec::new();
+    };
+    // owner/repo/releases/download/tag/asset...（tag 与资产名保留原始百分号编码）
+    let parts: Vec<&str> = rest.splitn(6, '/').collect();
+    if parts.len() < 6 || parts[2] != "releases" || parts[3] != "download" {
+        return Vec::new();
+    }
+    let (owner, repo, tag, asset) = (parts[0], parts[1], parts[4], parts[5]);
+    if owner.is_empty() || repo.is_empty() || tag.is_empty() || asset.is_empty() {
+        return Vec::new();
+    }
+    // Temurin 走清华 Adoptium 专属镜像（高校 github-release 实测不覆盖 adoptium）
+    if owner == "adoptium" {
+        return Vec::new();
+    }
+    UNIVERSITY_GH_RELEASE_MIRRORS
+        .iter()
+        .map(|base| format!("{}{}/{}/{}/{}", base, owner, repo, tag, asset))
+        .collect()
+}
+
+/// Temurin GitHub Release 资产 → 清华 Adoptium 镜像候选。
+/// 仅处理 `github.com/adoptium/temurin{N}-binaries/releases/download/{tag}/{asset}`；
+/// 资产名形如 `OpenJDK21U-jdk_x64_windows_hotspot_21.0.13.1_2.zip`，
+/// 镜像目录为 `Adoptium/{N}/{jdk|jre}/{arch}/{os}/{asset}`（os 用 mac，不是 macos）。
+fn tuna_adoptium_candidate(parsed: &url::Url) -> Option<String> {
+    if parsed.host_str() != Some("github.com") {
+        return None;
+    }
+    let rest = parsed.path().strip_prefix('/')?;
+    let parts: Vec<&str> = rest.splitn(6, '/').collect();
+    if parts.len() < 6 || parts[0] != "adoptium" || parts[2] != "releases" || parts[3] != "download" {
+        return None;
+    }
+    let feature = parts[1].strip_prefix("temurin")?.strip_suffix("-binaries")?;
+    if feature.is_empty() || !feature.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let asset = parts[5];
+    // OpenJDK{feature}U-{image}_{arch}_{os}_hotspot_{version}.{ext}
+    let mut segs = asset.split('_');
+    let image = segs.next()?.rsplit_once('-')?.1;
+    let arch = segs.next()?;
+    let os = segs.next()?;
+    if !matches!(image, "jdk" | "jre") || !matches!(arch, "x64" | "aarch64") {
+        return None;
+    }
+    if !matches!(os, "windows" | "linux" | "mac") {
+        return None;
+    }
+    Some(format!("{TUNA_ADOPTIUM_BASE}{feature}/{image}/{arch}/{os}/{asset}"))
 }
 
 fn default_cache_ttl_secs() -> u32 {
@@ -876,34 +1020,124 @@ fn seed_to_config(seed: &SdkSeed) -> SdkConfig {
 mod mirror_tests {
     use super::*;
 
-    /// 关闭态（None/空串）原样返回
+    const GH_ASSET: &str = "https://github.com/a/b/releases/download/v1/x.zip";
+
+    /// 关闭态（None/空串）只有一个直连候选
     #[test]
     fn test_mirror_disabled() {
         let mut n = NetworkConfig::default();
-        let url = "https://github.com/a/b/releases/download/v1/x.zip";
-        assert_eq!(n.mirror_github_url(url), url);
+        assert_eq!(n.download_candidates(GH_ASSET), vec![GH_ASSET.to_string()]);
         n.github_download_mirror = Some(String::new());
-        assert_eq!(n.mirror_github_url(url), url);
+        assert_eq!(n.download_candidates(GH_ASSET), vec![GH_ASSET.to_string()]);
     }
 
-    /// 白名单域名拼镜像前缀；尾斜杠缺失自动补
+    /// 白名单域名：前缀镜像在前、直连兜底；release 资产额外获得高校镜像候选
     #[test]
     fn test_mirror_whitelist() {
         let mut n = NetworkConfig::default();
         n.github_download_mirror = Some("https://gh-proxy.com".to_string());
+        let c = n.download_candidates(GH_ASSET);
         assert_eq!(
-            n.mirror_github_url("https://github.com/a/b/releases/download/v1/x.zip"),
+            c.first().unwrap(),
             "https://gh-proxy.com/https://github.com/a/b/releases/download/v1/x.zip"
         );
+        assert!(c.contains(&"https://mirrors.ustc.edu.cn/github-release/a/b/v1/x.zip".to_string()));
+        assert!(c.contains(&"https://mirrors.tuna.tsinghua.edu.cn/github-release/a/b/v1/x.zip".to_string()));
+        assert!(c.contains(&"https://mirrors.bfsu.edu.cn/github-release/a/b/v1/x.zip".to_string()));
+        assert_eq!(c.last().unwrap(), GH_ASSET);
+
+        // 非 release 资产（raw / codeload）不含高校镜像，只拼前缀 + 直连
+        let raw = "https://raw.githubusercontent.com/a/b/main/c.json";
+        let c = n.download_candidates(raw);
         assert_eq!(
-            n.mirror_github_url("https://raw.githubusercontent.com/a/b/main/c.json"),
-            "https://gh-proxy.com/https://raw.githubusercontent.com/a/b/main/c.json"
+            c,
+            vec![
+                "https://gh-proxy.com/https://raw.githubusercontent.com/a/b/main/c.json".to_string(),
+                raw.to_string()
+            ]
         );
-        // 带尾斜杠的镜像不重复
         n.github_download_mirror = Some("https://gh-proxy.com/".to_string());
-        assert_eq!(
-            n.mirror_github_url("https://codeload.github.com/a/b/tar.gz/refs/tags/v1"),
-            "https://gh-proxy.com/https://codeload.github.com/a/b/tar.gz/refs/tags/v1"
+        let codeload = "https://codeload.github.com/a/b/tar.gz/refs/tags/v1";
+        let c = n.download_candidates(codeload);
+        assert_eq!(c.first().unwrap(), &format!("https://gh-proxy.com/{}", codeload));
+    }
+
+    /// 多个镜像按配置顺序；空白/逗号混排均可
+    #[test]
+    fn test_multiple_mirrors() {
+        let mut n = NetworkConfig::default();
+        n.github_download_mirror = Some("https://a.example/, https://b.example  https://c.example".to_string());
+        let c = n.download_candidates(GH_ASSET);
+        assert_eq!(c[0], format!("https://a.example/{}", GH_ASSET));
+        assert_eq!(c[1], format!("https://b.example/{}", GH_ASSET));
+        assert_eq!(c[2], format!("https://c.example/{}", GH_ASSET));
+        assert_eq!(c.last().unwrap(), GH_ASSET);
+    }
+
+    /// 配置代理时直连优先（走梯子），镜像仍作兜底
+    #[test]
+    fn test_proxy_prefers_direct() {
+        let mut n = NetworkConfig::default();
+        n.github_download_mirror = Some("https://gh-proxy.com/".to_string());
+        n.proxy = Some("http://127.0.0.1:7890".to_string());
+        let c = n.download_candidates(GH_ASSET);
+        assert_eq!(c.first().unwrap(), GH_ASSET);
+        assert!(c[1..].iter().any(|u| u.starts_with("https://gh-proxy.com/")));
+    }
+
+    /// 高校镜像转换保留 tag 的百分号编码（如 jdk-21.0.13.1%2B2 形态）
+    #[test]
+    fn test_university_release_transform() {
+        let n = NetworkConfig {
+            github_download_mirror: Some("https://gh-proxy.com/".to_string()),
+            ..Default::default()
+        };
+        let url = "https://github.com/a/b/releases/download/jdk-21.0.13.1%2B2/x.zip";
+        let c = n.download_candidates(url);
+        assert!(c.contains(&"https://mirrors.ustc.edu.cn/github-release/a/b/jdk-21.0.13.1%2B2/x.zip".to_string()));
+        // 非标准 release 路径不生成高校候选
+        assert!(
+            university_release_candidates(&url::Url::parse("https://github.com/a/b/archive/v1.zip").unwrap())
+                .is_empty()
+        );
+        // Temurin 不生成高校候选（改走清华 Adoptium 镜像）
+        let adoptium = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/x.zip";
+        assert!(university_release_candidates(&url::Url::parse(adoptium).unwrap()).is_empty());
+    }
+
+    /// Temurin 资产映射到清华 Adoptium 镜像（仅 jdk/jre + 已知平台）
+    #[test]
+    fn test_tuna_adoptium_candidate() {
+        let n = NetworkConfig {
+            github_download_mirror: Some("https://gh-proxy.com/".to_string()),
+            ..Default::default()
+        };
+        let win = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/OpenJDK21U-jdk_x64_windows_hotspot_21.0.13.1_2.zip";
+        let c = n.download_candidates(win);
+        assert!(c.contains(
+            &"https://mirrors.tuna.tsinghua.edu.cn/Adoptium/21/jdk/x64/windows/OpenJDK21U-jdk_x64_windows_hotspot_21.0.13.1_2.zip"
+                .to_string()
+        ));
+
+        let mac = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.13.1_2.tar.gz";
+        assert!(
+            n.download_candidates(mac)
+                .iter()
+                .any(|u| u.starts_with("https://mirrors.tuna.tsinghua.edu.cn/Adoptium/21/jdk/aarch64/mac/"))
+        );
+
+        // 非 release 形态 / 非 Temurin 仓库不生成候选
+        assert!(
+            tuna_adoptium_candidate(
+                &url::Url::parse("https://github.com/adoptium/temurin21-binaries/archive/refs/tags/x.zip").unwrap()
+            )
+            .is_none()
+        );
+        assert!(
+            tuna_adoptium_candidate(
+                &url::Url::parse("https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/x.zip").unwrap()
+            )
+            .is_none()
         );
     }
 
@@ -913,17 +1147,17 @@ mod mirror_tests {
         let mut n = NetworkConfig::default();
         n.github_download_mirror = Some("https://gh-proxy.com/".to_string());
         assert_eq!(
-            n.mirror_github_url("https://api.github.com/repos/a/b/releases"),
-            "https://api.github.com/repos/a/b/releases"
+            n.download_candidates("https://api.github.com/repos/a/b/releases"),
+            vec!["https://api.github.com/repos/a/b/releases".to_string()]
         );
         assert_eq!(
-            n.mirror_github_url("https://nodejs.org/dist/v20/node.zip"),
-            "https://nodejs.org/dist/v20/node.zip"
+            n.download_candidates("https://nodejs.org/dist/v20/node.zip"),
+            vec!["https://nodejs.org/dist/v20/node.zip".to_string()]
         );
         // evil-github.com 这类前缀伪装不命中（host 精确比对）
         assert_eq!(
-            n.mirror_github_url("https://evil-github.com/a.zip"),
-            "https://evil-github.com/a.zip"
+            n.download_candidates("https://evil-github.com/a.zip"),
+            vec!["https://evil-github.com/a.zip".to_string()]
         );
     }
 
@@ -932,6 +1166,6 @@ mod mirror_tests {
     fn test_mirror_malformed() {
         let mut n = NetworkConfig::default();
         n.github_download_mirror = Some("https://gh-proxy.com/".to_string());
-        assert_eq!(n.mirror_github_url("not a url"), "not a url");
+        assert_eq!(n.download_candidates("not a url"), vec!["not a url".to_string()]);
     }
 }

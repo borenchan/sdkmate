@@ -610,7 +610,7 @@ fn core_flow_emits_event_sequence() {
         &log,
         &[
             "ev 1.4.2 is not installed locally, proceeding...",
-            "Download URL (primary): ",
+            "Download URL: ",
             "Temporary directory: ",
             "Temporary files cleaned up.",
             "🔗 Switching ev to 1.4.2...",
@@ -737,15 +737,19 @@ fn core_flow_fallback_download_bar_lifecycle() {
 
     assert_installed(&env, "fb", "3.0.0", &format!("bin{}demo.txt", std::path::MAIN_SEPARATOR));
     let log = events.lock().unwrap().clone();
-    // 事件顺序：主源重试警告 → 切备源警告 → 安装成功（无 Error 事件，最终失败才走 Err）
+    // 事件顺序：主源有备援时单次尝试即失败 → 切备源警告 → 安装成功（无 Error 事件，最终失败才走 Err）
     assert_in_order(
         &log,
         &[
-            "Download attempt #1 failed: ",
-            "Download attempt #2 failed: ",
+            "Source 127.0.0.1 failed: ",
             "Primary download failed, trying fallback URL: ",
             "fb 3.0.0 installed successfully!",
         ],
+    );
+    // 有异形态备源时主源不重试：一次失败立即切备源（快速失败）
+    assert!(
+        !log.iter().any(|m| m.contains("Download attempt #1 failed")),
+        "有备援时不应重试主源: {log:?}"
     );
     // bar 生命周期：主源 bar 创建→被 finish_and_clear 收尾，备源 bar 创建→打 ✅ Downloaded；
     // 主源 bar 不再"复活"打成功消息（此前死而未僵的主源 bar 会突然画一帧 ✅）

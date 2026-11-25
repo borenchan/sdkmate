@@ -8,7 +8,7 @@
 // - 替换前权限预检；全程 rename 不 delete（Windows 允许 rename 正在运行的 exe）。
 // - 替换后逐个 spawn `--version` 验证；失败恢复原文件。
 
-use crate::install::downloader::{build_download_client, download_with_retry};
+use crate::install::downloader::{build_download_client, build_reqwest_client, download_best};
 use crate::install::extractor::extract_archive;
 use crate::manager::SdkManager;
 use crate::report::ProgressKind;
@@ -108,7 +108,7 @@ impl SdkManager {
     /// 拉取 GitHub 最新 release（token 只注入本请求，避免下载时把 token 发给镜像第三方）
     async fn fetch_latest_release(&self) -> Result<Release> {
         self.sink.info("checking latest release from GitHub...".to_string());
-        let client = build_download_client(&self.config.network)?;
+        let client = build_reqwest_client(&self.config.network)?;
         let mut req = client.get(RELEASES_API).header("Accept", "application/vnd.github+json");
         if let Some(token) = &self.config.network.github_token {
             req = req.header("Authorization", format!("Bearer {}", token));
@@ -127,7 +127,7 @@ impl SdkManager {
     /// 拉取发布列表（回退挑选目标版本用）
     async fn fetch_releases(&self) -> Result<Vec<Release>> {
         self.sink.info("querying GitHub releases...".to_string());
-        let client = build_download_client(&self.config.network)?;
+        let client = build_reqwest_client(&self.config.network)?;
         let mut req = client.get(RELEASES_LIST_API).header("Accept", "application/vnd.github+json");
         if let Some(token) = &self.config.network.github_token {
             req = req.header("Authorization", format!("Bearer {}", token));
@@ -207,8 +207,8 @@ impl SdkManager {
                 asset_name, target_version
             )
         })?;
-        // GitHub 下载镜像重写（白名单域名拼前缀；关闭态原样返回）
-        let download_url = self.config.network.mirror_github_url(&asset.browser_download_url);
+        // GitHub 下载镜像/国内镜像候选（白名单域名展开，API 直链原样保留）
+        let download_candidates = self.config.network.download_candidates(&asset.browser_download_url);
 
         // ── 权限预检：在 CLI 父目录试写（碰网络前挡权限失败）──
         let exe_dir = binaries.cli.parent().context("CLI binary has no parent directory")?;
@@ -232,7 +232,17 @@ impl SdkManager {
             .sink
             .progress(ProgressKind::SelfUpdateDownload, "Downloading sdkm...".to_string());
         let client = build_download_client(&self.config.network)?;
-        download_with_retry(&client, &download_url, &archive_path, pb.as_ref(), self.sink.as_ref(), 3).await?;
+        // 多候选单次尝试；单候选（最后一个兜底）允许 1 次重试
+        let attempts = if download_candidates.len() > 1 { 1 } else { 2 };
+        download_best(
+            &client,
+            &download_candidates,
+            &archive_path,
+            pb.as_ref(),
+            self.sink.as_ref(),
+            attempts,
+        )
+        .await?;
         pb.finish_with_message("download complete".to_string());
 
         // ── 解压取包内 .sdkm/ 下的二进制 ──

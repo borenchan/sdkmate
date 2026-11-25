@@ -29,10 +29,12 @@ pub const NODE: SdkSeed = SdkSeed {
     name: "node",
     variant: Some(BuiltinSdk::Node),
     version_url: "https://nodejs.org/dist/index.json",
-    version_fallback_url: None,
+    // 国内镜像：华为云同步 nodejs.org/dist 全量结构（index.json + 同路径安装包），
+    // 实测下载速度稳定高于官方源，故安装包以华为云为主源、官方兜底
+    version_fallback_url: Some("https://mirrors.huaweicloud.com/nodejs/index.json"),
     // {version} = v20.11.0（含 v 前缀，专属分支加工）；{os} = Short 映射（win/darwin/linux）
-    download_url: Some("https://nodejs.org/dist/{version}/node-{version}-{os}-{arch}.{ext}"),
-    download_fallback_url: None,
+    download_url: Some("https://mirrors.huaweicloud.com/nodejs/{version}/node-{version}-{os}-{arch}.{ext}"),
+    download_fallback_url: Some("https://nodejs.org/dist/{version}/node-{version}-{os}-{arch}.{ext}"),
     // Windows zip 扁平（node.exe 在根）；Unix tar.gz 有 bin/
     bin_dir: if cfg!(target_os = "windows") { None } else { Some("bin") },
     os_style: OsStyle::Short,

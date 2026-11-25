@@ -13,12 +13,12 @@ pub const TOMCAT: SdkSeed = SdkSeed {
     version_url: "https://archive.apache.org/dist/tomcat/",
     version_fallback_url: Some("https://dlcdn.apache.org/tomcat/"),
     // {feature_version} = 主版本号（9/10/11）；{ext} = zip(win)/tar.gz(unix)
-    // 主源 dlcdn（当前版本 CDN，快；历史版本 404 时不重试，立即回退 archive）
+    // 主源华为云（国内快、全历史）；备源官方 dlcdn（当前版本 CDN）
     download_url: Some(
-        "https://dlcdn.apache.org/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
+        "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
     ),
     download_fallback_url: Some(
-        "https://archive.apache.org/dist/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
+        "https://dlcdn.apache.org/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}",
     ),
     bin_dir: Some("bin"),
     os_style: OsStyle::Default,

@@ -89,7 +89,7 @@ impl SettingsState {
         let timeout = cx.new(|cx| InputState::new(window, cx));
         let ttl = cx.new(|cx| InputState::new(window, cx));
         let token = cx.new(|cx| InputState::new(window, cx));
-        let mirror = cx.new(|cx| InputState::new(window, cx));
+        let mirror = cx.new(|cx| InputState::new(window, cx).placeholder("https://ghfast.top/, https://gh-proxy.com/"));
         let source_search = cx.new(|cx| InputState::new(window, cx).placeholder("SDK..."));
         let edit_v = cx.new(|cx| InputState::new(window, cx));
         let edit_vfb = cx.new(|cx| InputState::new(window, cx));
@@ -656,7 +656,7 @@ fn network_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                                         timeout,
                                         ttl,
                                         token: ne(token),
-                                        mirror: ne(mirror),
+                                        mirror: Some(mirror),
                                     },
                                     cx,
                                 );

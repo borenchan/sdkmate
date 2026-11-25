@@ -6,7 +6,21 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::task::JoinSet;
+
+/// 首响应等待上限（connect+TLS+响应头）：connect_timeout 默认 30s，
+/// 黑洞源会把一次尝试拖到 30s，这里统一在发送阶段快速判死
+const FIRST_RESPONSE_TIMEOUT: Duration = Duration::from_secs(8);
+/// 首字节等待上限：坏源常常接受 TCP 后不发数据，30s 会让用户长时间看不到进度
+const FIRST_CHUNK_TIMEOUT: Duration = Duration::from_secs(8);
+/// 传输中两段数据之间的最大静默时间
+const STALL_TIMEOUT: Duration = Duration::from_secs(15);
+/// 低速判定窗口与窗口内最低字节数（60s 内不足 300KB ≈ 均速 <5KB/s，视为假活连接）
+const LOW_SPEED_WINDOW: Duration = Duration::from_secs(60);
+const LOW_SPEED_MIN_BYTES: u64 = 300 * 1024;
+/// 候选源健康探测单请求上限（探测只为排序，不值得等太久）
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// 进程级 client 缓存（api / download 各一），按 network 配置指纹失效。
 /// 前提：进程内 runtime 常驻（CLI OnceLock / GUI 共享 runtime）——连接池绑定创建它的
@@ -57,12 +71,13 @@ pub fn build_download_client(network: &NetworkConfig) -> Result<Client> {
 fn build_client(network: &NetworkConfig, gzip: bool) -> Result<Client> {
     let mut builder = Client::builder()
         .connect_timeout(Duration::from_secs(network.connect_timeout as u64))
-        .timeout(Duration::from_secs(600))
         .redirect(reqwest::redirect::Policy::limited(10))
         .user_agent("sdkm/0.2");
 
     if gzip {
-        builder = builder.gzip(true);
+        // API 请求（版本 JSON 等）：用读空闲超时而不是总超时——GH releases 单页可达数 MB，
+        // 慢速链路需要几十秒传完；坏连接只要 15s 无数据就失败，不会挂到天荒地老。
+        builder = builder.gzip(true).read_timeout(Duration::from_secs(15));
     } else {
         builder = builder.no_gzip();
     }
@@ -91,6 +106,18 @@ impl std::fmt::Display for NonRetryableHttpError {
 
 impl std::error::Error for NonRetryableHttpError {}
 
+/// 卡死/假活连接：同一 URL 重试无意义，直接切下一候选源
+#[derive(Debug)]
+struct StalledDownload(String);
+
+impl std::fmt::Display for StalledDownload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for StalledDownload {}
+
 /// 异步下载文件到指定路径，支持 streaming + 进度条 + 断点续传。
 ///
 /// 续传机制：若 dest_path 已有部分文件，发 `Range: bytes=<have>-` 请求；
@@ -115,7 +142,17 @@ pub async fn download_with_progress(
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={}-", have));
     }
-    let mut resp = req.send().await.context(format!("Failed to start download from {}", url))?;
+    // 首响应单独限时：connect_timeout 只管 TCP 建连，TLS/等待响应头仍可能长时间无进展
+    let mut resp = match tokio::time::timeout(FIRST_RESPONSE_TIMEOUT, req.send()).await {
+        Ok(r) => r.context(format!("Failed to start download from {}", url))?,
+        Err(_) => {
+            return Err(anyhow::Error::new(StalledDownload(format!(
+                "No response within {}s from {}",
+                FIRST_RESPONSE_TIMEOUT.as_secs(),
+                url
+            ))));
+        }
+    };
 
     let status = resp.status();
     // 206 = 服务器支持续传；200 = 不支持 Range 或无部分文件，从头下
@@ -169,14 +206,26 @@ pub async fn download_with_progress(
     // 进度条对齐：续传从 have 开始，从头从 0
     pb.set_position(if resume { have } else { 0 });
 
-    // 用 reqwest 的 chunk() 逐块读取（无需 StreamExt，省去 futures-util 依赖）；
-    // 30s 无数据视为卡死（CDN 半开连接，实测 dlcdn 国内会停在几 MB），中止本次尝试触发重试/备源
+    // 用 reqwest 的 chunk() 逐块读取（无需 StreamExt，省去 futures-util 依赖）。
+    // 超时分两档：首字节 8s（死源往往接受 TCP 后零数据），之后静默 15s 判卡死；
+    // 另加低速窗口兜底，防 1B/秒 的假活连接把大文件拖到天荒地老。
+    let mut first = true;
+    let mut win_start = Instant::now();
+    let mut win_bytes = 0u64;
     loop {
-        let chunk = match tokio::time::timeout(Duration::from_secs(30), resp.chunk()).await {
+        let wait = if first { FIRST_CHUNK_TIMEOUT } else { STALL_TIMEOUT };
+        let chunk = match tokio::time::timeout(wait, resp.chunk()).await {
             Ok(chunk) => chunk.context("Error reading download stream")?,
-            Err(_) => bail!("Download stalled: no data for 30s from {}", url),
+            Err(_) => {
+                return Err(anyhow::Error::new(StalledDownload(format!(
+                    "Download stalled: no data for {}s from {}",
+                    wait.as_secs(),
+                    url
+                ))));
+            }
         };
         let Some(chunk) = chunk else { break };
+        first = false;
         if pb.is_cancelled() {
             bail!("install cancelled");
         }
@@ -184,6 +233,21 @@ pub async fn download_with_progress(
         tokio::io::AsyncWriteExt::write_all(&mut writer, &chunk)
             .await
             .context("Error writing download chunk to file")?;
+
+        // 低速窗口：60s 内累计不足 300KB 判为假活连接（正常慢速源仍可通过）
+        win_bytes += chunk.len() as u64;
+        if win_start.elapsed() >= LOW_SPEED_WINDOW {
+            if win_bytes < LOW_SPEED_MIN_BYTES {
+                return Err(anyhow::Error::new(StalledDownload(format!(
+                    "Download too slow: {} in {}s from {}",
+                    human_bytes(win_bytes),
+                    LOW_SPEED_WINDOW.as_secs(),
+                    url
+                ))));
+            }
+            win_start = Instant::now();
+            win_bytes = 0;
+        }
     }
 
     tokio::io::AsyncWriteExt::flush(&mut writer)
@@ -193,40 +257,141 @@ pub async fn download_with_progress(
     Ok(())
 }
 
-/// 带重试的下载（最多 max_retries 次）；失败时保留部分文件供下次重试断点续传
-pub async fn download_with_retry(
+/// 多候选源下载：先并行探测（Range 0-64KB）按响应快慢排序，再逐源尝试。
+/// `attempts` 由调用方决定：有备援（其他候选/备源）传 1，失败立即切换；
+/// 仅当这是最后一个兜底源时才传 2（允许 1 次重试）。卡死/4xx 永不重试。
+/// 返回实际成功的 URL。
+///
+/// 候选通常指向同一资产（镜像前缀、直连、国内镜像），dest_path 不变：
+/// 切源后靠 Range 续传，不重复下载已完成部分。
+pub async fn download_best(
+    client: &Client,
+    candidates: &[String],
+    dest_path: &Path,
+    pb: &dyn ProgressHandle,
+    sink: &dyn EventSink,
+    attempts: u32,
+) -> Result<String> {
+    let mut order: Vec<usize> = if candidates.len() > 1 {
+        probe_candidates(client, candidates).await
+    } else {
+        Vec::new()
+    };
+    // 探测全部失败时不放弃：仍按配置顺序尝试（探测可能误伤，下载本身才是最终判定）
+    if order.is_empty() {
+        order = (0..candidates.len()).collect();
+    } else if order.len() < candidates.len() {
+        // 探测成功的排前面，未响应的保底排后面
+        let fillers: Vec<usize> = (0..candidates.len()).filter(|i| !order.contains(i)).collect();
+        order.extend(fillers);
+    }
+
+    let mut failed_hosts: Vec<String> = Vec::new();
+    for (pos, idx) in order.iter().enumerate() {
+        let url = &candidates[*idx];
+        pb.set_message(format!("Source: {}", url_host(url)));
+        match download_from_candidate(client, url, dest_path, pb, sink, attempts).await {
+            Ok(()) => {
+                sink.detail(format!("Downloaded from {}", url_host(url)));
+                return Ok(url.clone());
+            }
+            Err(e) => {
+                let host = url_host(url);
+                // 失败与切换合并为一条告警；末尾汇总只列失败源，
+                // 避免同一段错误在"逐源告警 + 最终错误"里打印两遍
+                let switch_hint = order
+                    .get(pos + 1)
+                    .map(|next| format!("; switching to {}", url_host(&candidates[*next])))
+                    .unwrap_or_default();
+                sink.warning(format!("Source {host} failed: {e:#}{switch_hint}"));
+                failed_hosts.push(host);
+                // 4xx/卡死之后可能已有半截文件，续传给下一源；从头失败的源不清文件
+            }
+        }
+    }
+    bail!(
+        "All {} download sources failed: {}",
+        failed_hosts.len(),
+        failed_hosts.join(", ")
+    );
+}
+
+/// 单候选源下载：`attempts` 次机会；卡死/4xx 立即返回让上层切源
+async fn download_from_candidate(
     client: &Client,
     url: &str,
     dest_path: &Path,
     pb: &dyn ProgressHandle,
     sink: &dyn EventSink,
-    max_retries: u32,
+    attempts: u32,
 ) -> Result<()> {
-    for attempt in 0..max_retries {
+    for attempt in 0..attempts {
         if pb.is_cancelled() {
             bail!("install cancelled");
         }
         if attempt > 0 {
-            pb.set_message(format!("Retry #{} downloading...", attempt));
+            pb.set_message(format!("Retry #{} from {}...", attempt, url_host(url)));
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-
         match download_with_progress(client, url, dest_path, pb, sink).await {
-            Ok(_) => return Ok(()),
-            // 4xx 确定性失败（如 dlcdn 装历史版本 404）：不重试，立即上抛交给备源
+            Ok(()) => return Ok(()),
             Err(e) if e.downcast_ref::<NonRetryableHttpError>().is_some() => return Err(e),
-            Err(e) if attempt < max_retries - 1 => {
-                // 保留部分文件供下次重试断点续传（不 remove_file）
-                sink.warning(format!(
-                    "Download attempt #{} failed: {}. Retrying (will resume)...",
-                    attempt + 1,
-                    e
-                ));
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            Err(e) => bail!("Download failed after {} attempts: {}", max_retries, e),
+            Err(e) if e.downcast_ref::<StalledDownload>().is_some() => return Err(e),
+            Err(e) if attempt + 1 >= attempts => return Err(e),
+            Err(e) => sink.warning(format!(
+                "Download attempt #{} failed: {}. Retrying (will resume)...",
+                attempt + 1,
+                e
+            )),
         }
     }
-    Ok(())
+    unreachable!()
+}
+
+/// 并行探测候选源健康度：Range 0-64KB，读完首块，按「响应 + 首块传输」耗时升序返回可用下标。
+/// 只测 TTFB 会选中"响应快但传输慢"的源，因此探测包带一点数据量。
+/// 探测同时预热连接池，后续正式下载可直接复用 TLS 连接。
+async fn probe_candidates(client: &Client, candidates: &[String]) -> Vec<usize> {
+    let mut set = JoinSet::new();
+    for (idx, url) in candidates.iter().enumerate() {
+        let client = client.clone();
+        let url = url.clone();
+        set.spawn(async move {
+            let start = Instant::now();
+            let ok = match client
+                .get(&url)
+                .header(reqwest::header::RANGE, "bytes=0-65535")
+                .timeout(PROBE_TIMEOUT)
+                .send()
+                .await
+            {
+                Ok(mut resp) if resp.status().is_success() => {
+                    // 读首个 chunk 纳入耗时；读完即丢弃剩余 body
+                    let _ = resp.chunk().await;
+                    true
+                }
+                _ => false,
+            };
+            (idx, ok, start.elapsed())
+        });
+    }
+
+    let mut alive = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        if let Ok((idx, true, elapsed)) = joined {
+            alive.push((idx, elapsed));
+        }
+    }
+    alive.sort_by_key(|(_, elapsed)| *elapsed);
+    alive.into_iter().map(|(idx, _)| idx).collect()
+}
+
+/// URL 展示用主机名（解析失败时回退原串，截断避免刷屏）
+fn url_host(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| url.to_string())
 }
 
 /// 等价复刻 indicatif::HumanBytes（1024 进制：<1KiB 打整数 B，其余两位小数 + KiB/MiB/...），

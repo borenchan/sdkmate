@@ -4,7 +4,7 @@
 //! 保持关联函数形态（不经 SdkManager::new）：init 是首次创建 config 的命令，
 //! config 未建时 read_from_disk 会失败，manager() 装配路径不可用。
 
-use crate::config::SdkmConfig;
+use crate::config::{DEFAULT_CN_GITHUB_MIRRORS, SdkmConfig};
 use crate::env::{EnvOperation, OsEnvOperation, report_env_actions};
 use crate::manager::SdkManager;
 use crate::report::EventSink;
@@ -158,15 +158,18 @@ impl SdkManager {
     /// 创建默认配置文件
     fn init_sdkm_config(sink: &dyn EventSink) -> Result<()> {
         let mut config = SdkmConfig::default();
-        // 中国大陆时区 → 默认启用 GitHub 下载镜像（GH 资产国内直连基本不可用，
-        // 镜像可随时 config set 清空关闭）；检测失败返回 false 不影响主流程
+        // 中国大陆时区 → 默认启用多个 GitHub 下载镜像（GH 资产国内直连基本不可用；
+        // 单个镜像会挂/限速，下载器运行时探测选最快、失败自动切换；可随时 config set 清空关闭）
         if is_china_mainland_timezone() {
-            config.network.github_download_mirror = Some("https://gh-proxy.com/".to_string());
+            config.network.github_download_mirror = Some(DEFAULT_CN_GITHUB_MIRRORS.to_string());
             sink.success(
-                "China mainland timezone detected — GitHub download mirror enabled by default (gh-proxy.com)"
+                "China mainland timezone detected — GitHub download mirrors enabled by default (ghfast.top + edgeone + gh-proxy.com)"
                     .to_string(),
             );
-            sink.detail("To disable: sdkm config set network.github_download_mirror \"\"".to_string());
+            sink.detail(
+                "Mirrors are probed at download time; disable with: sdkm config set network.github_download_mirror \"\""
+                    .to_string(),
+            );
         }
         config.write_to_disk()?;
         Ok(())

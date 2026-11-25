@@ -1,4 +1,4 @@
-use sdkm_core::install::downloader::download_with_progress;
+use sdkm_core::install::downloader::{download_best, download_with_progress};
 use sdkm_core::report::{EventSink, NullSink, ProgressKind};
 use std::env;
 use std::fs;
@@ -93,6 +93,68 @@ fn download_resumes_partial() {
     rt.block_on(download_with_progress(&client, &url, &dest, pb.as_ref(), &sink))
         .unwrap();
     assert_eq!(fs::read(&dest).unwrap(), body);
+    let _ = fs::remove_file(&dest);
+}
+
+/// 多次接受的固定 body server（探测 + 正式下载会各占一个连接）
+fn serve_multi(body: Vec<u8>, accepts: usize) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    thread::spawn(move || {
+        for _ in 0..accepts {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&body);
+        }
+    });
+    url
+}
+
+/// 取一个已释放的本地端口，连接必然被拒绝（模拟挂掉的镜像）
+fn dead_url() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    format!("http://{}", addr)
+}
+
+/// 候选源切换：首个候选连接拒绝，探测跳过后从第二个候选下载成功
+#[test]
+fn download_best_switches_to_alive_candidate() {
+    let body = vec![b'e'; 100_000];
+    let good = serve_multi(body.clone(), 2);
+    let candidates = vec![dead_url(), good.clone()];
+    let client = reqwest::Client::new();
+    let dest = env::temp_dir().join("sdkm_dl_failover.bin");
+    let sink = NullSink;
+    let pb = sink.progress(ProgressKind::Download, "test".to_string());
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let used = rt
+        .block_on(download_best(&client, &candidates, &dest, pb.as_ref(), &sink, 1))
+        .unwrap();
+    assert_eq!(used, good);
+    assert_eq!(fs::read(&dest).unwrap(), body);
+    let _ = fs::remove_file(&dest);
+}
+
+/// 全部候选不可用时报错，不静默产出空文件
+#[test]
+fn download_best_fails_when_all_candidates_dead() {
+    let candidates = vec![dead_url(), dead_url()];
+    let client = reqwest::Client::new();
+    let dest = env::temp_dir().join("sdkm_dl_all_dead.bin");
+    let sink = NullSink;
+    let pb = sink.progress(ProgressKind::Download, "test".to_string());
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    assert!(
+        rt.block_on(download_best(&client, &candidates, &dest, pb.as_ref(), &sink, 2))
+            .is_err()
+    );
     let _ = fs::remove_file(&dest);
 }
 

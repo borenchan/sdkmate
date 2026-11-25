@@ -19,7 +19,7 @@ use crate::version::{
     resolve_tomcat_version,
 };
 use download_url::build_download_url;
-use downloader::{build_download_client, build_reqwest_client, download_with_retry};
+use downloader::{build_download_client, build_reqwest_client, download_best};
 use extractor::{extract_archive, locate_bin_dir, normalize_extracted_dir, verify_extraction};
 use sdkm_util::builtin::find_seed_by_variant;
 
@@ -161,7 +161,7 @@ impl SdkManager {
         self.sink
             .info(format!("{} {} is not installed locally, proceeding...", sdk_name, full_version));
 
-        // ── Phase 3: 构建下载 URL（主/备）─────────────────────────
+        // ── Phase 3: 构建下载 URL（主/备 + 候选源）────────────────
         let download_url = if let Some(direct) = resolved.download_url.clone() {
             // 版本发现源直接给出下载直链（如部分 GitHub release）
             direct
@@ -180,11 +180,9 @@ impl SdkManager {
             })?;
             build_download_url(sdk, sdk_conf, template, &resolved)?
         };
-        // GitHub 下载镜像重写（白名单域名拼前缀；关闭态原样返回）
-        let download_url = self.config.network.mirror_github_url(&download_url);
-        self.sink.detail(format!("Download URL (primary): {}", download_url));
+        let mut candidates = self.config.network.download_candidates(&download_url);
 
-        let download_fallback_url = sdk_conf
+        let fallback_raw = sdk_conf
             .download_fallback_url
             .clone()
             .or_else(|| {
@@ -198,11 +196,37 @@ impl SdkManager {
             })
             .map(|fallback_template| {
                 // 备源 URL 模板一律渲染（含直链场景：{version} 取解析后的版本号，
-                // 支持国内 gh-proxy 类镜像模板作为 GH 直链失败的备源）
+                // 支持国内镜像模板作为 GH 直链失败的备源）
                 build_download_url(sdk, sdk_conf, &fallback_template, &resolved).unwrap_or(fallback_template)
-            })
-            // 备源同样过镜像层（白名单内重写，与主源规则一致）
-            .map(|fallback_url| self.config.network.mirror_github_url(&fallback_url));
+            });
+
+        // 主备指向同一资产（文件名一致）时合并候选：探测选最快 + 跨源断点续传；
+        // 文件名不同（自定义 SDK 的异形态备源）则保留分组，主源整组失败才试备源
+        let mut fallback_group: Option<(String, Vec<String>)> = None;
+        if let Some(raw) = fallback_raw {
+            let fb_candidates = self.config.network.download_candidates(&raw);
+            if derive_archive_filename(&download_url) == derive_archive_filename(&raw) {
+                for c in fb_candidates {
+                    if !candidates.contains(&c) {
+                        candidates.push(c);
+                    }
+                }
+            } else {
+                fallback_group = Some((raw, fb_candidates));
+            }
+        }
+        self.sink.detail(format!(
+            "Download URL: {} ({} candidate source(s))",
+            download_url,
+            candidates.len()
+        ));
+        // 外层主备策略：有备援（多候选 / 异形态备源）时单次尝试，失败立刻切；
+        // 仅当这是最后一个兜底源时才允许 1 次重试
+        let primary_attempts = if candidates.len() > 1 || fallback_group.is_some() {
+            1
+        } else {
+            2
+        };
 
         // ── Phase 4: 创建临时目录 ─────────────────────────────────
         let sdkm_home = get_sdkm_home()?;
@@ -218,58 +242,55 @@ impl SdkManager {
         let archive_filename = derive_archive_filename(&download_url);
         let tmp_archive_path = tmp_dir.join(&archive_filename);
         let tmp_extracted_path = tmp_dir.join("extracted");
-        let is_zip = archive_filename.ends_with(".zip");
 
-        // ── Phase 5: 下载（主/备）───────────────────────────────────
+        // ── Phase 5: 下载（候选源探测 + 失败切换 + 跨源续传）────────
         let download_client = build_download_client(&self.config.network)?;
         let download_pb = self
             .sink
             .progress(ProgressKind::Download, format!("Downloading {} {}...", sdk_name, full_version));
 
-        // 先尝试主源下载
-        let download_result = download_with_retry(
+        let download_result = download_best(
             &download_client,
-            &download_url,
+            &candidates,
             &tmp_archive_path,
             download_pb.as_ref(),
             self.sink.as_ref(),
-            3,
+            primary_attempts,
         )
         .await;
 
         // 主备源任一成功的 bar（成功消息由实际下载的 bar 收尾，主源 bar 不复活）
-        let active_pb;
-        let final_download_url = if download_result.is_err() && download_fallback_url.is_some() {
-            // 主源下载失败，尝试备源
-            let fallback_url = download_fallback_url.unwrap();
-            self.sink.warning(format!(
-                "Primary download failed, trying fallback URL: {}",
-                truncate(&fallback_url, 80)
-            ));
-            // 主源 bar 显式收尾（停 tick + 清残帧）：句柄仍存活、Drop 兜底不触发，
-            // 不收尾会与备源 bar 双活重绘互相踩踏（终端闪烁，既有缺陷，本次修复）
-            download_pb.finish_and_clear();
-            let fallback_pb = self
-                .sink
-                .progress(ProgressKind::Download, format!("Downloading {} {}...", sdk_name, full_version));
-            let fallback_filename = derive_archive_filename(&fallback_url);
-            let fallback_archive_path = tmp_dir.join(&fallback_filename);
-            download_with_retry(
-                &download_client,
-                &fallback_url,
-                &fallback_archive_path,
-                fallback_pb.as_ref(),
-                self.sink.as_ref(),
-                3,
-            )
-            .await?;
-            // 更新后续使用的文件名和路径
-            active_pb = fallback_pb;
-            fallback_url
-        } else {
-            download_result?;
-            active_pb = download_pb;
-            download_url
+        let (final_archive_path, active_pb) = match download_result {
+            Ok(_) => (tmp_archive_path, download_pb),
+            Err(err) => {
+                let Some((fallback_raw, fallback_candidates)) = fallback_group else {
+                    return Err(err);
+                };
+                // 主源/候选全失败，尝试异形态备源（文件名不同，独立临时文件）
+                self.sink.warning(format!(
+                    "Primary download failed, trying fallback URL: {}",
+                    truncate(&fallback_raw, 80)
+                ));
+                // 主源 bar 显式收尾（停 tick + 清残帧）：句柄仍存活、Drop 兜底不触发，
+                // 不收尾会与备源 bar 双活重绘互相踩踏（终端闪烁，既有缺陷，本次修复）
+                download_pb.finish_and_clear();
+                let fallback_pb = self
+                    .sink
+                    .progress(ProgressKind::Download, format!("Downloading {} {}...", sdk_name, full_version));
+                let fallback_archive_path = tmp_dir.join(derive_archive_filename(&fallback_raw));
+                // 备源组内部仍是候选链：多候选时单次尝试，单候选（最后兜底）才重试 1 次
+                let fallback_attempts = if fallback_candidates.len() > 1 { 1 } else { 2 };
+                download_best(
+                    &download_client,
+                    &fallback_candidates,
+                    &fallback_archive_path,
+                    fallback_pb.as_ref(),
+                    self.sink.as_ref(),
+                    fallback_attempts,
+                )
+                .await?;
+                (fallback_archive_path, fallback_pb)
+            }
         };
         active_pb.finish_with_message(format!("✅ Downloaded {} {}", sdk_name, full_version));
         if active_pb.is_cancelled() {
@@ -277,8 +298,12 @@ impl SdkManager {
         }
 
         // ── Phase 6: 解压 ────────────────────────────────────────
-        let actual_archive_path = tmp_dir.join(derive_archive_filename(&final_download_url));
-        let extract_kind = if is_zip {
+        let actual_archive_path = final_archive_path;
+        let extract_kind = if actual_archive_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(".zip"))
+        {
             ProgressKind::ExtractZip
         } else {
             ProgressKind::ExtractTarGz
