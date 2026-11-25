@@ -17,7 +17,7 @@
 | [`sdkm env`](#sdkm-env) | — | 输出当前目录应 eval 的环境脚本（hook 内部用） |
 | [`sdkm hook`](#sdkm-hook) | — | 输出 shell hook 注册脚本（注入 profile 用） |
 | [`sdkm current`](#sdkm-current) | `c` | 查看当前激活版本及其来源 |
-| [`sdkm config`](#sdkm-config) | — | 配置管理（7 个子命令） |
+| [`sdkm config`](#sdkm-config) | — | 配置管理（8 个子命令） |
 | [`sdkm doctor`](#sdkm-doctor) | — | 打印诊断报告（提 issue 时粘贴） |
 | [`sdkm clean`](#sdkm-clean) | — | 清理缓存与临时数据 |
 | [`sdkm self`](#sdkm-self) | — | 管理 sdkm 自身（卸载 / 自更新） |
@@ -35,7 +35,7 @@ sdkm init --force   # 强制重新初始化：覆盖现有 config.toml，跳过�
 
 - `--force` / `-f`：强制重新初始化。会覆盖已有 `config.toml`，并跳过「目录部署检测」。
 - 非 force 重跑**不覆盖**已有 `config.toml`，只补建缺失目录（改过 `symlink_dir` 后重跑可补建链接目录）。
-- 首次生成配置时若检测到**中国大陆时区**，会自动启用 GitHub 下载镜像 `https://gh-proxy.com/`（随时 `sdkm config set network.github_download_mirror ""` 关闭）。
+- 首次生成配置时若检测到**中国大陆时区**，会自动写入多个 GitHub 下载镜像（`ghfast.top` / `edgeone.gh-proxy.com` / `gh-proxy.com`，下载前探测选最快，失败自动切换；随时 `sdkm config set network.github_download_mirror ""` 关闭）。
 - 目标 shell 按登录 shell（`$SHELL`）检测；非登录 shell 场景（如 bash 登录后手动启动 fish）请在该 shell 的 profile 手动注入 hook，或把该 shell 设为登录 shell。
 - 初始化流程会透明地逐步打印每一步操作及其用途，便于排查。
 - Windows 下写入系统 PATH、环境变量与创建符号链接需**管理员权限**。
@@ -65,7 +65,7 @@ sdkm install tomcat 11          # 安装 Tomcat 11.x（Apache 归档全历史）
 sdkm install python 3.12 --no-switch   # 安装 Python 3.12 但不切换
 ```
 
-> **Maven 说明**：Maven 没有远程版本发现接口，因此 `<VERSION>` 必须是精确版本号（如 `3.9.9`），不支持模糊匹配，也不支持 `list -r`。详见 [已知限制](./usage.md#known-limitations)。
+> **Maven 说明**：Maven 版本发现走 Maven Central 的 `maven-metadata.xml`（华为云镜像主源），`<VERSION>` 支持精确版本（如 `3.9.9`）与模糊主版本（如 `3`、`3.9` → 最新稳定版）；预发布（rc/alpha 等）不在列表中。`sdkm list maven -r` 同样可用。
 
 安装流程内部拆分为 12 个阶段（解析 → 本地检查 → 构建 URL → 下载 → 解压 → 校验 → 标准化 → 安装验证 → 清理 → 自动切换…），各阶段带进度展示，失败时会自动回滚已完成的步骤。
 
@@ -110,7 +110,7 @@ sdkm list [SDK] [-r/--remote] [--limit N]
 - `<SDK> -r/--remote`：拉取远程版本列表后进入远程版本选择器。
 - `--limit N`：**仅作用于非 TTY 的文本输出**（默认 20，必须 ≥ 1）。TUI 恒拉全量列表，靠 `f` 搜索筛选。
 - `-r` 但未指定 `<SDK>` 会报错：`Please specify an SDK name`。
-- `sdkm list maven -r` 会报错：Maven 不支持远程版本列表（自定义 SDK 未配 `version_url` 时同样）。
+- `sdkm list maven -r`：解析 Maven Central 的 `maven-metadata.xml`（华为云镜像主源），只列稳定版（主版本 ≥ 3）；自定义 SDK 未配 `version_url` 时仍会报错。
 - `sdkm list java -r`：**四家供应商（Temurin/Zulu/Corretto/Liberica）的 LTS 系列 + 最新 feature 系列版本合并成一个列表**，非 Temurin 条目带后缀（如 `21.0.13-zulu`）；TUI 里按 `f` 搜 `zulu` / `amzn` / `librca` 即可筛。无 `--vendor` 参数——供应商就是版本号的一部分。
 - `sdkm list tomcat -r`：解析 Apache 归档的 HTML 目录索引（root → `tomcat-9/10/11` 分支），含全部历史 patch，里程碑 `-M` 已过滤。
 
@@ -295,7 +295,7 @@ sdkm c java          # 仅看 Java
 
 ## sdkm config
 
-管理 `config.toml`。包含 7 个子命令。配置项的完整含义与类型校验规则见 [configuration.md](./configuration.md)。
+管理 `config.toml`。包含 8 个子命令。配置项的完整含义与类型校验规则见 [configuration.md](./configuration.md)。
 
 ```bash
 sdkm config <subcommand> [args]
@@ -307,6 +307,7 @@ sdkm config <subcommand> [args]
 | `get <KEY>` | — | 获取配置值（敏感值自动脱敏） |
 | `list` | `ls`, `l` | 列出所有配置项 |
 | `delete <KEY>` | `del` | 删除配置值（恢复默认；内置 SDK 不可删） |
+| `reset <TARGET>` | — | 恢复内置默认值（`network` / `network.<key>` / `sdks` / `sdk.<name>` / `sdk.<name>.<field>`） |
 | `edit` | `e` | 用系统编辑器打开配置文件，保存时校验 TOML |
 | `add-sdk <NAME> ...` | — | 新增自定义 SDK 条目（详见 [custom-sdk.md](./custom-sdk.md)） |
 | `remove-sdk <NAME>` | — | 移除自定义 SDK（内置 SDK 不可移除） |
@@ -320,8 +321,20 @@ sdkm config set network.proxy http://127.0.0.1:7890   # 设置 HTTP 代理
 sdkm config get network.github_token                  # 读取 token（脱敏显示）
 sdkm config list                                      # 列出全部配置
 sdkm config delete network.proxy                      # 删除代理（恢复默认）
+sdkm config reset network                             # 网络设置恢复内置默认（镜像按地区自动）
+sdkm config reset sdk.maven                           # Maven 源恢复内置默认
+sdkm config reset sdks                                # 全部内置 SDK 恢复默认（自定义跳过）
 sdkm config edit                                      # 用编辑器打开 config.toml
 ```
+
+**`reset` 说明**：`set` / `delete` 不会主动覆盖你已有的值，升级后默认源发生变化（如 Maven 换镜像）时用 `reset` 显式恢复：
+
+- `network`：`proxy` / `ssl_verify` / `connect_timeout` / `cache_ttl_secs` / `github_download_mirror` 恢复默认（镜像按地区：中国大陆时区 = 内置镜像列表）；`github_token` 是凭据，不随整组重置。
+- `network.<key>`：只重置单个网络键（含 `network.github_token`）。
+- `sdks`：全部内置 SDK 整条恢复种子默认，自定义/未识别条目跳过。
+- `sdk.<name>` / `sdk.<name>.<field>`：整条 / 单字段恢复内置默认。
+- 所有 SDK 目标**保留 `current_version`**（切换状态由 `sdkm switch` 维护，不可 reset）。
+- 输出实际发生变化的键；没有变化时提示 already at built-in defaults。
 
 **写入安全**：`set` / `delete` / `add-sdk` / `remove-sdk` 均采用**原子写入**（写入临时文件再重命名），操作失败时自动**快照回滚**到操作前的配置内容。
 

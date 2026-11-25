@@ -132,7 +132,7 @@ sdkm config list | grep mytool          # 确认条目已物化（建议用 SDKM
 sdkm install mytool <version>           # 实装一次，确认能下载、解压、切到版本、命令可用
 ```
 
-内置种子新增会**自动影响所有用户的 `init`**——老版本升级后 `config.toml` 会自动补全缺失的内置条目（`ensure_builtin_sdks`），自定义 SDK 条目不受影响。所以新增种子前务必确认接入信息正确、实装验证通过。
+内置种子新增会**自动影响所有用户的 `init`**——老版本升级后 `config.toml` 会自动补全缺失的内置条目与空缺的源地址字段（`merge_seed_defaults`），自定义 SDK 条目不受影响。所以新增种子前务必确认接入信息正确、实装验证通过。
 
 > **文档维护**：内置名单在 [`custom-sdk.md`](./custom-sdk.md#内置-sdk-名单按类别) 按四类列出。新增内置 SDK 时请在对应类别补齐这一行（CLAUDE.md 与 CLI help 文案里的 "java, node, python, go, maven, ... (see docs)" 是固定省略号形式，不用动）。不符合上述四类的工具，请优先建议用户走路径一。
 

@@ -51,25 +51,24 @@ sdkm config set sdk.<name>.bin_dir <实际子目录>
 
 ## Tomcat 下载卡住或极慢
 
-**原因**：默认下载源 `dlcdn.apache.org` 在国内网络经常零数据卡死（下载器有 30 秒无数据判卡死 + 自动切备源，但仍慢）。
+**原因**：默认下载源 `dlcdn.apache.org` 在国内网络经常零数据卡死（下载器有首响应 8s / 静默 15s / 低速 60s 判卡死 + 候选源自动切换，但仍慢）。
 
-**处理**：换国内镜像（华为云实测全历史可用）：
+**处理**：内置备源已自动回退华为云 Apache 镜像（全历史），通常无需手工配置。若仍想直接用华为云作主源：
 
 ```bash
 sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"
 ```
 
-其他可选：`mirrors.aliyun.com`、`mirrors.tuna.tsinghua.edu.cn`（同上路径结构）。
-
 ## 下载 GitHub 资源很慢 / GitHub API 限流
 
-- **慢**：启用下载镜像（首次 `init` 检测到中国大陆时区会自动开启 `gh-proxy.com`）：
+- **慢**：启用下载镜像。首次 `init` 检测到中国大陆时区会自动写入多个默认镜像（`ghfast.top` / `edgeone.gh-proxy.com` / `gh-proxy.com`）；也可手动配置任意多个：
 
   ```bash
-  sdkm config set network.github_download_mirror "https://gh-proxy.com/"
+  sdkm config set network.github_download_mirror "https://ghfast.top/, https://gh-proxy.com/"
   ```
 
-  只重写 `github.com` 等白名单域名的下载请求，`api.github.com` 不受影响。
+  下载前会并行探测各候选源并选最快的，失败自动切换并断点续传；除配置的镜像前缀外，Temurin（Java）还会走清华 Adoptium 镜像（仅每个 feature 的最新 patch），其他 GitHub Release 资产会尝试清华/北外/中科大的 `github-release` 镜像（白名单仓库、仅最新 release，如 USTC 的 astral-sh Python），全部不可用时回退直连。只重写 `github.com` 等白名单域名，`api.github.com` 不受影响。
+- **Node.js / Maven / Tomcat 官方源慢**：内置 SDK 已带华为云备源（Node `/nodejs/`、Maven/Tomcat `/apache/`），与官方源同名同路径，下载时探测选最快，无需手工配置。
 - **限流**（`GitHub API returned HTTP 403/429`）：配置 token：
 
   ```bash

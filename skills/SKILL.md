@@ -154,7 +154,7 @@ Invoke-Expression ((sdkm use --shell java 21) -join "`n")
 - `list <sdk> -r/--remote`：拉远程版本列表后进入交互式远程选择器，`i` 安装、`s` 切换。
 - `--limit N`：远程列表最多显示 N 条，默认 20。
 - `-r` 但未给 SDK 名 → 报错 `Please specify an SDK name`。
-- `list maven -r` → 报错（Maven 不支持远程版本列表）。
+- `list maven -r`：解析 Maven Central 的 `maven-metadata.xml`（华为云镜像主源），只列稳定版（主版本 ≥ 3）。
 - `list java -r` → 四家供应商（Temurin/Zulu/Corretto/Liberica）的 LTS 系列 + 最新 feature 系列版本**合并成一个列表**，非 Temurin 条目带后缀；无 `--vendor` 参数，TUI 里按 `f` 搜 `zulu`/`amzn`/`librca` 即可筛。
 - `list tomcat -r` → 解析 Apache 归档 HTML 目录（root → `tomcat-9/10/11`），含全部历史 patch，里程碑 `-M` 已过滤。
 
@@ -178,7 +178,7 @@ Invoke-Expression ((sdkm use --shell java 21) -join "`n")
 
 匹配到单个/多个版本时交互确认（`prompt_confirm`）；完全无前缀匹配时报 "did you mean 'X'?" 建议。
 
-> **Maven 例外**：Maven 没有远程版本发现接口，`<VERSION>` 必须是精确版本号（如 `3.9.9`），不支持模糊匹配，`list maven -r` 会报错。自定义 SDK 不填 `version_url` 时同理。
+> **Maven 说明**：Maven 版本发现走 Maven Central 元数据（华为云镜像主源），支持精确版本（如 `3.9.9`）与模糊主版本（如 `3`、`3.9` → 最新稳定版，预发布被过滤），`list maven -r` 可用。自定义 SDK 不填 `version_url` 时仍只能精确版本安装。
 
 ## 交互式 TUI 按键
 
@@ -204,6 +204,7 @@ sdkm config list                                 # 列出全部配置
 sdkm config set <KEY> <VALUE>                    # 按类型校验后写入
 sdkm config get <KEY>                            # 读取（敏感值自动脱敏）
 sdkm config delete <KEY>                         # 删除（恢复默认；内置 SDK 字段不可删）
+sdkm config reset <TARGET>                       # 恢复内置默认：network / network.<key> / sdks / sdk.<name> / sdk.<name>.<field>（SDK 目标保留 current_version，自定义跳过）
 sdkm config edit                                 # 用系统编辑器打开 config.toml，保存时校验 TOML
 sdkm config add-sdk <NAME> --download-url ... --bin-dir ...   # 注册自定义 SDK
 sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置不可移除）
@@ -224,6 +225,7 @@ sdkm config remove-sdk <NAME>                    # 移除自定义 SDK（内置�
 | `connect_timeout` | U32 `[1,600]` | `30` | 连接超时秒数 |
 | `cache_ttl_secs` | U32 `[0,86400]` | `3600` | 远程版本缓存 TTL 秒，`0`=总是拉最新 |
 | `github_token` | Token | 空 | GitHub PAT，提升 API 限速（60/hr→5000/hr），输出脱敏 |
+| `github_download_mirror` | Url 列表（逗号分隔） | 空 | GitHub 下载镜像前缀；多个时下载前探测选最快、失败自动切换，另有 Temurin 清华 Adoptium 镜像（仅最新 patch）、高校 github-release 镜像与直连兜底；配 `proxy` 时直连优先 |
 
 > 远程版本列表采用「缓存优先 + TTL」：未过期用本地缓存，过期才请求 API；API 失败退化为返回过期缓存，离线可用。
 
@@ -322,25 +324,25 @@ sdkm config add-sdk groovy \
 
 | SDK | 版本发现源 | 下载源 |
 |:---|:---|:---|
-| Java | 四家供应商 API：Adoptium（默认 Temurin）/ Azul Zulu / GitHub `corretto-*` tags / BellSoft Liberica | 各家 API 返回的平台直链；仅「默认供应商 + 裸大版本」（如 `install java 21`）走 `sdk.java.download_url` 模板（`{feature_version}`/`{os}`/`{arch}`），可换镜像 |
-| Node.js | nodejs.org/dist/index.json | `nodejs.org/dist/{version}/...`（`{os}`=`win/darwin/linux`） |
+| Java | 四家供应商 API：Adoptium（默认 Temurin）/ Azul Zulu / GitHub `corretto-*` tags / BellSoft Liberica | 各家 API 返回的平台直链；仅「默认供应商 + 裸大版本」（如 `install java 21`）未配镜像时走 `sdk.java.download_url` 模板，配镜像时改用解析到的 GitHub 直链（可走镜像 + 清华 Adoptium 镜像，仅最新 patch） |
+| Node.js | nodejs.org/dist/index.json（华为云 `nodejs/index.json` 备源） | `mirrors.huaweicloud.com/nodejs/{version}/...`（官方 dist 兜底，`{os}`=`win/darwin/linux`） |
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
-| Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
-| Tomcat | Apache 归档 HTML 目录索引（`archive.apache.org/dist/tomcat/`，多请求，备源 dlcdn） | 归档模板（`{feature_version}`/`{version}`/`{ext}`，备源 dlcdn），可换镜像 |
+| Maven | Maven Central `maven-metadata.xml`（华为云镜像主源+官方兜底，仅稳定版） | Maven Central 制品（华为云镜像主源+官方兜底，`{version}`/`{ext}`） |
+| Tomcat | Apache 归档 HTML 目录索引（`archive.apache.org/dist/tomcat/`，多请求，备源 dlcdn） | 华为云 Apache 镜像模板（`{feature_version}`/`{version}`/`{ext}`，全历史；dlcdn 备源，404 不重试直接切） |
 | Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
 
 > **自定义 SDK 只认 JSON**：`version_url` 需返回版本列表 JSON（扁平数组 / `{"version": ...}` 数组 / GitHub Releases 三种形态）。Apache 风格的 HTML 目录索引只有内置 Tomcat 支持，自定义 SDK 指向 HTML 页会解析失败。
 
 ## 已知限制（动手前必看）
 
-- **Maven 无远程版本发现**：`install maven` 必须给精确版本，`list maven -r` 报错。
+- **Maven 版本发现依赖 Maven Central 元数据**：`install maven` 支持模糊主版本（`3` → 最新 3.x），`list maven -r` 可用；自定义 SDK 不填 `version_url` 时只能精确版本。
 - **Windows 需管理员权限**：环境变量与 PATH 写入 `HKEY_LOCAL_MACHINE`、创建符号链接需管理员权限，`init`/`switch` 需管理员运行。
 - **Python 远程列表**：主源（uv metadata）完整；备源（GitHub API）受 `per_page=100` 限制，仅返回最近 100 个 release，主源正常时不触发。
 - **内置不含 Rust 工具链**：sdkm 内置 SDK 含 Java/Node/Python/Maven/Go/Tomcat，不含 Rust 条目（如需管理 Rust 用 rustup）。
 - **Java 供应商覆盖范围**：首批 4 家（Temurin 默认 / Zulu / Corretto / Liberica），Oracle、Microsoft、Semeru、GraalVM 等未接入。`list java -r` 只列 LTS 系列 + 最新 feature 系列；未列出的大版本仍可直接 `install java 24`。Corretto 无 Windows aarch64 构建。
-- **Java 精确安装下载源固定**：`install java 21.0.13`、任何供应商写法都用各家 API 直链，改 `sdk.java.download_url` 不生效；只有 `install java 21` 走模板。
+- **Java 裸大版本的下载源**：`install java 21` 未配 `network.github_download_mirror` 时走 `sdk.java.download_url` 模板；配了镜像时改用解析到的 GitHub 直链（可走镜像 + 清华 Adoptium 镜像，仅最新 patch）。精确版本/指定供应商始终用各家 API 直链。
 - **Tomcat 不写 PATH**：`bin/` 里 `startup`/`version`/`digest` 等脚本名太通用，内置条目 `add_to_path = false`，切换只更新 `CATALINA_HOME`，用 `$CATALINA_HOME/bin/...`（Windows `%CATALINA_HOME%\bin\catalina.bat`）启动。
-- **Tomcat 版本源是 HTML**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存）；下载主源 dlcdn，历史版本 404 立即回退 archive（不浪费重试），卡死 30s 无数据会自动中止重试。**国内建议换华为云镜像**（全历史可用且快）：`sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"`（阿里云/清华同理）。
+- **Tomcat 版本源是 HTML**：版本列表主源 `archive.apache.org`（全历史但较慢，冷启动 4 个请求，之后按 `cache_ttl_secs` 缓存）；下载主源 dlcdn，历史版本 404 立即回退内置华为云镜像（不浪费重试），首响应 8s / 静默 15s / 低速 60s 自动中止切源。想直接用华为云作主源：`sdkm config set sdk.tomcat.download_url "https://mirrors.huaweicloud.com/apache/tomcat/tomcat-{feature_version}/v{version}/bin/apache-tomcat-{version}.{ext}"`
 - **Unix 环境变量操作**写入托管环境文件（默认 `<home>/sdkm_env.sh`，fish 为 `sdkm_env.fish`，`config set env_file` 可指向自有文件），profile 只保留一行 source；Windows 通过注册表 + `WM_SETTINGCHANGE` 广播（已开进程也能感知新变量）。
 - **Java macOS aarch64 无 jdk8 包**：Adoptium 不提供 jdk8 的 macOS aarch64 构建（jdk8 在 macOS 仅 x64），Apple Silicon 上 `sdkm install java 8` 会报错，改用 `17`/`21` 等支持 aarch64 的版本。
 - **self update 跨改名迁移**：0.3.0 起 release 产物名从 `sdkmate-*` 改为 `sdkm-*`，0.2.x 的 `self update` 无法升级到 0.3.0（asset 名不匹配），需手动下载 0.3.0 覆盖一次，之后正常。

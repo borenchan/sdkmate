@@ -22,7 +22,7 @@ ssl_verify = true           # 是否校验 SSL 证书（TLS 后端为 rustls，�
 connect_timeout = 30        # 连接超时（秒）
 cache_ttl_secs = 3600       # 版本接口缓存 TTL（秒），0 = 每次都拉取
 github_token = ""           # GitHub PAT，提升 API 限速（60/hr → 5000/hr）
-github_download_mirror = "" # GitHub 下载镜像前缀，如 "https://gh-proxy.com/"，空 = 关闭
+github_download_mirror = "" # GitHub 下载镜像前缀，多个用逗号分隔（如 "https://ghfast.top/, https://gh-proxy.com/"），空 = 关闭
 
 # 每个 [[sdk]] 是一个 SDK 条目，内置 42 个 + 用户自定义
 [[sdk]]
@@ -53,7 +53,7 @@ extra_paths = []
 | `connect_timeout` | U32 | 否 | `30` | 连接超时秒数，范围 `[1, 600]` |
 | `cache_ttl_secs` | U32 | 否 | `3600` | 远程版本列表缓存有效期（秒），范围 `[0, 86400]`；`0` 表示总是拉取最新 |
 | `github_token` | Token | 是 | (空) | GitHub 个人访问令牌。Python 备源等走 GitHub API 的请求会被限速到 60/hr，配置 token 后提升至 5000/hr。输出时自动脱敏 |
-| `github_download_mirror` | Url | 是 | (空) | GitHub 下载镜像前缀（如 `https://gh-proxy.com/`）。域名在白名单内（`github.com`、`raw/objects/codeload/gist.githubusercontent.com`）的版本数据与 SDK 包下载请求会拼此前缀加速；**`api.github.com` 不在白名单内**（直连稳定，公共镜像 API 转发不可靠）。纯 URL 重写层，不影响主备切换与重试逻辑。首次 `init` 时若检测到中国大陆时区会自动启用（gh-proxy.com），随时设空关闭 |
+| `github_download_mirror` | Url 列表 | 是 | (空) | GitHub 下载镜像前缀，逗号/空白分隔多个（如 `https://ghfast.top/, https://gh-proxy.com/`）。白名单域名（`github.com`、`raw/objects/codeload/gist.githubusercontent.com`）的版本数据与 SDK 包下载会展开为候选源链：「配置的镜像前缀 → Temurin 清华 Adoptium 镜像（仅最新 patch）→ 高校 github-release 镜像（清华/北外/中科大，白名单仓库 + 仅最新 release）→ 直连兜底」，下载前并行探测选最快、失败自动切换并跨源续传；有备援时单源只试 1 次（限速/4xx/无响应立即切），仅最后一个兜底源允许 1 次重试；配置了 `proxy` 时直连优先（走代理，不再绕镜像）。**`api.github.com` 不在白名单内**。首次 `init` 检测到中国大陆时区会自动写入多个默认镜像，设空关闭 |
 
 > **缓存策略**：远程版本列表采用「缓存优先 + TTL」——未过期直接用本地缓存，过期才请求 API；API 失败时退化为返回过期缓存，保证离线可用。
 

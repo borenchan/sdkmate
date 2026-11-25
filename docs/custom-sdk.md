@@ -14,7 +14,7 @@ sdkm 判断一个 SDK **能否远程安装**的唯一口径：`download_url` 或
 |:---|:---|:---:|:---:|:---|
 | **标准 A：模板直链** | `version_url`（版本列表 JSON）+ `download_url`（占位符模板） | ✅ | ✅ | Node.js、Go、Maven |
 | **标准 B：GitHub Releases** | 仅 `version_url`（指向 GH Releases API） | ✅（资产直链） | ✅ | bun、fzf、k9s |
-| **仅下载模板**（无版本发现） | 仅 `download_url` | ✅ | ❌ | Maven 也可这样用 |
+| **仅下载模板**（无版本发现） | 仅 `download_url` | ✅ | ❌ | 自建扁平版本的本地源 |
 | **本地 switch-only** | 两者皆空（`--bin-dir` 等按需） | ❌ | ❌ | 已在本地解压好的工具 |
 
 > **一个易踩的坑**：只填 `version_url` 且数据源**不是** GitHub Releases JSON（比如自建的扁平版本数组）时，版本列表里没有下载直链，安装会失败——这种源自建场景必须同时配置 `download_url` 模板（回到标准 A）。
@@ -86,7 +86,7 @@ sdkm config set sdk.<name>.download_fallback_url \
   "https://ghfast.top/https://github.com/<owner>/<repo>/releases/download/v{version}/<name>-{os}-{arch}.zip"
 ```
 
-`{version}` 为剥离前缀后的版本号；`{os}`/`{arch}` 命名风格可用 `sdk.<name>.os_style` 与 `sdk.<name>.arch_style` 调整（见[字段详解](#configtoml-字段详解)）。此外全局配置 `network.github_download_mirror` 可为所有 GH 域名下载自动加镜像前缀，两者不冲突。
+`{version}` 为剥离前缀后的版本号；`{os}`/`{arch}` 命名风格可用 `sdk.<name>.os_style` 与 `sdk.<name>.arch_style` 调整（见[字段详解](#configtoml-字段详解)）。此外全局配置 `network.github_download_mirror` 可为所有 GH 域名下载自动生成候选源链（镜像前缀 + 高校 github-release 镜像 + 直连，探测选最快），两者不冲突。
 
 **适用条件**：
 
@@ -320,13 +320,13 @@ sdkm 内置 42 个 SDK，按用途分四类。想让某个工具从"自定义"�
 | SDK | 版本发现源 | 下载源 |
 |:---|:---|:---|
 | Java | 四家供应商 API：Adoptium（默认 Temurin）/ Azul Zulu / GitHub `corretto-*` tags / BellSoft API | 各供应商 API 返回的平台直链 |
-| Node.js | nodejs.org/dist/index.json | `nodejs.org/dist/{version}/...`（`{os}`=`win/darwin/linux`） |
+| Node.js | nodejs.org/dist/index.json（华为云 `nodejs/index.json` 备源） | `mirrors.huaweicloud.com/nodejs/{version}/...`（官方 dist 兜底，`{os}`=`win/darwin/linux`） |
 | Python | astral-sh uv download-metadata（备源 GitHub API） | python-build-standalone releases（`{release_tag}`/`{platform}`） |
-| Maven | （无） | `dlcdn.apache.org/maven/...`（`{version}`/`{ext}`） |
-| Tomcat | `archive.apache.org/dist/tomcat/`（HTML 目录索引，多请求） | dlcdn 模板（当前版本 CDN，备源 archive；404 不重试直接回退），可换镜像 |
+| Maven | Maven Central `maven-metadata.xml`（华为云镜像主源+官方兜底，仅稳定版） | Maven Central 制品（华为云镜像主源+官方兜底，`{version}`/`{ext}`） |
+| Tomcat | `archive.apache.org/dist/tomcat/`（HTML 目录索引，多请求） | 华为云 Apache 镜像模板（全历史，dlcdn 备源；404 不重试直接切），可换镜像 |
 | Go | go.dev/dl/?mode=json | `go.dev/dl/go{version}.{os}-{arch}.{ext}`（备源 golang.google.cn） |
 | 其余 30+ 引擎型 | GitHub Releases API（标准 B） | 资产直链（helm/terraform 为组合模式：GH 版本列表 + 官方 CDN 模板下载） |
 
 > **两点特例**
-> 1. **Java 只有部分场景走下载模板**：`sdkm install java 21`（默认供应商 + 裸大版本）仍渲染 `sdk.java.download_url` 模板，可改成 Adoptium 镜像；一旦指定精确版本或供应商（`21.0.13-zulu`、`amzn@21`、`librca@21`），下载直链来自各家 API，模板不参与（GitHub 托管的直链仍受 `network.github_download_mirror` 影响）。`sdk.java.version_url` 用于取可用大版本列表。
-> 2. **内置 SDK 的新增不影响自定义注册**：二进制升级后 config 会自动补全缺失的内置条目（`ensure_builtin_sdks`），自定义 SDK 条目不受影响。
+> 1. **Java 裸大版本的下载源**：`sdkm install java 21`（默认供应商 + 裸大版本）在未配置 GitHub 镜像时渲染 `sdk.java.download_url` 模板；配置了镜像时改用解析到的 GitHub 直链（可走镜像；Temurin 另有清华 Adoptium 镜像候选，仅最新 patch）。精确版本或指定供应商（`21.0.13-zulu`、`amzn@21`、`librca@21`）始终用各家 API 返回的直链，模板不参与（GitHub 托管的直链仍受 `network.github_download_mirror` 影响）。`sdk.java.version_url` 用于取可用大版本列表。
+> 2. **内置 SDK 的新增不影响自定义注册**：二进制升级后 config 会自动补全缺失的内置条目与空缺的源地址字段（`merge_seed_defaults`），自定义 SDK 条目不受影响；默认值变更可用 `sdkm config reset <target>` 显式恢复。
