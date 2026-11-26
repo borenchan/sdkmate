@@ -841,6 +841,10 @@ impl GuiApp {
             TaskId::ConfigRemoveSdk { name } => Some(with(s.toast_sdk_removed, &[("{name}", name)])),
             // 设置页保存类操作：写入 config.toml 后明确提示
             TaskId::ConfigSaveNetwork { .. } => Some(self.lang.settings.toast_network_saved.to_string()),
+            // 恢复内置默认：写明重置范围，让用户知道刚才改了什么
+            TaskId::ConfigResetNetwork => Some(self.lang.settings.toast_reset_network.to_string()),
+            TaskId::ConfigResetAllSdks => Some(self.lang.settings.toast_reset_all_sdks.to_string()),
+            TaskId::ConfigResetSdk { name } => Some(with(self.lang.settings.toast_reset_sdk, &[("{name}", name)])),
             TaskId::SdkSourcesSaveFull { .. } => Some(self.lang.settings.toast_sources_saved.to_string()),
             _ => None,
         }
@@ -1200,6 +1204,26 @@ impl GuiApp {
                 spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
                 spawn_task(self.tx.clone(), TaskId::SdkSourcesLoad);
                 self.refresh_overview();
+                if let Some(msg) = self.success_message(&id) {
+                    self.notify_success(msg, window, cx);
+                }
+            }
+            // 恢复内置默认：网络重置回填表单；SDK 重置刷新注册列表 / 源草稿 / 概览
+            GuiEvent::Task {
+                id,
+                outcome: TaskOutcome::Done,
+            } if matches!(
+                id,
+                TaskId::ConfigResetNetwork | TaskId::ConfigResetAllSdks | TaskId::ConfigResetSdk { .. }
+            ) =>
+            {
+                if matches!(id, TaskId::ConfigResetNetwork) {
+                    spawn_task(self.tx.clone(), TaskId::ConfigReload);
+                } else {
+                    spawn_task(self.tx.clone(), TaskId::SdkListRefresh);
+                    spawn_task(self.tx.clone(), TaskId::SdkSourcesLoad);
+                    self.refresh_overview();
+                }
                 if let Some(msg) = self.success_message(&id) {
                     self.notify_success(msg, window, cx);
                 }

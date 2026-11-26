@@ -50,6 +50,12 @@ pub enum TaskId {
     },
     /// 移除自定义 SDK
     ConfigRemoveSdk { name: String },
+    /// 网络设置恢复内置默认（github_token 是凭据，不重置）
+    ConfigResetNetwork,
+    /// 全部内置 SDK 恢复种子默认（自定义跳过，current_version 保留）
+    ConfigResetAllSdks,
+    /// 单个内置 SDK 恢复种子默认（current_version 保留）
+    ConfigResetSdk { name: String },
     /// 保存网络设置（config.toml network 子表）
     ConfigSaveNetwork {
         proxy: Option<String>,
@@ -303,6 +309,9 @@ async fn build_outcome(
                 | TaskId::SdkImportLocal { .. }
                 | TaskId::ConfigAddSdk { .. }
                 | TaskId::ConfigRemoveSdk { .. }
+                | TaskId::ConfigResetNetwork
+                | TaskId::ConfigResetAllSdks
+                | TaskId::ConfigResetSdk { .. }
                 | TaskId::ConfigSaveNetwork { .. }
                 | TaskId::ConfigSaveSymlink { .. }
                 | TaskId::ProjectSave { .. }
@@ -442,6 +451,25 @@ async fn build_task_result(sink: &Arc<dyn sdkm_core::report::EventSink>, id: &Ta
         }
         TaskId::ConfigRemoveSdk { name } => {
             manager.config.remove_sdk(&name, sink.as_ref())?;
+            Ok(TaskOutcome::Done)
+        }
+        // ── 恢复内置默认（与 `sdkm config reset` 同语义，core 直接提供）──
+        TaskId::ConfigResetNetwork => {
+            manager
+                .config
+                .reset_value(&sdkm_core::config::ResetTarget::Network, sink.as_ref())?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ConfigResetAllSdks => {
+            manager
+                .config
+                .reset_value(&sdkm_core::config::ResetTarget::Sdks, sink.as_ref())?;
+            Ok(TaskOutcome::Done)
+        }
+        TaskId::ConfigResetSdk { name } => {
+            manager
+                .config
+                .reset_value(&sdkm_core::config::ResetTarget::Sdk(name), sink.as_ref())?;
             Ok(TaskOutcome::Done)
         }
         TaskId::ConfigSaveNetwork {

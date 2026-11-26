@@ -17,7 +17,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sdkm_util::builtin::find_seed;
+use sdkm_util::builtin::is_builtin_sdk;
 
 /// 每页条数
 const PAGE_SIZE: usize = 10;
@@ -25,11 +25,10 @@ const PAGE_SIZE: usize = 10;
 /// 自定义 SDK 占位符文档（环境变量值支持的 {sdk_dir} 等占位符说明）
 const PLACEHOLDER_DOC_URL: &str = "https://github.com/borenchan/sdkmate/blob/master/docs/custom-sdk.md#%E8%B7%AF%E5%BE%84%E7%B1%BB%E5%8D%A0%E4%BD%8D%E7%AC%A6%E7%94%A8%E4%BA%8E%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E5%80%BC";
 
-/// SDK 源草稿（弹窗修改，列表底部统一保存）
+/// SDK 源草稿（弹窗修改，列表底部统一保存；仅内置 SDK）
 #[derive(Debug, Clone)]
 pub struct SourceDraft {
     pub name: String,
-    pub is_builtin: bool,
     pub version_url: String,
     pub version_fallback_url: String,
     pub download_url: String,
@@ -160,7 +159,6 @@ impl SettingsState {
         self.sources = items
             .into_iter()
             .map(|e| SourceDraft {
-                is_builtin: find_seed(&e.name).is_some(),
                 name: e.name,
                 version_url: e.version_url.unwrap_or_default(),
                 version_fallback_url: e.version_fallback_url.unwrap_or_default(),
@@ -176,12 +174,15 @@ impl SettingsState {
         self.source_search.update(cx, |s, cx| s.set_value("", window, cx));
     }
 
-    /// 按关键字过滤后的源草稿（保留原索引，便于弹窗回写）
+    /// 按关键字过滤后的内置 SDK 源草稿（保留原索引，便于弹窗回写）
+    ///
+    /// 与自定义 SDK 卡互斥：这里只保留种子表里的内置 SDK，自定义条目归自定义卡管理。
     fn filtered_sources(&self) -> Vec<(usize, &SourceDraft)> {
         let kw = self.source_keyword.to_lowercase();
         self.sources
             .iter()
             .enumerate()
+            .filter(|(_, s)| is_builtin_sdk(&s.name))
             .filter(|(_, s)| kw.is_empty() || s.name.to_lowercase().contains(&kw))
             .collect()
     }
@@ -621,6 +622,19 @@ fn network_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                     h_flex()
                         .gap_2()
                         .child(btn(
+                            "network-reset",
+                            BtnVariant::Outline,
+                            BtnSize::Small,
+                            t.settings.btn_reset,
+                            Some(IconName::RotateCcw),
+                            false,
+                            false,
+                            cx.listener(|app, _, window, cx| {
+                                open_reset_network_confirm(app, window, cx);
+                            }),
+                            cx,
+                        ))
+                        .child(btn(
                             "network-reload",
                             BtnVariant::Outline,
                             BtnSize::Small,
@@ -806,11 +820,10 @@ fn dirs_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
     )
 }
 
-/// SDK 源设置卡（搜索 + 分页 + 弹窗编辑 4 个地址 + 底部统一保存）
+/// 内置 SDK 设置卡（搜索 + 分页 + 弹窗编辑 4 个地址 + 底部统一保存 + 重置）
 fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
     let t = app.lang;
     let theme = cx.theme();
-    let tks = crate::theme::tokens(cx);
     let st = &app.settings;
 
     let filtered = st.filtered_sources();
@@ -849,15 +862,20 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             ),
     );
 
-    if st.sources.is_empty() {
-        content = content.child(empty_state(IconName::Package, t.common.empty_list, "", cx));
-    } else if page_items.is_empty() {
-        content = content.child(empty_state(IconName::Search, t.common.no_results, "", cx));
+    if total == 0 {
+        let (icon, title) = if st.source_keyword.trim().is_empty() {
+            (IconName::Package, t.common.empty_list)
+        } else {
+            (IconName::Search, t.common.no_results)
+        };
+        content = content.child(empty_state(icon, title, "", cx));
     } else {
         let rows = page_items
             .iter()
             .map(|(idx, d)| {
                 let idx = *idx;
+                // 重置弹窗需要 'static：提前拷出名称
+                let reset_name = d.name.clone();
                 h_flex()
                     .id(ElementId::NamedInteger("src-row".into(), idx as u64))
                     .gap_3()
@@ -872,28 +890,7 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                             .gap_2()
                             .items_center()
                             .child(sdk_icon(&d.name, 26., cx))
-                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(d.name.clone()))
-                            .child(
-                                div()
-                                    .px_1p5()
-                                    .py_0p5()
-                                    .rounded(px(4.))
-                                    .text_xs()
-                                    .bg(if d.is_builtin { tks.primary_soft_bg } else { theme.muted })
-                                    .text_color(if d.is_builtin {
-                                        tks.primary_soft_fg
-                                    } else {
-                                        theme.muted_foreground
-                                    })
-                                    .child(
-                                        if d.is_builtin {
-                                            t.settings.tag_builtin
-                                        } else {
-                                            t.settings.tag_custom
-                                        }
-                                        .to_string(),
-                                    ),
-                            ),
+                            .child(div().text_sm().font_weight(FontWeight::MEDIUM).child(d.name.clone())),
                     )
                     .child(
                         v_flex()
@@ -911,6 +908,19 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                                 show(&d.download_url)
                             ))),
                     )
+                    .child(btn(
+                        ElementId::NamedInteger("src-reset".into(), idx as u64),
+                        BtnVariant::Outline,
+                        BtnSize::Small,
+                        t.settings.btn_reset,
+                        Some(IconName::RotateCcw),
+                        false,
+                        false,
+                        cx.listener(move |app, _, window, cx| {
+                            open_reset_sdk_confirm(app, window, cx, reset_name.clone());
+                        }),
+                        cx,
+                    ))
                     .child(btn(
                         ElementId::NamedInteger("src-edit".into(), idx as u64),
                         BtnVariant::Outline,
@@ -945,8 +955,8 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         ));
     }
 
-    // 底部提示 + 重新加载 + 统一保存（与自定义 SDK 卡共用同一份草稿）
-    content = content.child(sources_footer("sources", app, cx));
+    // 底部提示 + 重新加载 + 统一保存（与自定义 SDK 卡共用同一份草稿；内置卡额外提供整组重置）
+    content = content.child(sources_footer("sources", true, app, cx));
 
     section_card(
         "settings-sources",
@@ -959,7 +969,8 @@ fn sources_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
 }
 
 /// 草稿底部操作条（提示 + 重新加载 + 保存）：SDK 源卡与自定义 SDK 卡共用同一份草稿数据
-fn sources_footer(id: &'static str, app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
+/// `reset_all` = 显示「重置全部内置」入口（仅内置 SDK 卡）
+fn sources_footer(id: &'static str, reset_all: bool, app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
     let t = app.lang;
     let theme = cx.theme();
     h_flex()
@@ -977,6 +988,21 @@ fn sources_footer(id: &'static str, app: &GuiApp, cx: &Context<GuiApp>) -> impl 
         .child(
             h_flex()
                 .gap_2()
+                .when(reset_all, |el| {
+                    el.child(btn(
+                        format!("{id}-reset-all"),
+                        BtnVariant::Outline,
+                        BtnSize::Small,
+                        t.settings.btn_reset_all,
+                        Some(IconName::RotateCcw),
+                        false,
+                        false,
+                        cx.listener(|app, _, window, cx| {
+                            open_reset_all_sdks_confirm(app, window, cx);
+                        }),
+                        cx,
+                    ))
+                })
                 .child(btn(
                     format!("{id}-reload"),
                     BtnVariant::Outline,
@@ -1076,7 +1102,6 @@ fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiA
             .title(title.clone())
             .content({
                 let view = content_view.clone();
-                let is_custom = !d.is_builtin;
                 move |content, _, cx| {
                     // Entity 先克隆释放 cx 借用，后续 extra_rows_card 需要可变借用
                     let (edit_v, edit_vfb, edit_d, edit_dfb, edit_bin, edit_vars, edit_paths) = {
@@ -1099,28 +1124,27 @@ fn open_source_edit(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiA
                             .child(form_field(t.settings.lbl_version_fallback, Input::new(&edit_vfb), 580., cx))
                             .child(form_field(t.settings.lbl_download_primary, Input::new(&edit_d), 580., cx))
                             .child(form_field(t.settings.lbl_download_fallback, Input::new(&edit_dfb), 580., cx))
-                            .when(is_custom, |el| {
+                            // 内置/自定义统一开放：二进制目录、环境变量、额外 PATH
+                            .child(form_field(t.settings.lbl_bin_dir, Input::new(&edit_bin), 580., cx))
+                            .child(extra_rows_card(t, &edit_vars, &edit_paths, &view, cx))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.settings.edit_extra_hint.to_string()),
+                            )
+                            .child({
+                                // 占位符文档外链（点击打开浏览器）
                                 let link_fg = cx.theme().link;
                                 let hover_fg = cx.theme().foreground;
-                                el.child(form_field(t.settings.lbl_bin_dir, Input::new(&edit_bin), 580., cx))
-                                    .child(extra_rows_card(t, &edit_vars, &edit_paths, &view, cx))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(t.settings.edit_extra_hint.to_string()),
-                                    )
-                                    .child(
-                                        // 占位符文档外链（点击打开浏览器）
-                                        div()
-                                            .id("extra-placeholder-doc")
-                                            .text_xs()
-                                            .text_color(link_fg)
-                                            .cursor_pointer()
-                                            .hover(move |s| s.text_color(hover_fg))
-                                            .on_click(|_, _, cx| cx.open_url(PLACEHOLDER_DOC_URL))
-                                            .child(t.settings.placeholder_doc_link.to_string()),
-                                    )
+                                div()
+                                    .id("extra-placeholder-doc")
+                                    .text_xs()
+                                    .text_color(link_fg)
+                                    .cursor_pointer()
+                                    .hover(move |s| s.text_color(hover_fg))
+                                    .on_click(|_, _, cx| cx.open_url(PLACEHOLDER_DOC_URL))
+                                    .child(t.settings.placeholder_doc_link.to_string())
                             })
                             .child(
                                 div()
@@ -1555,8 +1579,8 @@ fn custom_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         content = content.child(v_flex().gap_1().children(rows));
     }
 
-    // 底部提示 + 重新加载 + 保存（与 SDK 源卡共用同一份草稿）
-    content = content.child(sources_footer("custom", app, cx));
+    // 底部提示 + 重新加载 + 保存（与内置 SDK 卡共用同一份草稿）
+    content = content.child(sources_footer("custom", false, app, cx));
 
     section_card(
         "settings-custom",
@@ -1566,6 +1590,74 @@ fn custom_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
         content,
         cx,
     )
+}
+
+/// 网络设置恢复默认确认弹窗
+fn open_reset_network_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>) {
+    let t = app.lang;
+    let tx = app.tx.clone();
+    window.open_alert_dialog(cx, move |alert, _, _| {
+        alert
+            .title(t.settings.reset_network_title.to_string())
+            .description(t.settings.reset_network_desc)
+            .confirm()
+            .ok_text(t.settings.btn_reset)
+            .cancel_text(t.common.btn_cancel)
+            .ok_variant(ButtonVariant::Danger)
+            .on_ok({
+                let tx = tx.clone();
+                move |_, _, _| {
+                    crate::data::spawn_task(tx.clone(), TaskId::ConfigResetNetwork);
+                    true
+                }
+            })
+    });
+}
+
+/// 全部内置 SDK 恢复默认确认弹窗
+fn open_reset_all_sdks_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>) {
+    let t = app.lang;
+    let tx = app.tx.clone();
+    window.open_alert_dialog(cx, move |alert, _, _| {
+        alert
+            .title(t.settings.reset_all_title.to_string())
+            .description(t.settings.reset_all_desc)
+            .confirm()
+            .ok_text(t.settings.btn_reset)
+            .cancel_text(t.common.btn_cancel)
+            .ok_variant(ButtonVariant::Danger)
+            .on_ok({
+                let tx = tx.clone();
+                move |_, _, _| {
+                    crate::data::spawn_task(tx.clone(), TaskId::ConfigResetAllSdks);
+                    true
+                }
+            })
+    });
+}
+
+/// 单个内置 SDK 恢复默认确认弹窗
+fn open_reset_sdk_confirm(app: &mut GuiApp, window: &mut Window, cx: &mut Context<GuiApp>, name: String) {
+    let t = app.lang;
+    let tx = app.tx.clone();
+    let title = format!("{}: {name}", t.settings.reset_sdk_title);
+    window.open_alert_dialog(cx, move |alert, _, _| {
+        alert
+            .title(title.clone())
+            .description(t.settings.reset_sdk_desc)
+            .confirm()
+            .ok_text(t.settings.btn_reset)
+            .cancel_text(t.common.btn_cancel)
+            .ok_variant(ButtonVariant::Danger)
+            .on_ok({
+                let tx = tx.clone();
+                let name = name.clone();
+                move |_, _, _| {
+                    crate::data::spawn_task(tx.clone(), TaskId::ConfigResetSdk { name: name.clone() });
+                    true
+                }
+            })
+    });
 }
 
 /// 移除自定义 SDK 确认弹窗
