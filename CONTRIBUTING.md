@@ -13,7 +13,7 @@
 
 1. **先搜索**：在 Issues 和 Discussions 里确认没有相同的问题或建议，避免重复劳动。
 2. **先讨论**：较大的功能（新 SDK 接入、架构调整、GUI 新页面、命令行为变更）请先在 Discussions / Ideas 或相关 issue 里讨论方案，达成一致后再动手。方向不符的实现 PR 会被关闭，别浪费你的时间。**新 SDK 接入前请先读 [SDK 接入说明](docs/sdk-onboarding.md)**——接入标准、四类支持范围与内置准入门槛都在那里。
-3. **认领**：在 issue 下评论 `/claim`（或 `/认领`），机器人会自动把你加入 Assignees 并打上「已认领」标签。已被他人认领的 issue 请先与认领人沟通，由维护者调整 Assignees。完成时在 PR 描述里写 `Closes #<issue号>`。
+3. **认领**：在 issue 下评论 `/claim`（或 `/认领`），机器人会自动把你加入 Assignees 并打上「已认领」标签。已被他人认领的 issue 请先与认领人沟通，由维护者调整 Assignees。完成时在 PR 描述里写 `(closes #<issue号>)`。
 4. 不确定的地方在 issue 里提问，不要默默选一种解释硬写。
 
 ## 开发流程
@@ -53,6 +53,7 @@ docs: clarify claim workflow
 - **type 与 scope 语义不同、不要同名**：type 说「什么性质」，scope 说「哪个模块」，`ci(ci)` 这类重复写法没有意义
 - **scope 何时省略**：`docs` / `ci` / `test` / `style` / `build` 类提交，type 已表明区域，不再带 scope（`ci: ...`、`docs: ...`）；发版用 `chore: release vX.Y.Z`，依赖升级用 `build(deps): bump ...`（与 Vite / Vue / Angular 等主流项目一致）
 - **只写一个 scope**（或省略），禁止逗号分隔多 scope（`feat(cli,core): ...` 这类写法不允许）。scope 表示「行为变化发生在哪个模块」：改 core 逻辑、GUI/CLI 只是跟随适配时写 `feat(core): ...`；确实跨模块、没有单一主模块（仓库级重构、构建/依赖调整）时省略 scope
+- **关联/关闭 issue**：在 subject 末尾写 `(closes #N)`，例如 `feat(core): annotate effective version source (closes #22)`；裸 `(#N)` 只是普通引用，不会触发 GitHub 自动关闭
 - 不要添加 AI 或工具署名（如 `Co-Authored-By: Claude`）
 - 一个 PR 聚焦一件事：不要夹带无关修改（顺带改格式、别的模块、文档重排等）
 - 不要提交本地生成的临时文件（测试沙箱、日志、本地配置等）
@@ -61,7 +62,7 @@ docs: clarify claim workflow
 
 - 标题用 Conventional Commits 格式
 - **描述用中文、自己的话写**，讲清三点：改了什么、为什么改、怎么验证的（命令与结果）。不要贴大段 AI 生成的长文，维护者会逐条读
-- 关联 issue：`Closes #N`
+- 关联 issue：`(closes #N)`
 - 行为相关的改动附上验证方式（命令输出、截图、测试名）
 - CI 必须全绿，维护者 review 通过才能合并
 

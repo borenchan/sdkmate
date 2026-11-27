@@ -82,7 +82,7 @@ jobs:
               labels: ['已认领'],
             });
             await reply(
-              `@${commenter} 认领成功 🎉 完成后请在 PR 描述中写 \`Closes #${issueNumber}\`，合并时会自动关闭此 issue。`
+              `@${commenter} 认领成功 🎉 完成后请在 PR 描述中写 \`(closes #${issueNumber})\`，合并时会自动关闭此 issue。`
             );
             core.setOutput('claimed', 'true');
 

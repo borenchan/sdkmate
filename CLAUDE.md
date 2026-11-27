@@ -136,7 +136,7 @@ bin_dir = "bin"
 完整规范（type/scope、分支命名、PR 流程与工程约束）统一维护在 [CONTRIBUTING.md · 提交规范](CONTRIBUTING.md#提交规范)，此处不重复。agent 额外约定：
 
 - **commit 前必须先 review 本次全部改动**：逐文件自审（逻辑/边界 bug、孤儿 import、路径写法、风格违规；Claude Code 环境可跑 `/review`）→ 处理完 review 发现的问题 → 重新编译/测试验证 → 才能提交。后台 review 未返回结果前**禁止抢跑提交**，用户说"等 review"时必须等到通知再说
-- commit message 用英文、一行简短主题（不写长 body，`Closes #xx` 除外）
+- commit message 用英文、一行简短主题（不写 body；关联/关闭 issue 在 subject 末尾写 `(closes #N)`）
 - 不添加 Claude 署名 / co-author 信息
 - 仅当用户确认测试通过并明确要求时才 commit / push；push 前先 rebase 到远端最新，保持线性历史
 - **贡献者边界**：不改根 `Cargo.toml` 版本号、不改 `.github/workflows/`、不打/删 tag、不操作 release；发版流程只在维护者本地说明，不进本文件
