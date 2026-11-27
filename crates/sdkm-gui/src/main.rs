@@ -25,7 +25,9 @@ fn main() {
     }
 
     // 已有实例：激活它的主窗口后退出，避免双实例并发写配置 / 双托盘图标
-    if platform::focus_existing_window() {
+    // 重启/提权拉起的子进程（--restart）跳过：旧进程可能尚未退出
+    let restarted = std::env::args().any(|a| a == "--restart");
+    if !restarted && platform::focus_existing_window() {
         return;
     }
 

@@ -936,7 +936,7 @@ impl GuiApp {
     pub fn restart_app(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.exe_path.clone().or_else(|| env::current_exe().ok());
         let spawned = match target {
-            Some(exe) => Command::new(exe).spawn().map(|_| ()),
+            Some(exe) => Command::new(exe).arg("--restart").spawn().map(|_| ()),
             None => Err(std::io::Error::other("cannot locate sdkm-gui executable")),
         };
         match spawned {
@@ -1030,10 +1030,11 @@ impl GuiApp {
                     }
                 }
                 tray::TrayCommand::Switch { sdk, version } => {
-                    // 操作进行中/已有托盘切换在跑时不切换（菜单已置灰，这里再兜底）
+                    // 操作进行中/已有托盘切换在跑时不切换（菜单已置灰，这里再兜底）。
+                    // 走 dispatch 置忙碌态：切换过程写符号链接/env/config，期间禁止托盘退出/重启
                     if self.progress.is_none() && !self.sdk_page.busy && !self.tray_switch_pending {
                         self.tray_switch_pending = true;
-                        spawn_task(self.tx.clone(), TaskId::SdkSwitch { name: sdk, version });
+                        self.dispatch(TaskId::SdkSwitch { name: sdk, version }, cx);
                     }
                 }
             },

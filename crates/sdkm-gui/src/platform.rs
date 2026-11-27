@@ -88,13 +88,15 @@ pub fn relaunch_as_admin() -> bool {
     };
     let operation = wide(OsStr::new("runas"));
     let file = wide(exe.as_os_str());
+    // 新实例跳过单实例激活（旧进程此刻尚未退出）
+    let parameters = wide(OsStr::new("--restart"));
     // u32 以下为错误码，>32 表示 ShellExecute 成功发起
     let rc = unsafe {
         ShellExecuteW(
             std::ptr::null_mut(),
             operation.as_ptr(),
             file.as_ptr(),
-            std::ptr::null(),
+            parameters.as_ptr(),
             std::ptr::null(),
             SW_SHOWNORMAL,
         )
