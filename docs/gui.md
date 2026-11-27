@@ -12,6 +12,10 @@
 
 版本对齐：升级 `sdkm-gui` 时 CLI 会一起更新（`sdkm self update` 或 GUI 诊断页的更新入口），避免两个前端版本错配。
 
+## 单实例
+
+再次启动 `sdkm-gui.exe` 会激活已运行的窗口并退出（Windows；macOS / Linux 暂可多开）。
+
 ## 系统托盘
 
 应用启动后在系统托盘（Windows 通知区 / macOS 菜单栏 / Linux StatusNotifier）常驻图标：

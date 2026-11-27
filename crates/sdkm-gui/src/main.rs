@@ -24,6 +24,11 @@ fn main() {
         return;
     }
 
+    // 已有实例：激活它的主窗口后退出，避免双实例并发写配置 / 双托盘图标
+    if platform::focus_existing_window() {
+        return;
+    }
+
     // GUI 偏好独立于 CLI 配置（gui.toml）
     let prefs = prefs::GuiPrefs::load();
 

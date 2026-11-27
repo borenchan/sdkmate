@@ -8,6 +8,65 @@ use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, ShellExecuteW};
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+/// 已有 GUI 实例时，把它的主窗口拉到前台并返回 true（第二个实例据此退出）
+///
+/// 匹配依据：gpui 顶层窗口（类名 `Zed::Window`）+ 标题 `sdkm`，且属于其他进程。
+/// 窗口被"关闭到托盘"隐藏时同样能枚举到，先 SW_SHOW 再 SW_RESTORE。
+#[cfg(windows)]
+pub fn focus_existing_window() -> bool {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, SW_RESTORE, SW_SHOW, SetForegroundWindow,
+        ShowWindowAsync,
+    };
+    use windows_sys::core::BOOL;
+
+    struct Search {
+        found: HWND,
+    }
+
+    unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let search = unsafe { &mut *(lparam as *mut Search) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+        if pid == std::process::id() {
+            return 1;
+        }
+        let mut title = [0u16; 64];
+        let len = unsafe { GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as _) };
+        if len <= 0 || String::from_utf16_lossy(&title[..len as usize]) != "sdkm" {
+            return 1;
+        }
+        let mut class = [0u16; 64];
+        let len = unsafe { GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as _) };
+        if len <= 0 || String::from_utf16_lossy(&class[..len as usize]) != "Zed::Window" {
+            return 1;
+        }
+        search.found = hwnd;
+        0
+    }
+
+    let mut search = Search {
+        found: std::ptr::null_mut(),
+    };
+    unsafe { EnumWindows(Some(visit), &mut search as *mut _ as LPARAM) };
+    if search.found.is_null() {
+        return false;
+    }
+    unsafe {
+        ShowWindowAsync(search.found, SW_SHOW);
+        ShowWindowAsync(search.found, SW_RESTORE);
+        SetForegroundWindow(search.found);
+    }
+    true
+}
+
+/// 非 Windows 暂无跨进程窗口激活手段，允许多实例（macOS/Linux 无隐藏到托盘）
+#[cfg(not(windows))]
+pub fn focus_existing_window() -> bool {
+    false
+}
+
 /// 当前进程是否具备管理员权限（非 Windows 恒为 true）
 #[cfg(windows)]
 pub fn is_elevated() -> bool {
