@@ -2,8 +2,8 @@ name: Release sdkmate
 
 # 开发流程：只改根 Cargo.toml 的 [workspace.package] version 一行 → push 到 master
 # → tag job 按版本号打 tag → build job 跨平台构建 → upload-release 发版（自动 changelog）
-# 注意：用默认 GITHUB_TOKEN 推 tag 不会触发其他 workflow run（GitHub 防递归限制），
-# 故 build/release 设计为同一 run 内 tag 的后续 job，而非依赖 tag-push 事件。
+# 发版身份：GitHub App sdkmate-bot（非默认 github-actions[bot]），tag 与 release 均归 bot，token 由 App 私钥换取。
+# build/release 仍是同一 run 内 tag 的后续 job，不依赖 tag-push 事件（同 run 串行更简单可控）。
 on:
   push:
     branches:
@@ -14,15 +14,22 @@ jobs:
   tag:
     name: Tag version
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: {}
     outputs:
       version: ${{ steps.maybe_tag.outputs.version }}
       tag_created: ${{ steps.maybe_tag.outputs.tag_created }}
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # 用 bot token 持久化凭据，下面的 git push tag 以 sdkmate-bot 身份执行
+          token: ${{ steps.token.outputs.token }}
 
       - name: Create tag if not exists
         id: maybe_tag
@@ -223,8 +230,14 @@ jobs:
     needs: [tag, build]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read # 仅 checkout 拉脚本用；写操作走 sdkmate-bot 的 App token
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -232,7 +245,7 @@ jobs:
       - name: Generate changelog
         env:
           VERSION: ${{ needs.tag.outputs.version }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           bash .github/scripts/gen_changelog.sh > changelog.md
           echo "===== generated changelog ====="
@@ -264,7 +277,7 @@ jobs:
 
       - name: Clear existing release (support re-releasing the same version)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
           VERSION: ${{ needs.tag.outputs.version }}
         run: |
           # softprops 不覆盖已存在 release 的 body（只重传 assets）；
@@ -276,6 +289,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          token: ${{ steps.token.outputs.token }}
           tag_name: v${{ needs.tag.outputs.version }}
           body_path: release_body.md
           files: |
