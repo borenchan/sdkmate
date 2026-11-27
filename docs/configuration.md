@@ -125,5 +125,6 @@ SDK 字段 `<field>` 取值：`version_url` / `version_fallback_url` / `download
 | `theme_mode` | `System`（默认）/ `Light` / `Dark` | 主题模式 |
 | `default_page` | `overview`（默认）/ `sdk` / `projects` / `settings` / `diagnostics` | 启动页 |
 | `density` | `Standard`（默认）/ `Compact` | 界面密度 |
+| `close_to_tray` | `true`（默认）/ `false` | 关闭窗口时最小化到系统托盘（仅 Windows 生效） |
 
 这些项在 GUI 的「设置 → 界面偏好设置」里修改，一般不需要手动编辑。业务配置（网络、SDK 源、目录）仍全部走 `config.toml`，CLI 与 GUI 共享。

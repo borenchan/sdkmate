@@ -134,6 +134,14 @@ pub struct GuiPrefs {
     /// 启动时打开的页面 id（"overview" / "sdk" / "projects" / "settings" / "diagnostics"）
     pub default_page: String,
     pub density: GuiDensity,
+    /// 关闭窗口时最小化到托盘而非退出（仅 Windows 生效；旧 gui.toml 缺省时取 true）
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+}
+
+/// 旧版 gui.toml 无 close_to_tray 字段时的反序列化默认值
+fn default_true() -> bool {
+    true
 }
 
 impl Default for GuiPrefs {
@@ -143,6 +151,7 @@ impl Default for GuiPrefs {
             theme_mode: GuiThemeMode::System,
             default_page: "overview".into(),
             density: GuiDensity::Standard,
+            close_to_tray: true,
         }
     }
 }
@@ -176,5 +185,30 @@ impl GuiPrefs {
         if std::fs::write(&tmp, body).is_ok() {
             let _ = std::fs::rename(&tmp, &path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 旧版 gui.toml（无 close_to_tray 字段）必须能解析且新字段取默认 true——
+    /// load() 对解析失败整份回退默认值，缺省处理不当会静默丢用户偏好
+    #[test]
+    fn prefs_parse_old_gui_toml() {
+        let old = "lang = \"Zh\"\ntheme_mode = \"System\"\ndefault_page = \"overview\"\ndensity = \"Standard\"\n";
+        let p: GuiPrefs = toml::from_str(old).expect("旧版 gui.toml 必须可解析");
+        assert!(p.close_to_tray);
+        assert_eq!(p.density, GuiDensity::Standard);
+
+        // 显式关闭开关的值要保留
+        let off = format!("{old}close_to_tray = false\n");
+        let p: GuiPrefs = toml::from_str(&off).unwrap();
+        assert!(!p.close_to_tray);
+
+        // 往返：带新字段序列化后可再解析
+        let s = toml::to_string_pretty(&p).unwrap();
+        let p2: GuiPrefs = toml::from_str(&s).unwrap();
+        assert_eq!(p, p2);
     }
 }

@@ -15,6 +15,7 @@ use crate::pages::settings::SettingsState;
 use crate::pages::{diagnostics, onboarding, overview, projects, sdk, settings};
 use crate::prefs::{GuiLang, GuiPrefs, GuiThemeMode, density, set_density};
 use crate::sink::GuiEvent;
+use crate::tray::{self, TrayState};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _, DropdownButton};
 use gpui_kit::component::input::InputEvent;
@@ -144,6 +145,13 @@ pub struct GuiApp {
     /// 启动时的 exe 路径（重启用）：自更新替换后 Linux 的 current_exe 会指向
     /// 已被改名/删除的 .discard 副本，必须用启动时记录的原始路径重新拉起
     pub exe_path: Option<PathBuf>,
+    /// 系统托盘（None = 创建失败，关闭按钮保持退出语义）
+    pub tray: Option<TrayState>,
+    /// 托盘发起的切换进行中（失败时主动弹出主窗口，让错误 toast 可见）
+    tray_switch_pending: bool,
+    /// 关闭到托盘偏好镜像（平台 should_close 回调读；设置页写入；仅 Windows 使用）
+    #[cfg(windows)]
+    close_to_tray: Arc<AtomicBool>,
     /// 订阅句柄（保持存活；搜索框 Change → 关键字等）
     pub _subscriptions: Vec<Subscription>,
 }
@@ -203,6 +211,8 @@ impl GuiApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let prefs = GuiPrefs::load();
         set_density(prefs.density);
+        // 关闭最后一个窗口即退出：macOS 默认 Explicit 会让进程和托盘图标在窗口销毁后残留
+        cx.set_quit_mode(QuitMode::LastWindowClosed);
         let lang = Lang::pick(prefs.lang);
         let (tx, rx) = unbounded_channel();
 
@@ -210,6 +220,9 @@ impl GuiApp {
         let sys_info = SysInfo::collect();
         // 首次启动检测：config.toml 不存在 → 进入初始化引导，先不发业务请求
         let needs_init = sdkm_util::path::get_sdkm_config_path().map(|p| !p.is_file()).unwrap_or(true);
+        // 构造前取值：prefs 稍后被 move 进结构体（仅 Windows 需要平台回调镜像）
+        #[cfg(windows)]
+        let close_to_tray = prefs.close_to_tray;
 
         let mut app = Self {
             prefs,
@@ -236,6 +249,10 @@ impl GuiApp {
             next_toast_id: 1,
             restart_required: None,
             exe_path: env::current_exe().ok(),
+            tray: None,
+            tray_switch_pending: false,
+            #[cfg(windows)]
+            close_to_tray: Arc::new(AtomicBool::new(close_to_tray)),
             _subscriptions: Vec::new(),
         };
 
@@ -346,6 +363,26 @@ impl GuiApp {
         })
         .detach();
 
+        // 系统托盘：创建成功才启用"关闭到托盘"；失败静默退回默认关闭行为
+        let tray = tray::init(tx.clone(), app.lang);
+        app.tray = tray;
+
+        // 关闭按钮 → 最小化到托盘（仅 Windows 有隐藏窗口能力；其余平台保持关闭即退出，
+        // 不注册回调走 gpui 默认销毁路径）
+        // 平台回调拿不到 entity，经原子标志读取最新偏好
+        #[cfg(windows)]
+        {
+            let close_flag = app.close_to_tray.clone();
+            let active_flag = Arc::new(AtomicBool::new(app.tray.is_some()));
+            window.on_window_should_close(cx, move |window, _cx| {
+                if active_flag.load(Ordering::Relaxed) && close_flag.load(Ordering::Relaxed) {
+                    tray::hide_window(window);
+                    return false;
+                }
+                true
+            });
+        }
+
         app
     }
 
@@ -364,6 +401,25 @@ impl GuiApp {
             let none = self.lang.projects.pin_none;
             self.projects.rebuild(&rows, none, window, cx);
         }
+    }
+
+    /// 同步托盘快速切换菜单（仅列有已安装版本的 SDK；语言/忙碌态由 TrayState 自管）
+    fn sync_tray_switch(&self) {
+        let Some(tray) = &self.tray else {
+            return;
+        };
+        let entries = self
+            .sdk_rows
+            .iter()
+            .flatten()
+            .filter(|r| !r.versions.is_empty())
+            .map(|r| tray::TraySwitchEntry {
+                sdk: r.name.clone(),
+                current: r.current.clone(),
+                versions: r.versions.clone(),
+            })
+            .collect();
+        tray.set_switch_entries(entries);
     }
 
     /// 页面导航（保留各页状态）
@@ -505,6 +561,19 @@ impl GuiApp {
     pub fn set_lang(&mut self, lang: GuiLang, cx: &mut Context<Self>) {
         self.prefs.lang = lang;
         self.lang = Lang::pick(lang);
+        // 托盘右键菜单文案跟随语言
+        if let Some(tray) = &self.tray {
+            tray.set_lang(self.lang);
+        }
+        self.prefs.save();
+        cx.notify();
+    }
+
+    /// 切换"关闭到托盘"偏好（设置页开关；同步平台回调镜像标志；仅 Windows 有该开关）
+    #[cfg(windows)]
+    pub fn set_close_to_tray(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.prefs.close_to_tray = on;
+        self.close_to_tray.store(on, Ordering::Relaxed);
         self.prefs.save();
         cx.notify();
     }
@@ -752,7 +821,7 @@ impl GuiApp {
                 let cancel = Arc::new(AtomicBool::new(false));
                 self.install_cancel = Some(cancel.clone());
                 self.install_abort = Some(crate::data::spawn_task_with_cancel(self.tx.clone(), id, cancel));
-                self.sdk_page.busy = true;
+                self.set_op_busy(true);
                 self.sdk_page.resolving = false;
             }
             TaskId::SdkInstallResolve { .. } => {
@@ -760,7 +829,7 @@ impl GuiApp {
                 spawn_task(self.tx.clone(), id);
             }
             TaskId::SdkSwitch { .. } | TaskId::SdkUninstall { .. } | TaskId::SdkImportLocal { .. } => {
-                self.sdk_page.busy = true;
+                self.set_op_busy(true);
                 spawn_task(self.tx.clone(), id);
             }
             other => spawn_task(self.tx.clone(), other),
@@ -768,8 +837,20 @@ impl GuiApp {
         cx.notify();
     }
 
+    /// 写入类操作忙碌态：SDK 页禁用冲突按钮 + 托盘退出/重启/切换置灰。
+    /// 卸载/导入没有 core 进度事件，必须派发端显式置位，否则删除中途仍可从托盘退出。
+    fn set_op_busy(&mut self, busy: bool) {
+        self.sdk_page.busy = busy;
+        if let Some(tray) = &self.tray {
+            tray.set_busy(busy);
+        }
+    }
+
     /// 操作类任务收尾（成功/失败共用）：关进度弹窗 + 解除忙碌态 + 刷新受影响的列表
     fn finish_operation(&mut self, id: &TaskId, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(id, TaskId::SdkSwitch { .. }) {
+            self.tray_switch_pending = false;
+        }
         // 只读/打开类任务不持有忙碌态：不能因为它们的 Done/Failed 去重置
         // resolving/busy 或关闭正在进行的进度弹窗（否则可发起第二次并发安装）
         if matches!(
@@ -789,7 +870,7 @@ impl GuiApp {
         self.sdk_page.resolving = false;
         self.sdk_page.import_picking = false;
         self.close_progress_dialog(window, cx);
-        self.sdk_page.busy = false;
+        self.set_op_busy(false);
         self.progress_note = None;
         self.projects.picking = false;
         // 仅 SDK 状态真正变化的任务才刷新列表/概览；设置页等其他任务不做无意义全量扫描
@@ -859,7 +940,11 @@ impl GuiApp {
             None => Err(std::io::Error::other("cannot locate sdkm-gui executable")),
         };
         match spawned {
-            Ok(()) => cx.quit(),
+            Ok(()) => {
+                // 确认新进程拉起后再移除托盘图标退出（spawn 失败时保留托盘，避免窗口隐藏后无法恢复）
+                self.tray = None;
+                cx.quit();
+            }
             Err(e) => self.notify_error(format!("restart failed: {e}"), window, cx),
         }
     }
@@ -890,6 +975,10 @@ impl GuiApp {
             // ── 进度事件（操作串行，单槽）──
             GuiEvent::ProgressStart { kind, .. } => {
                 self.progress = Some(ProgressState::new(kind));
+                // 托盘"退出"置灰：操作中途退出会留下残缺版本目录
+                if let Some(tray) = &self.tray {
+                    tray.set_busy(true);
+                }
             }
             GuiEvent::ProgressLength { total, .. } => {
                 if let Some(p) = &mut self.progress {
@@ -909,7 +998,45 @@ impl GuiApp {
             }
             GuiEvent::ProgressFinish { .. } => {
                 self.progress = None;
+                // 进度结束不等于操作结束（安装收尾仍在后台）：忙碌态由派发/收尾统一管
+                if let Some(tray) = &self.tray {
+                    tray.set_busy(self.sdk_page.busy);
+                }
             }
+            // ── 托盘动作（平台事件经全局 handler 转发）──
+            GuiEvent::Tray(cmd) => match cmd {
+                tray::TrayCommand::Show => {
+                    tray::show_window(window);
+                }
+                tray::TrayCommand::Settings => {
+                    // 引导页期间设置页不可达，只恢复窗口
+                    tray::show_window(window);
+                    if !self.needs_init {
+                        self.navigate(Page::Settings, cx);
+                    }
+                }
+                tray::TrayCommand::Restart => {
+                    // 操作进行中不重启（菜单项已置灰，这里再兜底）
+                    if self.progress.is_none() && !self.sdk_page.busy {
+                        self.restart_app(window, cx);
+                    }
+                }
+                tray::TrayCommand::Quit => {
+                    // 操作进行中不退出：卸载/导入没有进度事件，忙碌态由派发端维护
+                    if self.progress.is_none() && !self.sdk_page.busy {
+                        // 先移除托盘图标再退出（Drop 发 NIM_DELETE，防图标残留）
+                        self.tray = None;
+                        cx.quit();
+                    }
+                }
+                tray::TrayCommand::Switch { sdk, version } => {
+                    // 操作进行中/已有托盘切换在跑时不切换（菜单已置灰，这里再兜底）
+                    if self.progress.is_none() && !self.sdk_page.busy && !self.tray_switch_pending {
+                        self.tray_switch_pending = true;
+                        spawn_task(self.tx.clone(), TaskId::SdkSwitch { name: sdk, version });
+                    }
+                }
+            },
             // ── 任务结果 ──
             GuiEvent::Task {
                 id: TaskId::OverviewRefresh,
@@ -922,6 +1049,7 @@ impl GuiApp {
                     self.overview.init_ok = data.init_ok;
                     self.overview.sizes = data.sizes.into_iter().collect();
                     self.sdk_rows = Some(data.rows);
+                    self.sync_tray_switch();
                     self.on_sdk_rows_ready(window, cx);
                     self.flush_overview_pending();
                 }
@@ -938,6 +1066,7 @@ impl GuiApp {
             } => match result {
                 Ok(items) => {
                     self.sdk_rows = Some(items);
+                    self.sync_tray_switch();
                     self.on_sdk_rows_ready(window, cx);
                 }
                 Err(e) => self.notify_error(e, window, cx),
@@ -1256,6 +1385,10 @@ impl GuiApp {
                 id,
                 outcome: TaskOutcome::Failed,
             } => {
+                // 托盘发起的切换失败：窗口可能隐藏，弹出来让刚推入的错误 toast 可见
+                if matches!(id, TaskId::SdkSwitch { .. }) && self.tray_switch_pending {
+                    tray::show_window(window);
+                }
                 self.finish_operation(&id, window, cx);
             }
             _ => {}

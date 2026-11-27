@@ -19,14 +19,16 @@ sdkm-util = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 anyhow = { workspace = true }
-
-# 非 Windows 用 WindowOptions.icon 解码 PNG；Windows 由 exe 资源 ID 1 提供图标
-[target.'cfg(not(windows))'.dependencies]
+# 系统托盘（tray-icon，跨平台；Windows 借 GPUI 主线程消息循环）
+tray-icon = { workspace = true }
+# PNG → RGBA（窗口图标（非 Windows）与托盘图标解码；gpui 本身已依赖 image 0.25）
 image = { workspace = true }
 
 # 首次初始化：管理员检测 + 以管理员身份重启（IsUserAnAdmin/ShellExecuteW）
 # windows：现代目录选择器 IFileOpenDialog（资源管理器同款，替代旧版 FolderBrowserDialog）
+# raw-window-handle：托盘最小化取主窗口 HWND（gpui 已依赖同版本 0.6）
 [target.'cfg(windows)'.dependencies]
+raw-window-handle = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }
 windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
 

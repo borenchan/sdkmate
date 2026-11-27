@@ -531,17 +531,59 @@ fn interface_card(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
             )),
     );
 
+    // 关闭到托盘开关（仅 Windows 有隐藏窗口能力，其余平台关闭即退出）
+    #[cfg(windows)]
+    let tray_row = setting_row(t.settings.lbl_close_to_tray, t.settings.lbl_close_to_tray_desc, {
+        let theme = cx.theme();
+        div()
+            .id("tray-toggle")
+            .px_4()
+            .py_1p5()
+            .rounded_full()
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .cursor_pointer()
+            .when(app.prefs.close_to_tray, |el| el.bg(theme.primary).text_color(rgb(0xffffff)))
+            .when(!app.prefs.close_to_tray, |el| {
+                el.bg(theme.muted).text_color(theme.muted_foreground)
+            })
+            .on_click(cx.listener(|app, _, _, cx| {
+                app.set_close_to_tray(!app.prefs.close_to_tray, cx);
+            }))
+            .child(
+                if app.prefs.close_to_tray {
+                    t.settings.ssl_on
+                } else {
+                    t.settings.ssl_off
+                }
+                .to_string(),
+            )
+    });
+
+    #[cfg(windows)]
+    let rows = v_flex()
+        .gap_1()
+        .child(lang_row)
+        .child(theme_row)
+        .child(page_row)
+        .child(density_row)
+        // 托盘创建失败时不显示该开关（开关此时不生效，避免承诺做不到的行为）
+        .when(app.tray.is_some(), |rows| rows.child(tray_row));
+
+    #[cfg(not(windows))]
+    let rows = v_flex()
+        .gap_1()
+        .child(lang_row)
+        .child(theme_row)
+        .child(page_row)
+        .child(density_row);
+
     section_card(
         "settings-interface",
         IconName::Monitor,
         t.settings.grp_interface,
         t.settings.grp_interface_desc,
-        v_flex()
-            .gap_1()
-            .child(lang_row)
-            .child(theme_row)
-            .child(page_row)
-            .child(density_row),
+        rows,
         cx,
     )
 }

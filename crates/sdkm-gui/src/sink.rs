@@ -43,6 +43,8 @@ pub enum GuiEvent {
         id: crate::data::TaskId,
         outcome: crate::data::TaskOutcome,
     },
+    /// 托盘动作（tray-icon 全局事件 handler 从平台线程转发）
+    Tray(crate::tray::TrayCommand),
 }
 
 /// EventSink 实现：全部事件经 channel 转发到 UI 线程（发送失败静默——UI 已关闭）

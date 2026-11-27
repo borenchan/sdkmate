@@ -129,6 +129,8 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                                 false,
                                 cx.listener(move |app, _, window, cx| {
                                     if platform::relaunch_as_admin() {
+                                        // 退出前移除托盘图标，防残留
+                                        app.tray = None;
                                         cx.quit();
                                     } else {
                                         app.notify_error(restart_failed.clone(), window, cx);
@@ -145,7 +147,10 @@ pub fn render(app: &GuiApp, cx: &Context<GuiApp>) -> impl IntoElement {
                             None,
                             false,
                             false,
-                            cx.listener(|_, _, _, cx| cx.quit()),
+                            cx.listener(|app, _, _, cx| {
+                                app.tray = None;
+                                cx.quit();
+                            }),
                             cx,
                         )),
                 ),

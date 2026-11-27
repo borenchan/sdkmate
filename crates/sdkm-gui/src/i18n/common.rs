@@ -29,6 +29,16 @@ pub struct CommonLang {
     pub op_failed: &'static str,
     pub err_title: &'static str,
     pub retry: &'static str,
+    /// 托盘菜单：打开主界面
+    pub tray_open: &'static str,
+    /// 托盘菜单：直达设置页
+    pub tray_settings: &'static str,
+    /// 托盘菜单：快速切换版本
+    pub tray_switch: &'static str,
+    /// 托盘菜单：重启应用
+    pub tray_restart: &'static str,
+    /// 托盘菜单：退出
+    pub tray_quit: &'static str,
 }
 
 /// 简体中文
@@ -60,6 +70,11 @@ pub const ZH: CommonLang = CommonLang {
     op_failed: "失败",
     err_title: "出错了",
     retry: "重试",
+    tray_open: "打开主界面",
+    tray_settings: "设置",
+    tray_switch: "快速切换",
+    tray_restart: "重启应用",
+    tray_quit: "退出 sdkm",
 };
 
 /// English
@@ -91,6 +106,11 @@ pub const EN: CommonLang = CommonLang {
     op_failed: "Failed",
     err_title: "Error",
     retry: "Retry",
+    tray_open: "Open Main Window",
+    tray_settings: "Settings",
+    tray_switch: "Quick Switch",
+    tray_restart: "Restart App",
+    tray_quit: "Quit sdkm",
 };
 
 /// SDK 类型描述（GUI 文案，非统计数据）

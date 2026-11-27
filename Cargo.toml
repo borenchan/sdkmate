@@ -46,6 +46,11 @@ serde_json = { version = "1"}
 gpui-kit = "0.9"
 # 应用/窗口图标解码（PNG → RgbaImage，供 WindowOptions.icon）
 image = { version = "0.25", default-features = false, features = ["png"] }
+# 系统托盘（Tauri 官方跨平台库；Windows 隐藏窗口 + Shell_NotifyIconW 走主线程消息循环；
+# ksni = Linux 纯 Rust D-Bus 后端，不引入 GTK 系统库；Windows 上该 feature 为空跳过）
+tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
+# 原生窗口句柄（托盘最小化取 HWND 做 ShowWindow；gpui 已依赖同版本 0.6）
+raw-window-handle = "0.6"
 # 终端控制与调色
 crossterm = { version = "0.28.1" }
 # 配置文件解析

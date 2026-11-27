@@ -13,6 +13,7 @@ mod platform;
 mod prefs;
 mod sink;
 mod theme;
+mod tray;
 
 use gpui_kit::*;
 
